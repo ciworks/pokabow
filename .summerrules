@@ -1,0 +1,7 @@
+# Project decisions (append-only; one line each)
+
+- Renderer: GL Compatibility (rendering/renderer/rendering_method = "gl_compatibility") for the mobile-first build.
+- Viewport: 1280x720 landscape (display/window/size/viewport_width/height) with handheld orientation sensor_landscape and stretch mode canvas_items.
+- Scene entry: application/run/main_scene points at res://scenes/app/app_root.tscn (the AppRoot composition root, ADR-008 section 4).
+- No autoloads in Phase 1 unless an ADR-008 section 6 lifecycle need appears; no match state may live in a global.
+- Domain tile type is named TileDefinition (not TileData): Godot 4 has a native TileData class, so "class_name TileData" is a hard compile error.

@@ -1,0 +1,2 @@
+# ADR-008 sections 1 and 2: poker, edge-match and cluster scoring services (Milestone 3).
+# Domain layer: must not depend on Presentation or Infrastructure types.

@@ -1,0 +1,11 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/domain/tile/tile_generation_rules.gd" id="1_rules"]
+
+[resource]
+script = ExtResource("1_rules")
+schema_version = 1
+bag_size = 144
+rank_weights = Array[float]([1.0, 1.0, 1.0, 1.0])
+face_color_weights = Array[float]([1.0, 1.0])
+edge_color_weights = Array[float]([1.0, 1.0, 1.0, 1.0])

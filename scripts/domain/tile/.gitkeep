@@ -1,0 +1,2 @@
+# ADR-008 sections 1 and 2: TileData, TileSnapshot, TileSource (Milestone 1).
+# Domain layer: must not depend on Presentation or Infrastructure types.

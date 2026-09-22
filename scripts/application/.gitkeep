@@ -1,0 +1,2 @@
+# ADR-008 sections 1 and 2: application use-case services (session, preview, commit, AI, save).
+# Application layer: may depend on Domain and narrow infrastructure interfaces.

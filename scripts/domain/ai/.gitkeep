@@ -1,0 +1,2 @@
+# ADR-008 sections 1 and 2: AI strategies and the legal-move generator (Milestone 6).
+# Domain layer: must not depend on Presentation or Infrastructure types.

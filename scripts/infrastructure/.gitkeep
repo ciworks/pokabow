@@ -1,0 +1,2 @@
+# ADR-008 sections 1 and 2: persistence, platform adapters, logging, clocks (Milestone 7).
+# Infrastructure layer: may depend on Domain DTOs and platform APIs.

@@ -5,3 +5,4 @@
 - Scene entry: application/run/main_scene points at res://scenes/app/app_root.tscn (the AppRoot composition root, ADR-008 section 4).
 - No autoloads in Phase 1 unless an ADR-008 section 6 lifecycle need appears; no match state may live in a global.
 - Domain tile type is named TileDefinition (not TileData): Godot 4 has a native TileData class, so "class_name TileData" is a hard compile error.
+- Score event ids are `score:<move-id>:<poker|edge|cluster>:<discriminator>`. Cluster events use ADR-007 section 5's documented `cluster:<color>:<1-based ordinal per colour>` form, and the canonical component key travels in the event evidence (ADR-002 section 7) rather than in the id.

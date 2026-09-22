@@ -1,0 +1,8 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/domain/scoring/poker_score_rules.gd" id="1_poker"]
+
+[resource]
+script = ExtResource("1_poker")
+schema_version = 1
+points_by_category = Array[int]([0, 2, 4, 6, 10, 12, 16])

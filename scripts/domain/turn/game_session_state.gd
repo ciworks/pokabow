@@ -174,7 +174,16 @@ func get_end_reason() -> int:
 
 
 ## Returns true once no further move may be committed.
+##
+## A recorded final outcome is checked first, because ADR-003 section 7 makes the
+## outcome the authoritative statement that the match has ended: `TurnManager`
+## sets both the outcome and the phase, but a caller that records a result
+## directly must not leave the session reporting itself as still live. Without
+## this check "over" would have two sources of truth that can disagree, and input
+## gating reads only this function.
 func is_over() -> bool:
+	if _outcome != TurnEnums.MatchOutcome.IN_PROGRESS:
+		return true
 	return _turn_state != null and _turn_state.is_stopped()
 
 

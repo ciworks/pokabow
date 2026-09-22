@@ -1,0 +1,333 @@
+[gd_scene format=3 uid="uid://dgu3k3bp86op"]
+
+[ext_resource type="Script" uid="uid://djcefqsfh53du" path="res://scripts/presentation/game_screen.gd" id="1_screen"]
+[ext_resource type="Script" uid="uid://bdgqv13an2por" path="res://scripts/presentation/board_view.gd" id="2_board"]
+[ext_resource type="Script" uid="uid://c3gtuu53m4un6" path="res://scripts/presentation/board_tile_layer.gd" id="3_tile_layer"]
+[ext_resource type="Script" uid="uid://d1p7xkfcyeexg" path="res://scripts/presentation/board_highlight_layer.gd" id="4_highlight"]
+[ext_resource type="Script" uid="uid://cpnlai624rs57" path="res://scripts/presentation/board_preview_layer.gd" id="5_preview"]
+[ext_resource type="Script" uid="uid://ceg7wsiwchl2s" path="res://scripts/presentation/board_effect_layer.gd" id="6_effects"]
+[ext_resource type="Script" uid="uid://5058aup06e2b" path="res://scripts/presentation/board_input_controller.gd" id="7_input"]
+[ext_resource type="Script" uid="uid://n875e0v1g7xa" path="res://scripts/presentation/active_tile_view.gd" id="8_active_tile"]
+[ext_resource type="Script" uid="uid://dlcrc0w3gg2qd" path="res://scripts/presentation/floating_scores.gd" id="9_scores"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+content_margin_left = 14.0
+content_margin_top = 8.0
+content_margin_right = 14.0
+content_margin_bottom = 8.0
+bg_color = Color(0.13, 0.16, 0.21, 0.95)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[node name="GameScreen" type="Control" unique_id=126230810]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_screen")
+
+[node name="Background" type="ColorRect" parent="." unique_id=1329701083]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.067, 0.082, 0.113, 1)
+
+[node name="Root" type="MarginContainer" parent="." unique_id=993390036]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="Column" type="VBoxContainer" parent="Root" unique_id=1770187364]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="Hud" type="HBoxContainer" parent="Root/Column" unique_id=1552269144]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="HumanScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=1197741271]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="HumanScoreBox" type="VBoxContainer" parent="Root/Column/Hud/HumanScorePanel" unique_id=1495330495]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="HumanScoreTitle" type="Label" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=996854074]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.7, 0.82, 1)
+theme_override_font_sizes/font_size = 15
+text = "You"
+
+[node name="HumanScoreValue" type="Label" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=461928884]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "0"
+
+[node name="AiScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=1787380804]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="AiScoreBox" type="VBoxContainer" parent="Root/Column/Hud/AiScorePanel" unique_id=1354363460]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="AiScoreTitle" type="Label" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=1489663536]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.7, 0.82, 1)
+theme_override_font_sizes/font_size = 15
+text = "Rival"
+
+[node name="AiScoreValue" type="Label" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=493771906]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "0"
+
+[node name="TurnBox" type="VBoxContainer" parent="Root/Column/Hud" unique_id=540116296]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="TurnIndicator" type="Label" parent="Root/Column/Hud/TurnBox" unique_id=1673948778]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Your turn"
+horizontal_alignment = 1
+
+[node name="RemainingTilesLabel" type="Label" parent="Root/Column/Hud/TurnBox" unique_id=10207083]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.7, 0.82, 1)
+theme_override_font_sizes/font_size = 15
+text = "Tiles left: 143"
+horizontal_alignment = 1
+
+[node name="RestartButton" type="Button" parent="Root/Column/Hud" unique_id=15317273]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 46)
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 17
+text = "New match"
+
+[node name="Body" type="HBoxContainer" parent="Root/Column" unique_id=397376774]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="BoardViewport" type="MarginContainer" parent="Root/Column/Body" unique_id=1848743126]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="BoardView" type="Control" parent="Root/Column/Body/BoardViewport" unique_id=847133380]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+script = ExtResource("2_board")
+
+[node name="TileLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1192569401]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_tile_layer")
+
+[node name="HighlightLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=716925728]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_highlight")
+
+[node name="PreviewLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1706127183]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_preview")
+
+[node name="EffectsLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1012152133]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("6_effects")
+
+[node name="SidePanel" type="VBoxContainer" parent="Root/Column/Body" unique_id=750119698]
+custom_minimum_size = Vector2(228, 0)
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="ActiveTilePanel" type="PanelContainer" parent="Root/Column/Body/SidePanel" unique_id=937676570]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="ActiveTileBox" type="VBoxContainer" parent="Root/Column/Body/SidePanel/ActiveTilePanel" unique_id=339679726]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="ActiveTileView" type="Control" parent="Root/Column/Body/SidePanel/ActiveTilePanel/ActiveTileBox" unique_id=1485737364]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(196, 196)
+layout_mode = 2
+mouse_filter = 2
+script = ExtResource("8_active_tile")
+
+[node name="StatusLabel" type="Label" parent="Root/Column/Body/SidePanel/ActiveTilePanel/ActiveTileBox" unique_id=2058669899]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Tap a highlighted cell"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RotateButton" type="Button" parent="Root/Column/Body/SidePanel" unique_id=991041678]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 19
+text = "Rotate"
+
+[node name="ConfirmButton" type="Button" parent="Root/Column/Body/SidePanel" unique_id=1031172743]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 19
+disabled = true
+text = "Confirm"
+
+[node name="CancelButton" type="Button" parent="Root/Column/Body/SidePanel" unique_id=1787050298]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+disabled = true
+text = "Cancel"
+
+[node name="BoardInputController" type="Node" parent="." unique_id=238671052]
+unique_name_in_owner = true
+script = ExtResource("7_input")
+
+[node name="FeedbackLayer" type="Control" parent="." unique_id=445957313]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="FloatingScores" type="Control" parent="FeedbackLayer" unique_id=1368505653]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("9_scores")
+
+[node name="SummaryOverlay" type="Control" parent="FeedbackLayer" unique_id=1145975393]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Dim" type="ColorRect" parent="FeedbackLayer/SummaryOverlay" unique_id=1733883155]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.039, 0.047, 0.067, 0.76)
+
+[node name="Center" type="CenterContainer" parent="FeedbackLayer/SummaryOverlay" unique_id=2096918945]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="MatchSummary" type="PanelContainer" parent="FeedbackLayer/SummaryOverlay/Center" unique_id=1362430175]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="SummaryBox" type="VBoxContainer" parent="FeedbackLayer/SummaryOverlay/Center/MatchSummary" unique_id=570429348]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="SummaryTitle" type="Label" parent="FeedbackLayer/SummaryOverlay/Center/MatchSummary/SummaryBox" unique_id=150043066]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
+text = "Match over"
+horizontal_alignment = 1
+
+[node name="SummaryBody" type="Label" parent="FeedbackLayer/SummaryOverlay/Center/MatchSummary/SummaryBox" unique_id=875805814]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.83, 0.9, 1)
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 1

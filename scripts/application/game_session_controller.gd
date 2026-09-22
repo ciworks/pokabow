@@ -41,11 +41,15 @@ signal match_ended(result: MatchResult)
 ## A short player-facing notice, e.g. a save or resume outcome.
 signal notice(text: String)
 
-## How long the scripted opponent "thinks" before moving.
+## The opponent started or finished analysing its move (ADR-005 section 9).
 ##
-## A visible pause makes the turn handover legible. It is presentation pacing
-## only and cannot change the rules (ADR-008 section 9).
-const AI_THINK_SECONDS: float = 0.55
+## Presentation drives the rival-turn message from this state instead of
+## inferring it from the turn owner, so the message can never disagree with what
+## the AI is actually doing (ADR-008 section 9).
+signal ai_thinking_changed(thinking: bool)
+
+## The opponent difficulty used when none is requested (ADR-005 section 5).
+const DEFAULT_AI_DIFFICULTY: int = AiEnums.DEFAULT_DIFFICULTY
 
 ## Where the single match save lives (ADR-008 section 11).
 const SAVE_PATH: String = "user://match_save.json"
@@ -61,14 +65,49 @@ var _pending_rotation: int = 0
 var _pending_cell: Vector2i = Vector2i(BoardEnums.OPENING_MIN, BoardEnums.OPENING_MIN)
 var _ai_scheduled: bool = false
 
+## The opponent's decision service. It owns no rules and mutates nothing: it
+## returns a proposal this controller commits through the ordinary move path
+## (ADR-005 section 1).
+var _ai: AiCoordinator = null
+
+## The analysis currently in flight, cancelled when the match changes
+## (ADR-005 section 9).
+var _ai_cancellation: AiCancellationToken = null
+
+## The thinking state last reported, so the signal fires on change only.
+var _ai_thinking: bool = false
+
+
+## Creates the opponent's decision service.
+##
+## Built here rather than in the `create()` factory so that every construction
+## path has a working opponent. `AppRoot` composes the game with `new()`
+## (ADR-008 section 5) while the tests used `create()`, and a coordinator that
+## existed on only one of those paths left the rival unable to move at all while
+## the whole suite still passed.
+func _init() -> void:
+	_ai = AiCoordinator.create(DEFAULT_AI_DIFFICULTY)
+
 
 ## Builds a controller without a match. Call `start_new_match` or `resume_match`.
+##
+## The opponent service is created in `_init()`, so this factory exists for
+## intent and reads identically to `GameSessionController.new()`.
 static func create() -> GameSessionController:
 	return GameSessionController.new()
 
 
 ## Starts a fresh match and opens the human's first turn (ADR-003 section 2).
-func start_new_match(match_id: StringName = &"", seed_value: int = 0) -> bool:
+##
+## `ai_difficulty` selects the opponent policy (ADR-005 sections 4 to 6); it
+## defaults to the configured difficulty so existing callers keep working.
+func start_new_match(
+	match_id: StringName = &"",
+	seed_value: int = 0,
+	ai_difficulty: int = -1
+) -> bool:
+	if ai_difficulty >= 0:
+		set_ai_difficulty(ai_difficulty)
 	var resolved_id: StringName = match_id
 	if String(resolved_id).is_empty():
 		resolved_id = StringName("match-%d" % Time.get_unix_time_from_system())
@@ -84,6 +123,9 @@ func start_new_match(match_id: StringName = &"", seed_value: int = 0) -> bool:
 		return false
 
 	_session = session
+	_cancel_ai_analysis()
+	_set_ai_thinking(false)
+	_ai_scheduled = false
 	_reset_pending()
 	TurnManager.setup(_session)
 	session_started.emit()
@@ -125,6 +167,9 @@ func resume_match() -> bool:
 	_session = session
 	# ADR-003 section 9: a transient preview is never persisted, so resume with no
 	# pending placement and the active tile still uncommitted.
+	_cancel_ai_analysis()
+	_set_ai_thinking(false)
+	_ai_scheduled = false
 	_reset_pending()
 	session_started.emit()
 	state_changed.emit()
@@ -348,6 +393,42 @@ func is_over() -> bool:
 	return _session.is_over()
 
 
+# --- Opponent (application to domain, ADR-005) -----------------------------
+
+
+## Selects the opponent difficulty (ADR-005 sections 4 to 6).
+##
+## The change takes effect on the next decision; an analysis in flight is
+## cancelled rather than finished under the previous policy.
+func set_ai_difficulty(difficulty: int) -> void:
+	if _ai == null:
+		_ai = AiCoordinator.create(difficulty)
+		return
+	_cancel_ai_analysis()
+	_set_ai_thinking(false)
+	_ai.set_difficulty(difficulty)
+
+
+## Returns the opponent difficulty in force (`AiEnums.Difficulty` value).
+func ai_difficulty() -> int:
+	if _ai == null:
+		return DEFAULT_AI_DIFFICULTY
+	return _ai.difficulty()
+
+
+## Returns true while the opponent is analysing its move.
+##
+## This is the state the rival-turn message is driven from, not the turn owner
+## (ADR-005 section 9).
+func is_ai_thinking() -> bool:
+	return _ai_thinking
+
+
+## Returns the opponent's decision service, or null before construction.
+func get_ai_coordinator() -> AiCoordinator:
+	return _ai
+
+
 ## Returns the final summary, or null while the match is running.
 func final_result() -> MatchResult:
 	if _session == null or not _session.is_over():
@@ -469,14 +550,23 @@ func _after_state_change() -> void:
 		_schedule_ai_move()
 
 
-## Schedules the scripted opponent's move after a short visible pause.
+## Schedules the opponent's move after the configured presentation delay.
+##
+## The delay comes from the difficulty configuration, not from a literal here:
+## it is presentation pacing only and cannot influence move selection, because
+## ADR-005 section 8 requires deterministic work budgets rather than wall-clock
+## cutoffs inside the search (ADR-008 section 9).
 func _schedule_ai_move() -> void:
 	if _ai_scheduled:
 		return
 	if get_tree() == null:
 		return
 	_ai_scheduled = true
-	var timer: SceneTreeTimer = get_tree().create_timer(AI_THINK_SECONDS)
+	_set_ai_thinking(true)
+	var delay: float = 0.0
+	if _ai != null:
+		delay = _ai.presentation_delay_seconds()
+	var timer: SceneTreeTimer = get_tree().create_timer(delay)
 	timer.timeout.connect(_on_ai_think_timeout)
 
 
@@ -484,51 +574,92 @@ func _schedule_ai_move() -> void:
 func _on_ai_think_timeout() -> void:
 	_ai_scheduled = false
 	if _session == null or _session.is_over():
+		_set_ai_thinking(false)
 		return
 	if not TurnManager.is_awaiting_ai_action(_session):
+		_set_ai_thinking(false)
 		return
+	_play_ai_move()
 
+
+## Asks the domain coordinator for a move and commits it through the move path.
+##
+## The AI never reaches the board directly: it returns a proposal and
+## `_commit()` validates, commits, and resolves it exactly as a human move is
+## resolved, so there is one commit path for both players (ADR-005 section 11,
+## ADR-007 section 4).
+func _play_ai_move() -> void:
 	var tile: TileDefinition = _session.active_tile_for(TurnEnums.AI_PLAYER_ID)
-	if tile == null:
-		return
-	var cell: Vector2i = _choose_ai_cell()
-	if cell == BoardMetrics.NO_CELL:
+	if tile == null or _ai == null:
+		_set_ai_thinking(false)
 		return
 
-	# Rotate through the orientations until one validates, so the opponent
-	# reaches the board through the same validation path as the human
-	# (ADR-003 section 6).
-	var board: BoardState = _session.get_board()
-	var rotation: int = 0
-	for candidate: int in range(TileEnums.ROTATION_COUNT):
-		var request: PlacementRequest = PlacementRequest.create(
-			TurnEnums.AI_PLAYER_ID, tile.tile_id, cell, candidate
-		)
-		var validation: PlacementResult = PlacementValidator.validate(
-			board, request, tile, true
-		)
-		if validation != null and validation.accepted:
-			rotation = candidate
-			break
+	_ai_cancellation = AiCancellationToken.new()
+	var decision: AiDecision = _ai.choose_move(_session, tile, _ai_cancellation)
+	_ai_cancellation = null
+	_set_ai_thinking(_ai.is_thinking())
 
-	var result: PlacementResult = _commit(TurnEnums.AI_PLAYER_ID, cell, rotation)
+	if decision == null or not decision.has_move():
+		_report_unplayable_decision(decision)
+		return
+
+	var result: PlacementResult = _commit(
+		TurnEnums.AI_PLAYER_ID, decision.cell, decision.rotation
+	)
 	if result != null and result.was_committed():
 		return
 
-	# ADR-003 section 6: a move that fails revalidation is not silently skipped.
-	# Retry once from the current state and give up rather than looping.
-	var retry_cell: Vector2i = _choose_ai_cell()
-	if retry_cell != BoardMetrics.NO_CELL and retry_cell != cell:
-		_commit(TurnEnums.AI_PLAYER_ID, retry_cell, 0)
+	# ADR-005 section 11: the coordinator already revalidated the proposal and
+	# retried at most once against the current revision, so a refusal here is an
+	# AI implementation failure. It enters ADR-003's recoverable error state
+	# rather than substituting an illegal move or silently changing difficulty.
+	notice.emit("Rival could not play a move")
+	TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
+	_after_state_change()
 
 
-## Returns the opponent's chosen cell, or `BoardMetrics.NO_CELL` if none exists.
+## Reports a decision that carried no committable move.
 ##
-## Milestone 5 placeholder: the first frontier cell in row-major order. ADR-005
-## owns real difficulty behaviour and Milestone 6 replaces this method with the
-## Easy/Medium/Hard strategies; no other code needs to change for that swap.
-func _choose_ai_cell() -> Vector2i:
-	var frontier: Array[Vector2i] = _get_board_safe().get_frontier_cells()
-	if frontier.is_empty():
-		return BoardMetrics.NO_CELL
-	return frontier[0]
+## ADR-005 section 2 requires the structured refusal to be reported rather than
+## replaced with an illegal fallback, and ADR-005 section 9 forbids acting on a
+## cancelled analysis at all. ADR-005 section 11 sends an AI implementation
+## failure to ADR-003's recoverable error state instead of substituting a move.
+func _report_unplayable_decision(decision: AiDecision) -> void:
+	if decision == null:
+		TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
+		notice.emit("Rival could not choose a move")
+		return
+	if decision.is_cancelled():
+		# The match moved on (a restart, a difficulty change, or the node being
+		# freed), so nothing is wrong and nothing is reported.
+		return
+	if decision.is_no_legal_move():
+		notice.emit("Rival has no legal move")
+		return
+	TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
+	notice.emit("Rival could not choose a move")
+	_after_state_change()
+
+
+## Publishes the thinking state, emitting only when it changes.
+func _set_ai_thinking(thinking: bool) -> void:
+	if thinking == _ai_thinking:
+		return
+	_ai_thinking = thinking
+	ai_thinking_changed.emit(thinking)
+
+
+## Cancels the analysis in flight, so a partial result can never be committed
+## (ADR-005 section 9).
+func _cancel_ai_analysis() -> void:
+	if _ai_cancellation != null:
+		_ai_cancellation.cancel()
+		_ai_cancellation = null
+	if _ai != null:
+		_ai.cancel()
+
+
+## Releases the outstanding analysis with the controller (ADR-005 section 9).
+func _exit_tree() -> void:
+	_cancel_ai_analysis()
+

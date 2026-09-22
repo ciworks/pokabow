@@ -27,6 +27,12 @@ const POPUP_STAGGER: float = 26.0
 const HUMAN_LABEL: String = "You"
 const AI_LABEL: String = "Rival"
 
+## Rival-turn messages. The thinking message is shown only while the opponent
+## analysis state reports that it is thinking (ADR-005 section 9), so the text
+## cannot claim work that is not happening.
+const RIVAL_THINKING_TEXT: String = "Rival is thinking..."
+const RIVAL_WAITING_TEXT: String = "Rival is choosing a move..."
+
 @onready var board_view: BoardView = %BoardView
 @onready var board_input: BoardInputController = %BoardInputController
 @onready var active_tile_view: ActiveTileView = %ActiveTileView
@@ -100,6 +106,7 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 		controller.score_awarded.connect(_on_score_awarded)
 		controller.match_ended.connect(_on_match_ended)
 		controller.notice.connect(_on_notice)
+		controller.ai_thinking_changed.connect(_on_ai_thinking_changed)
 	_refresh_all()
 
 
@@ -166,6 +173,14 @@ func _on_session_started() -> void:
 func _on_notice(text: String) -> void:
 	if status_label != null:
 		status_label.text = text
+
+
+## Renders the opponent's analysis state (ADR-005 section 9).
+##
+## The screen holds no copy of the flag: it re-renders from the controller, so
+## the message can never disagree with the authoritative thinking state.
+func _on_ai_thinking_changed(_thinking: bool) -> void:
+	_refresh_status()
 
 
 ## Redraws the board at the cell the move just committed.
@@ -272,7 +287,9 @@ func _refresh_status() -> void:
 		status_label.text = ""
 		return
 	if not controller.is_human_turn():
-		status_label.text = "Rival is choosing a move..."
+		status_label.text = (
+			RIVAL_THINKING_TEXT if controller.is_ai_thinking() else RIVAL_WAITING_TEXT
+		)
 		return
 	if controller.has_pending():
 		if controller.is_pending_valid():

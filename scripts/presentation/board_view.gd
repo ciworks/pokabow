@@ -140,6 +140,63 @@ func clear_preview() -> void:
 	_redraw_all()
 
 
+## Shows the tile being dragged, snapped to `cell`, with the verdict for dropping
+## it there (AGENTS.md section 8, ADR-011 section 11).
+##
+## `cell` is the board cell `BoardMetrics` derives for the pointer, so the ghost is
+## drawn on the grid and a drop lands on the cell it was drawn over. Whether the
+## drop is legal is the application layer's answer for this exact tile and cell, so
+## the board draws a legal target and an illegal one without judging either.
+##
+## `BoardMetrics.NO_CELL` or a null snapshot clears the drag, because a pointer
+## that is not over the board has no target to draw.
+func show_drag(snapshot: TileSnapshot, cell: Vector2i, legal: bool) -> void:
+	if snapshot == null or cell == BoardMetrics.NO_CELL:
+		clear_drag()
+		return
+	if not BoardMetrics.is_valid_cell(cell, _state.grid):
+		clear_drag()
+		return
+	_state.drag_snapshot = snapshot
+	_state.drop_cell = cell
+	_state.drag_legal = legal
+	_redraw_all()
+
+
+## Removes the dragged tile and its target highlight, leaving the pending line and
+## the committed tiles untouched.
+##
+## Called on every kind of drag end, which is what lets a refused release change
+## nothing (ADR-011 section 5): the drag was only ever drawn, never staged.
+func clear_drag() -> void:
+	if _state.drag_snapshot == null and _state.drop_cell == BoardMetrics.NO_CELL:
+		return
+	_state.drag_snapshot = null
+	_state.drop_cell = BoardMetrics.NO_CELL
+	_state.drag_legal = false
+	_redraw_all()
+
+
+## Returns the dragged tile snapped to its cell, or null. For smoke tests.
+func get_drag_snapshot() -> TileSnapshot:
+	return _state.drag_snapshot
+
+
+## Returns the board cell a drop would land on, or `BoardMetrics.NO_CELL`.
+func get_drop_cell() -> Vector2i:
+	return _state.drop_cell
+
+
+## Returns whether dropping the dragged tile at `get_drop_cell()` is legal.
+func is_drop_legal() -> bool:
+	return _state.drag_legal
+
+
+## Returns true while a drag target is being drawn. For smoke tests.
+func has_drag() -> bool:
+	return _state.has_drag()
+
+
 ## Marks where the most recent tile landed.
 func mark_committed(cell: Vector2i) -> void:
 	_state.last_committed_cell = cell

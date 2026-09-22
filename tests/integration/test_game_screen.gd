@@ -822,6 +822,329 @@ func test_the_summary_panel_shows_the_final_breakdown_and_restarts() -> void:
 	_release(screen)
 
 
+# --- Deck drag onto the board (AGENTS.md section 8) ------------------------
+
+
+func test_a_dragged_tile_is_staged_at_the_cell_it_is_dropped_on() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var controller: GameSessionController = screen.controller
+	var board: BoardState = controller.get_board()
+	var pair: Array[TileDefinition] = _rank_pair(controller.human_deck(), TILES_PER_LINE)
+	if not check_eq(
+		pair.size(), TILES_PER_LINE, "a deck of six from four ranks must hold a pair"
+	):
+		_release(screen)
+		return
+	var cells: Array[Vector2i] = _line_cells(board, TILES_PER_LINE)
+	if not check_eq(cells.size(), TILES_PER_LINE, "the opening board must offer a two-cell line"):
+		_release(screen)
+		return
+
+	var revision_before: int = board.get_revision()
+	var deck_before: PackedStringArray = _deck_ids(controller)
+
+	# The drag runs through the row's own input handler and the screen's own
+	# handlers: the press, the move past the threshold, the move over the board,
+	# and the release are synthesized events, so this exercises the real path.
+	if not check(
+		_drag_deck_tile(
+			screen, _index_of_tile(controller.human_deck(), pair[0].tile_id), cells[0]
+		),
+		"a drag must start through the deck row's own input handler"
+	):
+		_release(screen)
+		return
+
+	check_eq(
+		controller.staged_count(), 1, "a drop on a legal cell must stage the dragged tile"
+	)
+	check_eq(
+		controller.staged_cells()[0],
+		cells[0],
+		"the tile must be staged at the cell it was dropped on"
+	)
+	check_eq(
+		controller.get_session().move_count(), 0, "a drop must not record a move by itself"
+	)
+	check_eq(board.get_revision(), revision_before, "a drop must not write to the board")
+	check_eq(_deck_ids(controller), deck_before, "a drop must keep the player's tiles")
+	check(controller.is_human_turn(), "a drop must not consume the turn")
+	check(
+		not screen.board_view.has_drag(),
+		"a released drag must leave no ghost behind on the board"
+	)
+	check(not screen.deck_view.is_dragging(), "a released drag must leave the row idle")
+
+	# A second dragged tile extends the pending line exactly as a second tap
+	# does: one tile is never a legal move (ADR-011 sections 1 and 3).
+	if not check(
+		_drag_deck_tile(
+			screen, _index_of_tile(controller.human_deck(), pair[1].tile_id), cells[1]
+		),
+		"a second drag must start through the deck row's own input handler"
+	):
+		_release(screen)
+		return
+
+	check_eq(
+		controller.staged_count(),
+		TILES_PER_LINE,
+		"a second dragged tile must extend the pending line"
+	)
+	check(
+		controller.is_line_valid(),
+		"a dropped contiguous pair of one rank is a legal line: %s" % controller.line_reason()
+	)
+	check_eq(
+		screen.board_view.get_pending_count(),
+		TILES_PER_LINE,
+		"the board must draw every tile the drags staged"
+	)
+	check_eq(board.get_revision(), revision_before, "two drops must still not touch the board")
+	check_eq(
+		controller.get_session().move_count(), 0, "two drops must still not record a move"
+	)
+	_release(screen)
+
+
+func test_a_drag_highlights_the_cell_under_the_pointer_as_legal_or_illegal() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var controller: GameSessionController = screen.controller
+	var board: BoardState = controller.get_board()
+	var pair: Array[TileDefinition] = _rank_pair(controller.human_deck(), TILES_PER_LINE)
+	if not check_eq(
+		pair.size(), TILES_PER_LINE, "a deck of six from four ranks must hold a pair"
+	):
+		_release(screen)
+		return
+	var cells: Array[Vector2i] = _line_cells(board, TILES_PER_LINE)
+	if not check_eq(cells.size(), TILES_PER_LINE, "the opening board must offer a two-cell line"):
+		_release(screen)
+		return
+
+	var row: DeckView = screen.deck_view
+	var first: int = _index_of_tile(controller.human_deck(), pair[0].tile_id)
+	if not check(_begin_deck_drag(screen, first), "the drag gesture must start"):
+		_release(screen)
+		return
+
+	# Over the board: the tile snaps to the cell under the pointer and that cell
+	# is marked as a target the controller would accept.
+	_send_motion(row, _drag_point_for(screen, cells[0]))
+	check(screen.board_view.has_drag(), "a drag over the board must draw a target")
+	check_eq(
+		screen.board_view.get_drop_cell(),
+		cells[0],
+		"the target must be the cell under the pointer, read from the board's metrics"
+	)
+	var ghost: TileSnapshot = screen.board_view.get_drag_snapshot()
+	if check_not_null(ghost, "a drag over the board must draw the tile being dragged"):
+		check_eq(
+			ghost.get_cell(),
+			cells[0],
+			"the dragged tile must snap to the cell under the pointer"
+		)
+	check(
+		screen.board_view.is_drop_legal(),
+		"an empty cell on the board must be marked as a legal drop"
+	)
+
+	# Off the board: there is no cell, so nothing is drawn to promise a landing.
+	_send_motion(row, _drag_point_for(screen, cells[0]) + Vector2(-100000.0, -100000.0))
+	check_eq(
+		screen.board_view.get_drop_cell(),
+		BoardMetrics.NO_CELL,
+		"a pointer off the board must report no target cell"
+	)
+	check(
+		not screen.board_view.has_drag(),
+		"a pointer off the board must leave no ghost on the board"
+	)
+
+	# Drop the first tile legally, then drag a second over the cell the pending
+	# line already holds: that cell cannot take it, so it must be marked illegal
+	# while an empty cell stays legal.
+	_send_motion(row, _drag_point_for(screen, cells[0]))
+	_send_release(row, _drag_point_for(screen, cells[0]))
+	if not check_eq(controller.staged_count(), 1, "the legal drop must have staged a tile"):
+		_release(screen)
+		return
+
+	var second: int = _index_of_tile(controller.human_deck(), pair[1].tile_id)
+	if not check(_begin_deck_drag(screen, second), "the second drag gesture must start"):
+		_release(screen)
+		return
+	_send_motion(row, _drag_point_for(screen, cells[0]))
+	check_eq(
+		screen.board_view.get_drop_cell(),
+		cells[0],
+		"the highlight must follow the pointer onto a cell the line already holds"
+	)
+	check(
+		not screen.board_view.is_drop_legal(),
+		"a cell the pending line already holds must be marked as an illegal drop"
+	)
+	_send_motion(row, _drag_point_for(screen, cells[1]))
+	check(
+		screen.board_view.is_drop_legal(),
+		"an empty cell must be marked as a legal drop even after an illegal one"
+	)
+	_send_release(row, _drag_point_for(screen, cells[1]))
+	check_eq(controller.staged_count(), TILES_PER_LINE, "the second drop must extend the line")
+	check(not screen.board_view.has_drag(), "a released drag must leave no ghost behind")
+	_release(screen)
+
+
+func test_a_drop_on_an_illegal_cell_or_off_the_board_changes_nothing() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var controller: GameSessionController = screen.controller
+	var board: BoardState = controller.get_board()
+	var pair: Array[TileDefinition] = _rank_pair(controller.human_deck(), TILES_PER_LINE)
+	if not check_eq(
+		pair.size(), TILES_PER_LINE, "a deck of six from four ranks must hold a pair"
+	):
+		_release(screen)
+		return
+	var cells: Array[Vector2i] = _line_cells(board, TILES_PER_LINE)
+	if not check_eq(cells.size(), TILES_PER_LINE, "the opening board must offer a two-cell line"):
+		_release(screen)
+		return
+
+	var first: int = _index_of_tile(controller.human_deck(), pair[0].tile_id)
+	if not check(
+		_drag_deck_tile(screen, first, cells[0]), "the setup drop must stage one tile"
+	):
+		_release(screen)
+		return
+
+	var revision_before: int = board.get_revision()
+	var deck_before: PackedStringArray = _deck_ids(controller)
+	var moves_before: int = controller.get_session().move_count()
+	var staged_before: int = controller.staged_count()
+	var second: int = _index_of_tile(controller.human_deck(), pair[1].tile_id)
+
+	# The cell the pending line already holds cannot take a second tile, so a
+	# release there must leave the board, the deck, the history, and the pending
+	# line exactly as they were (ADR-011 section 5).
+	if not check(
+		_drag_deck_tile(screen, second, cells[0]), "the illegal drag must still run its gesture"
+	):
+		_release(screen)
+		return
+	check_eq(
+		controller.staged_count(),
+		staged_before,
+		"a drop on a cell the line already holds must stage nothing"
+	)
+	check_eq(board.get_revision(), revision_before, "an illegal drop must not touch the board")
+	check_eq(_deck_ids(controller), deck_before, "an illegal drop must leave the deck unchanged")
+	check_eq(
+		controller.get_session().move_count(),
+		moves_before,
+		"an illegal drop must record no move"
+	)
+	check(controller.is_human_turn(), "an illegal drop must not consume the turn")
+	check(not screen.board_view.has_drag(), "an illegal drop must leave no ghost behind")
+
+	# A release off the board entirely is the same case: nothing to land on, so
+	# nothing changes.
+	var off_board: Vector2 = _drag_point_for(screen, cells[1]) + Vector2(-100000.0, -100000.0)
+	if not check(
+		_drag_deck_tile_to_point(screen, second, off_board),
+		"the off-board drag must still run its gesture"
+	):
+		_release(screen)
+		return
+	check_eq(
+		controller.staged_count(), staged_before, "a drop off the board must stage nothing"
+	)
+	check_eq(
+		board.get_revision(), revision_before, "a drop off the board must not touch the board"
+	)
+	check_eq(
+		_deck_ids(controller), deck_before, "a drop off the board must leave the deck unchanged"
+	)
+	check_eq(
+		controller.get_session().move_count(),
+		moves_before,
+		"a drop off the board must record no move"
+	)
+	check(
+		not screen.board_view.has_drag(),
+		"a drop off the board must leave no ghost behind"
+	)
+	check(
+		not screen.deck_view.is_dragging(),
+		"a drop off the board must leave the row idle"
+	)
+	_release(screen)
+
+
+func test_a_drag_off_turn_is_refused() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var controller: GameSessionController = screen.controller
+	var board: BoardState = controller.get_board()
+
+	var result: LineResult = _stage_and_commit_opening_line(screen)
+	if not check(
+		result != null and result.was_committed(),
+		"the opening line must commit so the rival holds the turn"
+	):
+		_release(screen)
+		return
+	if not check(not controller.is_human_turn(), "the committed line must pass play to the rival"):
+		_release(screen)
+		return
+
+	var revision_before: int = board.get_revision()
+	var deck_before: PackedStringArray = _deck_ids(controller)
+	var moves_before: int = controller.get_session().move_count()
+	var cells: Array[Vector2i] = board.get_frontier_cells()
+
+	# The row is locked off-turn, so the gesture never even leaves the row
+	# (ADR-008 section 8).
+	check(
+		not _begin_deck_drag(screen, 0),
+		"a locked deck row must not start a drag"
+	)
+	check(not screen.deck_view.is_dragging(), "a locked deck row must leave no drag in flight")
+
+	# And if a drag report reaches the screen anyway, the screen refuses it: no
+	# ghost, no target, and nothing staged.
+	var tile_id: StringName = controller.human_deck()[0].tile_id
+	var point: Vector2 = _drag_point_for(
+		screen, cells[0] if not cells.is_empty() else Vector2i.ZERO
+	)
+	screen._on_deck_tile_drag_started(tile_id, Vector2.ZERO)
+	screen._on_deck_tile_dragged(tile_id, point)
+	check(not screen.board_view.has_drag(), "an off-turn drag must draw no ghost")
+	check_eq(
+		screen.board_view.get_drop_cell(),
+		BoardMetrics.NO_CELL,
+		"an off-turn drag must mark no target cell"
+	)
+	screen._on_deck_tile_drop_requested(tile_id, point)
+
+	check_eq(controller.staged_count(), 0, "an off-turn drop must stage nothing")
+	check(not controller.has_pending(), "an off-turn drop must leave no pending line")
+	check_eq(board.get_revision(), revision_before, "an off-turn drop must not touch the board")
+	check_eq(_deck_ids(controller), deck_before, "an off-turn drop must leave the deck unchanged")
+	check_eq(
+		controller.get_session().move_count(),
+		moves_before,
+		"an off-turn drop must record no move"
+	)
+	_release(screen)
+
+
 # --- Helpers ---------------------------------------------------------------
 
 
@@ -961,6 +1284,98 @@ func _tap_deck(screen: GameScreen, index: int) -> void:
 	event.pressed = true
 	event.position = rect.get_center()
 	row._gui_input(event)
+
+
+## Sends a synthesized left-button press to the deck row.
+##
+## The row is given the rectangle its layout would produce, because the smoke
+## tests never wait for a layout pass, and the press is aimed with
+## `DeckView.tile_rect`, the same geometry the row draws and hit-tests with, so it
+## lands on the tile it names.
+func _send_press(row: DeckView, position: Vector2) -> void:
+	_send_button(row, position, true)
+
+
+## Sends a synthesized left-button release to the deck row.
+func _send_release(row: DeckView, position: Vector2) -> void:
+	_send_button(row, position, false)
+
+
+## Sends one synthesized left-button event to the deck row.
+func _send_button(row: DeckView, position: Vector2, pressed: bool) -> void:
+	if row == null:
+		return
+	var event: InputEventMouseButton = InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = pressed
+	event.position = position
+	row._gui_input(event)
+
+
+## Sends a synthesized pointer move to the deck row, which is what carries a drag
+## from the row to the board.
+func _send_motion(row: DeckView, position: Vector2) -> void:
+	if row == null:
+		return
+	var event: InputEventMouseMotion = InputEventMouseMotion.new()
+	event.button_mask = MOUSE_BUTTON_MASK_LEFT
+	event.position = position
+	row._gui_input(event)
+
+
+## Starts a drag of one deck tile through the row's own input handler.
+##
+## A press alone is a tap; the drag only begins once the pointer has travelled
+## past `DeckView.DRAG_THRESHOLD`, which is exactly what this synthesizes. Returns
+## false when the gesture could not start, which is how an off-turn refusal shows.
+func _begin_deck_drag(screen: GameScreen, index: int) -> bool:
+	if screen == null or screen.deck_view == null or screen.board_view == null:
+		return false
+	var row: DeckView = screen.deck_view
+	row.size = Vector2(720.0, 96.0)
+	screen.board_view.size = Vector2(640.0, 640.0)
+	var count: int = row.deck_size()
+	if count <= 0 or index < 0 or index >= count:
+		return false
+	var grab: Vector2 = DeckView.tile_rect(index, count, row.size).get_center()
+	_send_press(row, grab)
+	_send_motion(row, grab + Vector2(DeckView.DRAG_THRESHOLD + 4.0, 0.0))
+	return row.is_dragging()
+
+
+## Returns the row-local pointer position that aims at one board cell.
+##
+## The screen converts a row-local point to a cell by mapping it through the row's
+## own transform and then reading the board's metrics, so a test aiming at a cell
+## has to invert exactly that mapping. `BoardMetrics.cell_center` is the board's
+## own definition of where that cell is, so a drop lands on the cell the board
+## draws the tile on.
+func _drag_point_for(screen: GameScreen, cell: Vector2i) -> Vector2:
+	if screen == null or screen.deck_view == null or screen.board_view == null:
+		return Vector2.ZERO
+	screen.board_view.size = Vector2(640.0, 640.0)
+	var board_rect: Rect2 = screen.board_view.global_board_rect()
+	var center: Vector2 = BoardMetrics.cell_center(board_rect, cell, BoardEnums.BOARD_WIDTH)
+	return screen.deck_view.get_global_transform().affine_inverse() * center
+
+
+## Drags one deck tile through the row's own handlers and releases it on `cell`.
+##
+## Returns false when the gesture could not start. Whether the drop is accepted is
+## not part of the answer: a refused drop is exactly what some tests are checking.
+func _drag_deck_tile(screen: GameScreen, index: int, cell: Vector2i) -> bool:
+	return _drag_deck_tile_to_point(screen, index, _drag_point_for(screen, cell))
+
+
+## Drags one deck tile through the row's own handlers and releases it at a raw
+## row-local point, which is how a drop off the board is expressed.
+func _drag_deck_tile_to_point(screen: GameScreen, index: int, point: Vector2) -> bool:
+	if not _begin_deck_drag(screen, index):
+		return false
+	var row: DeckView = screen.deck_view
+	_send_motion(row, point)
+	_send_release(row, point)
+	return true
 
 
 ## Returns the index of a tile identity in a deck, or -1.

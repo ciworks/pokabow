@@ -55,6 +55,26 @@ var last_committed_cells: Array[Vector2i] = []
 var human_turn: bool = true
 
 
+## The tile being dragged from the deck, snapped to the board cell under the
+## pointer, or null when no drag is in flight (AGENTS.md section 8). Drawn as a
+## ghost at that cell, so a drag over the board reads as a placement on the grid.
+var drag_snapshot: TileSnapshot = null
+
+## The board cell a drop would land on, or `BoardMetrics.NO_CELL` when the pointer
+## is off the board. Derived from `BoardMetrics`, never from a guess.
+var drop_cell: Vector2i = BoardMetrics.NO_CELL
+
+## Whether dropping `drag_snapshot` at `drop_cell` would be accepted. Arrives from
+## the application layer, which is the only place a rule is read (AGENTS.md
+## section 19); this state carries the verdict so a layer can draw it.
+var drag_legal: bool = false
+
+
+## Returns true when a dragged tile is being drawn at a real board cell.
+func has_drag() -> bool:
+	return drag_snapshot != null and drop_cell != BoardMetrics.NO_CELL
+
+
 ## Returns true when a preview is being shown, whole line or single tile.
 func has_pending() -> bool:
 	return not pending_line.is_empty() or pending != null

@@ -65,6 +65,14 @@ var _swap_tiles: Array[StringName] = []
 ## True while the screen is collecting the swap set rather than the pending line.
 var _swap_mode: bool = false
 
+## Identity of the deck tile currently being dragged onto the board, or an empty
+## name when no drag is in flight (AGENTS.md section 8).
+##
+## Presentation-only: a drag stages nothing until it is released over a cell the
+## controller accepts, and a refused release leaves this empty and the deck
+## untouched (ADR-011 section 5).
+var _drag_tile_id: StringName = &""
+
 
 func _ready() -> void:
 	_bind_nodes()
@@ -191,6 +199,13 @@ func _connect_deck_view() -> void:
 		return
 	_connect_once(deck_view.tile_selected, _on_deck_tile_selected)
 	_connect_once(deck_view.tile_toggled, _on_deck_tile_toggled)
+	# The drag path (AGENTS.md section 8) is additive: it reaches the same
+	# staging command as a tap, and every one of these four reports is routed
+	# through the controller rather than through a rule read here.
+	_connect_once(deck_view.tile_drag_started, _on_deck_tile_drag_started)
+	_connect_once(deck_view.tile_dragged, _on_deck_tile_dragged)
+	_connect_once(deck_view.tile_drop_requested, _on_deck_tile_drop_requested)
+	_connect_once(deck_view.tile_drag_cancelled, _on_deck_tile_drag_cancelled)
 
 
 ## Connects one action button, tolerating a missing node rather than raising.
@@ -215,14 +230,29 @@ func _connect_once(signal_ref: Signal, handler: Callable) -> void:
 ## A board gesture only ever appends to the pending line; it never writes to the
 ## board, and it never commits. Committing stays an explicit confirm press
 ## (ADR-008 section 8).
+## Stages the tile for a board tap.
+##
+## A deck drag owns the pointer while it is in flight, so a board tap that arrives
+## mid-drag is ignored: a drag must not stage a tile from the board path as well as
+## from its own drop.
 func _on_cell_tapped(cell: Vector2i) -> void:
 	if controller == null:
+		return
+	if not String(_drag_tile_id).is_empty():
 		return
 	stage_at(cell)
 
 
+## Stages the tile for a board gesture that moved onto a new cell.
+##
+## A deck drag owns the pointer while it is in flight, so board drags are ignored
+## then: the deck row consumes its own gesture, and this guard is the second half
+## of that, because a drag that started in the row must not also stage a tile from
+## the board path and end up staging twice.
 func _on_cell_dragged(cell: Vector2i) -> void:
 	if controller == null:
+		return
+	if not String(_drag_tile_id).is_empty():
 		return
 	stage_at(cell)
 
@@ -398,6 +428,173 @@ func _on_deck_tile_selected(tile_id: StringName) -> void:
 	_refresh_deck()
 
 
+# --- Deck drag onto the board (AGENTS.md section 8) -------------------------
+
+
+## Begins a drag of one deck tile onto the board.
+##
+## AGENTS.md section 8 asks for drag as a first-class mobile gesture. The drag is
+## additive: it reaches the same staging command a tap does, and the tap flow is
+## untouched.
+##
+## A drag is refused outright when the human may not act, so an off-turn gesture
+## cannot stage anything (ADR-008 section 8).
+func _on_deck_tile_drag_started(tile_id: StringName, _pointer: Vector2) -> void:
+	if controller == null or not controller.is_human_turn():
+		_refuse_drag(tile_id)
+		return
+	if _swap_mode:
+		_refuse_drag(tile_id)
+		return
+	_drag_tile_id = tile_id
+	if board_view != null:
+		board_view.clear_drag()
+
+
+## Follows a drag: the tile is drawn snapped to the cell under the pointer, and
+## that cell is marked with a legal or illegal treatment.
+##
+## The cell comes from `BoardMetrics` through the board view, which is the same
+## mapping the board draws with, so the ghost always sits on the cell it will land
+## on. The verdict is the controller's answer for this tile at this cell, so the
+## screen shows a rule result rather than computing one (AGENTS.md section 19).
+func _on_deck_tile_dragged(tile_id: StringName, pointer: Vector2) -> void:
+	if controller == null or String(_drag_tile_id).is_empty():
+		return
+	if tile_id != _drag_tile_id:
+		return
+	var cell: Vector2i = board_cell_at(pointer)
+	if cell == BoardMetrics.NO_CELL:
+		# Off the board there is no target, so nothing is drawn to mislead the
+		# player about where a release would land.
+		board_view.clear_drag()
+		return
+	board_view.show_drag(_drag_snapshot(cell), cell, can_drop_at(tile_id, cell))
+
+
+## Ends a drag on release: the tile is staged at the cell under the pointer when
+## the controller accepts it there, and otherwise nothing changes at all.
+##
+## AGENTS.md section 8's release rule, and ADR-011 section 5's atomicity rule: a
+## refused drop leaves the board, the ledger, the history, the deck, and the
+## pending line exactly as they were, because a drag never staged anything on the
+## way here. Only an accepted drop reaches `stage_at`, which is the same command
+## the tap path calls.
+func _on_deck_tile_drop_requested(tile_id: StringName, pointer: Vector2) -> void:
+	if controller == null or String(_drag_tile_id).is_empty():
+		return
+	if tile_id != _drag_tile_id:
+		return
+	var cell: Vector2i = board_cell_at(pointer)
+	var accepted: bool = can_drop_at(tile_id, cell)
+	_end_drag()
+	if cell == BoardMetrics.NO_CELL:
+		return
+	if not accepted:
+		return
+	# A tap reports the tile on the press, and that press is what started this
+	# drag, so the tile is normally armed already; arming is only needed when a
+	# drag arrives without one. Neither call happens twice, so a drop cannot clear
+	# a rotation the player set on the pending line.
+	if controller.selected_deck_tile_id() != tile_id:
+		if not controller.select_deck_tile(tile_id):
+			return
+	# The same staging command the tap flow uses, with the same following
+	# redraw, so a drop and a tap cannot produce different lines.
+	stage_at(cell)
+
+
+## Ends a drag that was abandoned before a release, leaving everything unchanged.
+func _on_deck_tile_drag_cancelled(tile_id: StringName) -> void:
+	if String(_drag_tile_id).is_empty():
+		return
+	if tile_id != _drag_tile_id:
+		return
+	_end_drag()
+
+
+## Returns the board cell under a pointer position reported by the deck row.
+##
+## The row works in its own local coordinates, so the point is converted to global
+## coordinates first and the cell is then read through the board's own
+## `BoardMetrics` mapping. One geometry source, so a drop lands on the cell the
+## ghost was drawn over.
+func board_cell_at(pointer: Vector2) -> Vector2i:
+	if board_view == null:
+		return BoardMetrics.NO_CELL
+	if deck_view == null:
+		return board_view.cell_at_global(pointer)
+	return board_view.cell_at_global(deck_view.get_global_transform() * pointer)
+
+
+## Returns whether the controller would accept a drop of `tile_id` at `cell`.
+##
+## The answer is entirely the controller's, so the highlight cannot promise a drop
+## the staging command would then refuse, and the screen never reads a rule
+## (AGENTS.md section 19). An off-board pointer has no cell at all, which is the
+## one case the screen answers itself.
+func can_drop_at(tile_id: StringName, cell: Vector2i) -> bool:
+	if controller == null:
+		return false
+	if cell == BoardMetrics.NO_CELL:
+		return false
+	return controller.would_accept_stage(tile_id, cell)
+
+
+## Returns the deck tile the row is dragging, as a snapshot at `cell`, or null
+## when there is nothing to draw.
+##
+## Built through `TileSnapshot`, the same immutable type the board commits, so the
+## ghost is the tile that would actually be placed, at the cell it would be placed
+## on.
+func _drag_snapshot(cell: Vector2i) -> TileSnapshot:
+	if controller == null:
+		return null
+	var tile: TileDefinition = _deck_tile(_drag_tile_id)
+	if tile == null:
+		return null
+	return TileSnapshot.create(tile, cell, controller.pending_rotation())
+
+
+## Returns one of the human's held tiles by identity, or null.
+func _deck_tile(tile_id: StringName) -> TileDefinition:
+	if controller == null:
+		return null
+	if String(tile_id).is_empty():
+		return null
+	for tile: TileDefinition in controller.human_deck():
+		if tile != null and tile.tile_id == tile_id:
+			return tile
+	return null
+
+
+## Ends the drag in thought and on screen, leaving the deck and the board alone.
+func _end_drag() -> void:
+	_drag_tile_id = &""
+	if board_view != null:
+		board_view.clear_drag()
+	if deck_view != null:
+		# The row is told without notifying back, so one release cannot arrive
+		# as two endings.
+		deck_view.set_dragging(false, false)
+
+
+## Refuses a drag that started when the human may not act, clearing any drag the
+## screen was showing (ADR-008 section 8: off-turn input is gated).
+##
+## The drag is ended in thought, on the board, and in the row, so an off-turn
+## gesture leaves nothing behind and stages nothing.
+func _refuse_drag(_tile_id: StringName) -> void:
+	_drag_tile_id = &""
+	if board_view != null:
+		board_view.clear_drag()
+	if deck_view != null:
+		deck_view.set_dragging(false, false)
+		deck_view.cancel_drag(false)
+	# The status line is deliberately left alone: `_refresh_status` already says
+	# whose turn it is, and an off-turn drag is refused rather than announced.
+
+
 func _on_restart_pressed() -> void:
 	if controller == null:
 		return
@@ -471,7 +668,12 @@ func _on_match_ended(result: MatchResult) -> void:
 
 
 ## Rebuilds every HUD value and the board from authoritative state.
+##
+## A drag in flight is abandoned first: an authoritative change means the deck or
+## the turn moved under the gesture, so the ghost it was drawing can no longer be
+## trusted (AGENTS.md section 8).
 func _refresh_all() -> void:
+	_end_drag()
 	var has_controller: bool = controller != null
 	var board: BoardState = null
 	if has_controller:
@@ -606,6 +808,10 @@ func _set_interactive(enabled: bool) -> void:
 	# they may no longer act: a locked row must never keep collecting marks.
 	if not enabled:
 		_close_swap_mode()
+		# A drag belongs to the player's own turn too, so it is abandoned when
+		# the turn passes rather than left drawable over the board (AGENTS.md
+		# section 8: off-turn input is refused).
+		_end_drag()
 	if swap_confirm_button != null:
 		swap_confirm_button.disabled = not enabled
 	if swap_cancel_button != null:

@@ -31,6 +31,18 @@ const ROTATE_OUTLINE: Color = Color(1.0, 0.86, 0.42, 1.0)
 ## Opacity of a ghosted tile.
 const GHOST_ALPHA: float = 0.75
 
+## Opacity of the tile being dragged, so the committed board stays readable
+## underneath it.
+const DRAG_GHOST_ALPHA: float = 0.65
+
+## Outline of the dragged tile: the same two verdicts the target highlight uses, so
+## the ghost and the highlight can never tell the player different stories.
+const DRAG_VALID_OUTLINE: Color = Color(0.35, 0.95, 0.55, 1.0)
+const DRAG_INVALID_OUTLINE: Color = Color(0.96, 0.34, 0.36, 1.0)
+
+## Thickness of the dragged tile's outline, in pixels.
+const DRAG_OUTLINE_WIDTH: float = 3.0
+
 ## Current render state, assigned by `BoardView`.
 var state: BoardRenderState = null
 
@@ -42,7 +54,16 @@ func _ready() -> void:
 
 
 func _draw() -> void:
-	if state == null or state.pending_line.is_empty():
+	if state == null:
+		return
+	_draw_pending_line()
+	_draw_drag()
+
+
+## Draws the uncommitted pending line, whole, under one verdict for the line
+## (ADR-011 section 11).
+func _draw_pending_line() -> void:
+	if state.pending_line.is_empty():
 		return
 	for index: int in range(state.pending_line.size()):
 		var snapshot: TileSnapshot = state.pending_line[index]
@@ -76,3 +97,27 @@ func _draw_invalid(rect: Rect2) -> void:
 ## Outlines the tile the rotate command will turn.
 func _draw_rotate_marker(rect: Rect2) -> void:
 	draw_rect(rect.grow(-4.0), ROTATE_OUTLINE, false, 2.0)
+
+
+## Draws the deck tile being dragged, snapped onto the board cell under the
+## pointer (AGENTS.md section 8: drag to move, snap to the grid).
+##
+## The cell is the one `BoardMetrics` derives for the pointer, so the ghost is
+## drawn on the grid and a drop lands on the cell it was drawn over. The verdict
+## arrives in `drag_legal`, and a pointer that is not over the board has no cell,
+## so a release there leaves nothing behind (ADR-011 section 5).
+func _draw_drag() -> void:
+	if not state.has_drag():
+		return
+	var snapshot: TileSnapshot = state.drag_snapshot
+	var cell: Vector2i = snapshot.get_cell()
+	if not BoardMetrics.is_valid_cell(cell, state.grid):
+		return
+	var rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, state.grid)
+	if not TilePainter.is_drawable(rect):
+		return
+	TilePainter.paint_tile(self, rect, snapshot, DRAG_GHOST_ALPHA)
+	if state.drag_legal:
+		draw_rect(rect, DRAG_VALID_OUTLINE, false, DRAG_OUTLINE_WIDTH)
+		return
+	draw_rect(rect, DRAG_INVALID_OUTLINE, false, DRAG_OUTLINE_WIDTH)

@@ -2,7 +2,7 @@ class_name DeckView
 extends Control
 
 ## The human's hand: a horizontal, selectable spread of deck tiles under the
-## board (ADR-010 sections 4 and 12).
+## board (ADR-010 sections 4 and 12; AGENTS.md section 8).
 ##
 ## ADR-010 section 12 makes the deck a horizontal spread of tiles under the board
 ## and makes selecting a deck tile the action that arms a placement. This control
@@ -15,6 +15,13 @@ extends Control
 ## supplies both the tiles and the interactivity, and the screen forwards the
 ## selection to the application controller, which is the only place a tile is
 ## armed (ADR-008 section 7).
+##
+## AGENTS.md section 8 asks for tap, drag, and valid-placement highlighting.
+## Tap is a `tile_selected` report. A press that travels past `DRAG_THRESHOLD`
+## becomes a drag instead: this row then reports the tile, the pointer, and the
+## release, and the screen turns those into staging commands. The row itself never
+## decides where a tile may land, so the drag path and the tap path reach the
+## board through exactly the same application commands.
 ##
 ## The row is laid out by the screen's containers and this control draws inside
 ## whatever rectangle that layout gives it, so it never states a pixel position
@@ -29,6 +36,28 @@ signal tile_selected(tile_id: StringName)
 ## Emitted when the player taps a deck tile while the row is in mark mode
 ## (ADR-011 section 6: the tiles a swap would return).
 signal tile_toggled(tile_id: StringName)
+
+## Emitted once when a press on a deck tile has travelled past `DRAG_THRESHOLD`,
+## with the tile being dragged and the pointer that started the drag.
+##
+## AGENTS.md section 8 requires drag as a first-class mobile gesture. This is the
+## gesture start; `tile_dragged` follows it while the pointer moves and
+## `tile_drop_requested` or `tile_drag_cancelled` ends it.
+signal tile_drag_started(tile_id: StringName, pointer: Vector2)
+
+## Emitted while a drag is in flight, with the pointer position in this row's
+## local coordinates. The screen converts it to a board cell through
+## `BoardMetrics`, so the row never needs to know the board's geometry.
+signal tile_dragged(tile_id: StringName, pointer: Vector2)
+
+## Emitted when the player releases a drag, with the tile and the pointer position
+## in this row's local coordinates. Whether the release is a legal drop is the
+## screen's question, not this row's.
+signal tile_drop_requested(tile_id: StringName, pointer: Vector2)
+
+## Emitted when a drag ends without a release over the row: off-turn gating, a
+## lost focus, or a cancellation. The screen clears any drag it was showing.
+signal tile_drag_cancelled(tile_id: StringName)
 
 ## Gap between tiles as a fraction of one tile's width.
 const GAP_RATIO: float = 0.10
@@ -53,6 +82,17 @@ const MARKED_COLOR: Color = Color(0.52, 0.78, 1.0, 1.0)
 ## read on one tile.
 const MARKED_INSET: float = 3.0
 
+## Opacity of the row's copy of a tile that is being dragged, so the row still
+## shows the tile is held while the board shows where it would land.
+const DRAGGED_ALPHA: float = 0.45
+
+## How far a press must travel before it is a drag rather than a tap, in pixels.
+##
+## A finger rolls a few pixels on every touch, so without a threshold every tap
+## would start a drag. The value is deliberately larger than that jitter and far
+## smaller than one tile, so a deliberate drag starts immediately.
+const DRAG_THRESHOLD: float = 8.0
+
 ## The player's tiles, in deck order.
 var _deck: Array[TileDefinition] = []
 
@@ -70,10 +110,46 @@ var _mark_mode: bool = false
 ## every redraw so a marked tile that left the deck is never drawn as marked.
 var _marked: Array[StringName] = []
 
+## True between a press landing on a tile and its release. A press is a tap until
+## it travels past `DRAG_THRESHOLD`, at which point it becomes a drag.
+var _pressing: bool = false
 
-## Accepts taps, so the row can arm a placement.
+## Where the current press started, in this control's coordinates.
+var _press_point: Vector2 = Vector2.ZERO
+
+## Index of the tile the current press landed on; -1 when it landed off a tile.
+var _press_index: int = -1
+
+## True between a drag gesture starting and its release or cancellation.
+var _dragging: bool = false
+
+## Index of the tile being dragged; -1 while no drag is in flight.
+var _drag_index: int = -1
+
+## Last pointer position reported for the drag, in this control's coordinates.
+var _drag_point: Vector2 = Vector2.ZERO
+
+
+## Accepts taps and drags, so the row can arm a placement.
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+## Drops a gesture that can no longer finish.
+##
+## Leaving the tree ends every gesture this row owns: a drag is cancelled, never
+## resolved, so a row that is torn down mid-drag cannot stage a tile.
+func _exit_tree() -> void:
+	cancel_drag()
+
+
+## Cancels a drag when the row stops being visible, because a gesture the player
+## cannot see the source of must not be able to finish over the board.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_VISIBILITY_CHANGED:
+		return
+	if not is_visible_in_tree():
+		cancel_drag()
 
 
 ## Replaces the drawn deck and the selected tile (ADR-010 section 10).
@@ -82,7 +158,13 @@ func _ready() -> void:
 ## application controller reports as armed, or an empty name when none is. The row
 ## never keeps its own idea of which tile is armed: the application layer owns
 ## that choice, so a redraw cannot disagree with the next placement.
+##
+## A drag in flight is abandoned here, because the deck it was dragging from no
+## longer exists in the shape the drag described. The press that started it is
+## deliberately left alone: reporting a tap re-renders the deck, and a gesture
+## that is still a tap must not be torn down by its own redraw.
 func set_deck(tiles: Array[TileDefinition], selected_id: StringName = &"") -> void:
+	_abandon_drag()
 	_deck = []
 	for tile: TileDefinition in tiles:
 		if tile != null:
@@ -117,9 +199,42 @@ func is_locked() -> bool:
 
 ## Enables or disables interaction. A locked row still draws the deck, because
 ## what the player holds is not a secret from them (ADR-010 section 10).
+##
+## Locking cancels a drag in flight, so an off-turn drag is refused rather than
+## left able to report a drop (AGENTS.md section 8 gating).
 func set_locked(locked: bool) -> void:
+	if _locked == locked:
+		return
 	_locked = locked
+	if locked:
+		cancel_drag()
 	queue_redraw()
+
+
+## Returns true while a drag gesture is in flight.
+func is_dragging() -> bool:
+	return _dragging
+
+
+## Returns the index of the tile being dragged, or -1 when no drag is in flight.
+func dragging_index() -> int:
+	return _drag_index
+
+
+## Returns the last pointer position reported for the drag, in local coordinates.
+func drag_point() -> Vector2:
+	return _drag_point
+
+
+## Ends a drag that was not released over the row: the screen calls this when a
+## drop is refused, and the row calls it when the gesture is cancelled.
+##
+## `notify` is false when the screen is clearing a drag it already knows about, so
+## a refusal cannot echo back as a second cancellation.
+func set_dragging(dragging: bool, notify: bool = false) -> void:
+	if dragging:
+		return
+	cancel_drag(notify)
 
 
 ## Selects `tile_id` in the drawn row without emitting `tile_selected`.
@@ -144,12 +259,25 @@ func set_selected(tile_id: StringName) -> void:
 ## tiles a swap returns are a set of marks (ADR-011 section 6), no tile is armed
 ## for a staging that a whole-turn swap would consume, and an un-lifted row makes
 ## the drawn tile exactly the shape and place the finger has to hit.
+##
+## The tile being dragged is ghosted in place rather than removed: the board draws
+## the real ghost at the cell under the pointer, so this copy is dimmed to read as
+## picked up, and a drag that is currently off the board never makes the row look
+## as if it lost a tile.
 func _draw() -> void:
 	if _deck.is_empty():
 		return
 	for index: int in range(_deck.size()):
 		var rect: Rect2 = tile_rect(index, _deck.size(), size)
 		if not TilePainter.is_drawable(rect):
+			continue
+		if index == _drag_index:
+			TilePainter.paint_tile(
+				self,
+				rect,
+				TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, 0),
+				DRAGGED_ALPHA
+			)
 			continue
 		if index == _selected_index and not _mark_mode:
 			rect = _lifted(rect)
@@ -175,41 +303,186 @@ func _draw_mark(index: int, rect: Rect2) -> void:
 	draw_rect(rect.grow(-MARKED_INSET), MARKED_COLOR, false, SELECTED_OUTLINE)
 
 
-## Reports a tap as a selection, or as a swap mark in mark mode, and ignores it
-## while locked.
+## Turns a gesture on the row into a selection, a swap mark, or a drag.
 ##
-## ADR-011 section 6 lets a swap return any number of deck tiles, so mark mode
-## collects a set instead of one selection. The locked check comes first in both
-## modes, which is what gates the row off-turn (ADR-008 section 8).
+## Mouse and touch are handled through `InputEventMouse` because Godot emulates
+## mouse input from touch by default, so one path covers both and a desktop drag
+## exercises exactly the code a finger does (AGENTS.md section 8).
+##
+## The gesture starts as a tap. It only becomes a drag once it has travelled
+## `DRAG_THRESHOLD`, which is what keeps a finger's jitter from being read as a
+## drag and cancelling the tap the player meant.
+##
+## The locked check comes first in every branch, which is what gates the row
+## off-turn (ADR-008 section 8).
 func _gui_input(event: InputEvent) -> void:
 	if _locked:
 		return
-	if not (event is InputEventMouseButton):
+	if event is InputEventMouseButton:
+		_handle_button(event)
 		return
-	var button: InputEventMouseButton = event as InputEventMouseButton
-	if not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
+	if event is InputEventMouseMotion:
+		_handle_motion(event)
+
+
+## Routes a press to the press handler and a release to the release handler.
+func _handle_button(event: InputEventMouseButton) -> void:
+	var button: InputEventMouseButton = event
+	if button.button_index != MOUSE_BUTTON_LEFT:
 		return
-	var index: int = _index_at(button.position, _deck.size(), size)
-	if index < 0:
+	if button.pressed:
+		_handle_press(button)
+		return
+	_handle_release(button)
+
+
+## Reports the tap and remembers where the finger landed.
+##
+## The tap is reported on the press, not on the release, because a tap is decided
+## the moment a finger touches a tile. A press that then travels past
+## `DRAG_THRESHOLD` is not an undone tap: it continues as a drag of the same tile,
+## and both paths reach the same staging command, so nothing is staged twice.
+##
+## The gesture is consumed because the board listens for unhandled pointer input:
+## a deck gesture that stayed unhandled would also reach `BoardInputController`,
+## which would read the same finger as a board drag.
+func _handle_press(button: InputEventMouseButton) -> void:
+	_consume()
+	_pressing = true
+	_press_point = button.position
+	_press_index = _index_at(button.position, _deck.size(), size)
+	if _press_index < 0:
 		return
 	if _mark_mode:
-		tile_toggled.emit(_deck[index].tile_id)
+		tile_toggled.emit(_deck[_press_index].tile_id)
 		return
-	if index != _selected_index:
-		_selected_index = index
+	if _press_index != _selected_index:
+		_selected_index = _press_index
 		queue_redraw()
-	tile_selected.emit(_deck[index].tile_id)
+	tile_selected.emit(_deck[_press_index].tile_id)
+
+
+## Ends a press: a drag asks for a drop, and a gesture that never became a drag
+## has already been reported as a tap.
+##
+## The drop is reported without a cancellation, so one release cannot arrive as
+## two endings. Where the drop landed, and whether it may land there at all, is
+## the screen's question, so a release over the deck row itself simply lands off
+## the board and changes nothing.
+func _handle_release(button: InputEventMouseButton) -> void:
+	if not _pressing and not _dragging:
+		return
+	_consume()
+	_pressing = false
+	if not _dragging:
+		return
+	var dragged_id: StringName = _dragged_tile_id()
+	_dragging = false
+	_drag_index = -1
+	_drag_point = button.position
+	if not String(dragged_id).is_empty():
+		tile_drop_requested.emit(dragged_id, button.position)
+	queue_redraw()
+
+
+## Promotes a held press to a drag once it has travelled far enough, and reports
+## the movement while a drag is in flight.
+func _handle_motion(event: InputEventMouseMotion) -> void:
+	var motion: InputEventMouseMotion = event
+	if not _pressing and not _dragging:
+		return
+	if not _dragging:
+		_consume()
+		_start_drag(motion.position)
+		return
+	if _drag_index < 0 or _drag_index >= _deck.size():
+		cancel_drag()
+		return
+	_consume()
+	_drag_point = motion.position
+	tile_dragged.emit(_deck[_drag_index].tile_id, motion.position)
+
+
+## Marks the gesture as taken, so a deck drag cannot also be read as board input
+## (ADR-008 section 8: one gesture, one intent).
+##
+## Guarded against a control that is not in a viewport yet, which is how the
+## headless harness drives this row.
+func _consume() -> void:
+	var viewport: Viewport = get_viewport()
+	if viewport == null:
+		return
+	viewport.set_input_as_handled()
+
+
+## Begins a drag when the press has travelled past `DRAG_THRESHOLD`.
+##
+## Mark mode collects a swap set rather than staging a tile, so a drag is not a
+## swap gesture and does not start while marks are being collected.
+func _start_drag(point: Vector2) -> void:
+	if _mark_mode:
+		return
+	if _press_index < 0 or _press_index >= _deck.size():
+		return
+	if point.distance_to(_press_point) < DRAG_THRESHOLD:
+		return
+	if not _deck[_press_index].is_valid():
+		return
+	_dragging = true
+	_drag_index = _press_index
+	_drag_point = point
+	queue_redraw()
+	tile_drag_started.emit(_deck[_drag_index].tile_id, point)
+
+
+## Ends a drag without reporting a drop, leaving the deck untouched.
+##
+## Called when the whole gesture is abandoned: the row was locked, the row left
+## the tree, it stopped being visible, or the screen refused the release. It ends
+## the press as well, because nothing of that gesture may survive. `notify`
+## decides whether the screen is told, so clearing a drag the screen already ended
+## cannot loop.
+func cancel_drag(notify: bool = true) -> void:
+	_pressing = false
+	_press_index = -1
+	var dragged_id: StringName = _dragged_tile_id()
+	var was_dragging: bool = _dragging
+	_abandon_drag()
+	if was_dragging and notify and not String(dragged_id).is_empty():
+		tile_drag_cancelled.emit(dragged_id)
+
+
+## Clears the drag half of the gesture while leaving the press intact.
+##
+## A press is a tap until it travels past `DRAG_THRESHOLD`, and reporting that tap
+## re-renders the deck, so the redraw must be able to let go of an abandoned drag
+## without destroying a gesture that is still live.
+func _abandon_drag() -> void:
+	if not _dragging and _drag_index == -1:
+		return
+	_dragging = false
+	_drag_index = -1
+	queue_redraw()
+
+
+## Returns the identity of the tile being dragged, or an empty name.
+func _dragged_tile_id() -> StringName:
+	if _drag_index < 0 or _drag_index >= _deck.size():
+		return &""
+	return _deck[_drag_index].tile_id
 
 
 ## Collects or releases taps as swap marks rather than selections
 ## (ADR-011 section 6).
 ##
 ## Entering or leaving mark mode clears the marks: a marked set belongs to one
-## swap attempt, and the screen re-reads what the row holds when it submits.
+## swap attempt, and the screen re-reads what the row holds when it submits. It
+## also cancels a drag, because mark mode is not a staging gesture.
 func set_mark_mode(enabled: bool) -> void:
 	if _mark_mode == enabled:
 		return
 	_mark_mode = enabled
+	cancel_drag()
 	_marked.clear()
 	queue_redraw()
 
@@ -258,6 +531,12 @@ func clear_marks() -> void:
 ## Returns true when `tile_id` is currently marked for the swap.
 func is_marked(tile_id: StringName) -> bool:
 	return _marked.has(tile_id)
+
+
+## Returns the rectangle of a deck tile in this control's local coordinates, or
+## an empty rectangle when the index is not drawn. For diagnostics and tests.
+func tile_rect_at(index: int) -> Rect2:
+	return tile_rect(index, _deck.size(), size)
 
 
 ## Drops marks for tiles the row no longer holds, so a deck change cannot leave a

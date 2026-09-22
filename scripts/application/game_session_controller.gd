@@ -315,6 +315,46 @@ func stage_tile(tile_id: StringName, cell: Vector2i, rotation: int = -1) -> bool
 	return true
 
 
+## Returns whether a drop of `tile_id` on `cell` would put that tile into the
+## pending line, without staging anything (ADR-011 section 11).
+##
+## Presentation needs this for the drag path: AGENTS.md section 8 asks for a live
+## valid-placement highlight, and the verdict has to be the one the staging
+## command itself reaches, or the highlight could promise a drop the command then
+## refuses. This is read-only and mutates nothing: no board write, no deck change,
+## no line change, no turn change, and no notice.
+##
+## The guards are exactly the ones `stage_tile` applies - the human's turn, a tile
+## the human actually holds, neither the tile nor the cell already in the line -
+## plus the two board facts that a whole-line commit also has to satisfy: the cell
+## is on the board, and it is empty (ADR-006 section 3: only an empty cell may
+## receive a tile). Checking those here means a drop puts a tile into the line
+## exactly when the highlight said it would.
+##
+## This is deliberately not the question "is the line legal": a line becomes legal
+## only on its second tile (ADR-011 section 3), so the first tile of a line is
+## always stageable while the line is still illegal. Line legality is reported
+## separately by `is_line_valid`.
+func would_accept_stage(tile_id: StringName, cell: Vector2i) -> bool:
+	if not is_human_turn():
+		return false
+	if _session == null:
+		return false
+	if not BoardEnums.is_in_bounds(cell):
+		return false
+	var tile: TileDefinition = _session.deck_tile(TurnEnums.HUMAN_PLAYER_ID, tile_id)
+	if tile == null:
+		return false
+	if _session.get_board() != null and not _session.get_board().is_empty_cell(cell):
+		return false
+	for staged: TileSnapshot in _staged:
+		if staged.get_tile_id() == tile_id:
+			return false
+		if staged.get_cell() == cell:
+			return false
+	return true
+
+
 ## Removes one staged tile from the pending line, by its cell or tile identity.
 ##
 ## Returns true when something was removed. ADR-011 section 11 lets a player

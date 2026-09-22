@@ -355,3 +355,4 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 ## Amendments
 
 - 2026-09-21: The initial proposal was accepted without changes.
+- 2026-09-22: The move identifier format in section 5 is superseded by ADR-010. A turn may now contain several placements, so a move id carries a placement index: `move:<match-id>:<turn-number>:<placement-index>`. The uniqueness rule, the score event id shapes, and every other part of this ADR are unchanged.

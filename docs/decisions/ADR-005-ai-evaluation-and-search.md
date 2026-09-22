@@ -331,3 +331,4 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 ## Amendments
 
 * 2026-09-21: The initial proposal was accepted without changes.
+* 2026-09-22: Amended by ADR-010. The AI now chooses among every tile in its deck rather than a single active tile, and it plays out its deck before ending its turn. Sections 1 to 6 stand, applied per tile considered; the section 8 budgets apply per placement.

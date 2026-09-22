@@ -1,7 +1,8 @@
 class_name TurnEnums
 extends RefCounted
 
-## Match lifecycle vocabulary (ADR-003 sections 1, 2, 5, 7, and 8).
+## Match lifecycle vocabulary (ADR-003 sections 1, 2, 5, 7, and 8; ADR-010
+## sections 2, 4, 5, and 7).
 ##
 ## This script holds the match-phase names, end reasons, skip reasons, outcome
 ## values, and the two Phase 1 player identities. It owns no state and touches no
@@ -15,8 +16,14 @@ extends RefCounted
 ## - `RECOVERY_ERROR` is the unrecoverable rules failure of ADR-003 section 7
 ##   condition 3.
 ## - The human takes the first turn in the Phase 1 demo (ADR-003 section 2), and
-##   `player_ids()` returns them in that order.
-## - Two consecutive automatic skips end the match (ADR-003 section 5).
+##   `player_ids()` returns them in that order. ADR-010 section 2 deals the
+##   human's deck first for the same reason: a fixed order makes a replay
+##   reproduce the same decks from the same seed, and `deck_deal_order()` is that
+##   order.
+## - ADR-010 section 7 replaces ADR-003 section 5's "two consecutive automatic
+##   skips" with two end conditions: the board is full, or neither player holds a
+##   tile while the pot cannot supply one. `MAX_CONSECUTIVE_SKIPS` therefore
+##   survives as vocabulary for the superseded rule only; no rule reads it.
 
 ## Rules phases of a Phase 1 match (ADR-003 section 1).
 enum MatchPhase {
@@ -36,23 +43,25 @@ enum MatchPhase {
 	RECOVERY_ERROR = 6,
 }
 
-## Why a match ended (ADR-003 section 7).
+## Why a match ended (ADR-003 section 7 condition 3; ADR-010 section 7).
 enum EndReason {
 	## The match has not ended.
 	NONE = 0,
-	## All 144 cells hold a committed tile.
+	## Condition 1: all 144 cells hold a committed tile (ADR-010 section 7).
 	BOARD_FULL = 1,
-	## Neither player has an active tile and the source cannot supply one.
+	## Condition 2: neither player holds a tile and the pot cannot supply one
+	## (ADR-010 section 7). The name is ADR-003's; the condition is ADR-010's.
 	TILE_SOURCE_EXHAUSTED = 2,
 	## Development and recovery only: an implementation error stopped the match.
 	RULES_FAILURE = 3,
 }
 
-## Why a turn was given up without a placement (ADR-003 section 5).
+## Why a turn was given up without a placement (ADR-010 section 4).
 enum SkipReason {
 	## The turn was not skipped.
 	NONE = 0,
-	## No tile could be supplied to the active player.
+	## The active player holds no tiles and the pot cannot supply one, so the
+	## turn ends automatically because that player has no legal placement.
 	NO_TILE_AVAILABLE = 1,
 }
 
@@ -76,7 +85,10 @@ const HUMAN_PLAYER_ID: StringName = &"human"
 ## The AI player's identity in the Phase 1 demo (ADR-003 constraint 1).
 const AI_PLAYER_ID: StringName = &"ai"
 
-## Consecutive automatic no-tile skips that end the match (ADR-003 section 5).
+## Consecutive automatic no-tile skips that ended the match under ADR-003
+## section 5. ADR-010 section 7 supersedes that rule, so no rule reads this value
+## any more; it is retained because ADR-003's own save field and its documented
+## vocabulary name it.
 const MAX_CONSECUTIVE_SKIPS: int = 2
 
 
@@ -84,6 +96,15 @@ const MAX_CONSECUTIVE_SKIPS: int = 2
 ##
 ## A fresh array is returned on every call, so callers may keep or modify it.
 static func player_ids() -> Array[StringName]:
+	return [HUMAN_PLAYER_ID, AI_PLAYER_ID]
+
+
+## Returns the order decks are dealt in at `MATCH_SETUP` (ADR-010 section 2).
+##
+## ADR-010 section 2 fixes the deal order as the human first and then the AI, so
+## the same seed always produces the same decks for the same players
+## (ADR-004 section 3). It is the same fixed order as `player_ids()`.
+static func deck_deal_order() -> Array[StringName]:
 	return [HUMAN_PLAYER_ID, AI_PLAYER_ID]
 
 

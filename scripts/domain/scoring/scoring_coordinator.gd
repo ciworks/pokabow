@@ -26,12 +26,28 @@ extends RefCounted
 const PREVIEW_MOVE_ID: StringName = &"preview"
 
 
-## Returns the deterministic move identifier for a turn
-## (ADR-007 section 5): `move:<match-id>:<turn-number>`.
-static func move_id_for(match_id: StringName, turn_number: int) -> StringName:
+## Returns the deterministic move identifier for one placement
+## (ADR-010 section 9): `move:<match-id>:<turn-number>:<placement-index>`.
+##
+## ADR-010 section 9 replaces ADR-007 section 5's
+## `move:<match-id>:<turn-number>` because a turn may now hold several placements
+## and the shorter form is no longer unique; uniqueness is what makes
+## duplicate-commit refusal idempotent under ADR-007 section 5.
+##
+## `placement_index` is 1-based within the turn. It defaults to 1, the first
+## placement of the turn, so the two-argument ADR-007 form still names a move;
+## a non-positive index is treated as 1 for the same reason. Score event
+## identifiers keep their shape and inherit the whole identifier (ADR-007
+## section 5).
+static func move_id_for(
+	match_id: StringName, turn_number: int, placement_index: int = 1
+) -> StringName:
 	if String(match_id).is_empty() or turn_number <= 0:
 		return &""
-	return StringName("move:%s:%d" % [String(match_id), turn_number])
+	var index: int = placement_index
+	if index <= 0:
+		index = 1
+	return StringName("move:%s:%d:%d" % [String(match_id), turn_number, index])
 
 
 ## Returns the events a placement would create, in ADR-007 section 7 order.

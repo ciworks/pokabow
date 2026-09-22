@@ -56,40 +56,52 @@ How the decision is tested (per AGENTS.md section 16).
 
 | ADR | Title | Resolves | Status |
 |---|---|---|---|
-| ADR-001 | Poker Scoring Values | GAME_SPEC 13.1 | Open - pending decision |
-| ADR-002 | Poker Hand Formation | GAME_SPEC 13.2 | Open - pending decision |
-| ADR-003 | Turn Rules and Game End | GAME_SPEC 13.5, 13.9 | Open - pending decision |
-| ADR-004 | Tile Distribution and Generation | GAME_SPEC 13.6 | Open - pending decision |
-| ADR-005 | AI Evaluation and Search | GAME_SPEC 13.7 | Open - pending decision |
-| ADR-006 | Board Placement Rules | GAME_SPEC 13.8 | Open - pending decision |
-| ADR-007 | Incremental Scoring Architecture | Technical (GAME_SPEC 4.5, 12.3) | Open |
-| ADR-008 | Godot Project Architecture | Technical (GAME_SPEC 9, 12.1, 12.2) | Open |
-| ADR-009 | Edge Cluster Definition and Bonus | GAME_SPEC 13.3, 13.4 | Open - pending decision |
+| ADR-001 | Poker Hand Formation and Scoring | GAME_SPEC 13.1, 13.2 | Accepted |
+| ADR-002 | Edge Cluster Definition and Bonus | GAME_SPEC 13.3, 13.4 | Accepted |
+| ADR-003 | Turn Rules and Game End | GAME_SPEC 13.5, 13.9 | Accepted; superseded in part by ADR-010 |
+| ADR-004 | Tile Distribution and Generation | GAME_SPEC 13.6 | Accepted; section 6 superseded by ADR-010 |
+| ADR-005 | AI Evaluation and Search | GAME_SPEC 13.7 | Accepted; amended by ADR-010 |
+| ADR-006 | Board Placement Rules | GAME_SPEC 13.8 | Accepted |
+| ADR-007 | Incremental Scoring Architecture | Technical (GAME_SPEC 4.5, 12.3) | Accepted; section 5 superseded by ADR-010 |
+| ADR-008 | Godot Project Architecture | Technical (GAME_SPEC 9, 12.1, 12.2) | Accepted |
+| ADR-010 | Deck of Six and Multi-Placement Turns | Technical (GAME_SPEC 13.5, 13.6) | Accepted |
 
 ADR-007 and ADR-008 are technical/architectural decisions; they do not change
-game rules. ADR-001 through ADR-006 and ADR-009 change game rules and require an
+game rules. ADR-001 through ADR-006 and ADR-010 change game rules and required an
 explicit owner decision before implementation.
+
+`ADR-009` is not used. That number was reserved here for the edge-cluster
+decision, which was delivered as `ADR-002` instead; the reservation is left
+recorded so the number is never silently reused.
 
 ## Current file state
 
-- The following ADR files exist but are empty (0 bytes) and await content:
-  `ADR-003`, `ADR-004`, `ADR-005`, `ADR-006`, `ADR-007`, `ADR-008`.
-- There is no `ADR-002` file yet; it is listed in the index because hand
-  formation (GAME_SPEC 13.2) is a distinct decision from poker scoring values
-  (13.1).
-- The `ADR-001` file has a corrupted (non-ASCII) filename. It should be renamed
-  to `ADR-001-poker-scoring-values.md` when its content is written.
-- `ADR-009` does not exist yet; it is added to the index because edge clusters
-  (GAME_SPEC 13.3, 13.4) are not covered by any existing ADR number.
+Every ADR listed in the index above is written and accepted:
+
+- `ADR-001-poker-hand-formation-and-scoring.md`
+- `ADR-002-edge-cluster-definition-and-bonus.md`
+- `ADR-003-turn-rules-and-game-end.md`
+- `ADR-004-tile-distribution-and-generation.md`
+- `ADR-005-ai-evaluation-and-search.md`
+- `ADR-006-board-placement-rules.md`
+- `ADR-007-incremental-scoring-architecture.md`
+- `ADR-008-godot-project-architecture.md`
+- `ADR-010-deck-of-six-and-multi-placement-turns.md`
+
+Where an ADR has been partly superseded, the amendment entry at the end of that
+ADR names the new decision. Read the amendment before implementing any
+superseded section.
 
 ## Blocking chain
 
-Phase 1 implementation is blocked on the following decisions, in dependency
-order:
+No decision currently blocks Phase 1 implementation. The original blockers were
+resolved as follows:
 
-1. ADR-006 (placement rules) and ADR-004 (tile generation) - prerequisites for
-   the first playable board.
-2. ADR-002 and ADR-001 (hand formation and values) - prerequisites for scoring.
-3. ADR-009 (clusters) - completes edge scoring.
-4. ADR-003 (turn rules and game end) - completes the game loop.
-5. ADR-005 (AI evaluation) - completes the Human vs AI mode.
+1. Board placement rules - ADR-006. Generated tiles remain playable while board
+   space exists.
+2. Hand formation and values - ADR-001.
+3. Edge clusters - ADR-002, which also covers the open item the index once
+   reserved as ADR-009.
+4. Turn rules and game end - ADR-003, superseded in part by ADR-010.
+5. AI evaluation and search - ADR-005, amended by ADR-010.
+6. Project architecture - ADR-008.

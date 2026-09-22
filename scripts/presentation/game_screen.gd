@@ -36,9 +36,11 @@ const RIVAL_WAITING_TEXT: String = "Rival is choosing a move..."
 @onready var board_view: BoardView = %BoardView
 @onready var board_input: BoardInputController = %BoardInputController
 @onready var active_tile_view: ActiveTileView = %ActiveTileView
+@onready var deck_view: DeckView = %DeckView
 @onready var rotate_button: Button = %RotateButton
 @onready var confirm_button: Button = %ConfirmButton
 @onready var cancel_button: Button = %CancelButton
+@onready var end_turn_button: Button = %EndTurnButton
 @onready var restart_button: Button = %RestartButton
 @onready var human_score_value: Label = %HumanScoreValue
 @onready var ai_score_value: Label = %AiScoreValue
@@ -74,9 +76,11 @@ func _bind_nodes() -> void:
 	board_view = get_node_or_null("%BoardView") as BoardView
 	board_input = get_node_or_null("%BoardInputController") as BoardInputController
 	active_tile_view = get_node_or_null("%ActiveTileView") as ActiveTileView
+	deck_view = get_node_or_null("%DeckView") as DeckView
 	rotate_button = get_node_or_null("%RotateButton") as Button
 	confirm_button = get_node_or_null("%ConfirmButton") as Button
 	cancel_button = get_node_or_null("%CancelButton") as Button
+	end_turn_button = get_node_or_null("%EndTurnButton") as Button
 	restart_button = get_node_or_null("%RestartButton") as Button
 	human_score_value = get_node_or_null("%HumanScoreValue") as Label
 	ai_score_value = get_node_or_null("%AiScoreValue") as Label
@@ -123,7 +127,9 @@ func _setup_buttons() -> void:
 	rotate_button.pressed.connect(_on_rotate_pressed)
 	confirm_button.pressed.connect(_on_confirm_pressed)
 	cancel_button.pressed.connect(_on_cancel_pressed)
+	end_turn_button.pressed.connect(_on_end_turn_pressed)
 	restart_button.pressed.connect(_on_restart_pressed)
+	deck_view.tile_selected.connect(_on_deck_tile_selected)
 
 
 func _on_cell_tapped(cell: Vector2i) -> void:
@@ -154,6 +160,33 @@ func _on_cancel_pressed() -> void:
 	if controller == null:
 		return
 	controller.cancel_pending()
+
+
+## Ends the human's turn, keeping any unplaced tiles (ADR-010 section 4).
+##
+## ADR-010 section 4 makes ending a turn an explicit action available throughout
+## the action phase, so this is what closes a multi-placement turn; a placement
+## never closes it.
+func _on_end_turn_pressed() -> void:
+	if controller == null:
+		return
+	controller.end_human_turn()
+
+
+## Arms one of the human's deck tiles (ADR-010 section 12).
+##
+## Selecting a deck tile is what a placement is armed with (ADR-010 section 4),
+## so this is the only way the player chooses which of their tiles to commit. The
+## selection is forwarded to the controller, which is where a tile is armed; the
+## screen only reports the player's choice.
+func _on_deck_tile_selected(tile_id: StringName) -> void:
+	if controller == null:
+		return
+	controller.select_deck_tile(tile_id)
+	# The row is re-rendered from the controller either way, so a refused
+	# selection cannot leave it showing a tile the application layer has not
+	# armed.
+	_refresh_deck()
 
 
 func _on_restart_pressed() -> void:
@@ -225,6 +258,8 @@ func _refresh_all() -> void:
 	if not has_controller:
 		board_input.enabled = false
 		active_tile_view.clear()
+		deck_view.set_deck([] as Array[TileDefinition])
+		deck_view.set_locked(true)
 		_set_interactive(false)
 		turn_indicator.text = ""
 		remaining_tiles_label.text = ""
@@ -248,8 +283,23 @@ func _refresh_all() -> void:
 		turn_indicator.text = "Rival's turn"
 
 	_refresh_active_tile()
+	_refresh_deck()
 	_refresh_status()
 	_refresh_preview()
+
+
+## Redraws the human's deck row and its selection (ADR-010 section 12).
+##
+## Both values come from the controller, so the row can never disagree with the
+## tile the next placement would commit: the deck is what the human holds and the
+## selection is what the application layer has armed (ADR-010 sections 4 and 10).
+func _refresh_deck() -> void:
+	if controller == null:
+		deck_view.set_deck([] as Array[TileDefinition])
+		deck_view.set_locked(true)
+		return
+	deck_view.set_deck(controller.human_deck(), controller.selected_deck_tile_id())
+	deck_view.set_locked(not controller.is_human_turn())
 
 
 ## Shows or hides the active tile and its rotation.
@@ -297,14 +347,23 @@ func _refresh_status() -> void:
 		else:
 			status_label.text = controller.pending_reason()
 		return
-	status_label.text = "Tap a highlighted cell"
+	# ADR-010 sections 3 and 4: a placement no longer ends the turn, so the
+	# screen states how the turn finishes rather than leaving the player waiting
+	# for a hand-over that only the end-turn action causes.
+	status_label.text = "Tap a highlighted cell, or End Turn"
 
 
 ## Enables the tile controls only when the human may act.
+##
+## ADR-010 section 4 keeps end-turn available throughout the action phase,
+## including before any tile has been placed, so it is gated by the same
+## condition as the placement controls rather than by whether a placement has
+## happened.
 func _set_interactive(enabled: bool) -> void:
 	rotate_button.disabled = not enabled
 	confirm_button.disabled = not enabled
 	cancel_button.disabled = not enabled
+	end_turn_button.disabled = not enabled
 
 
 ## Returns where a popup for `cell` should appear, in this screen's coordinates.

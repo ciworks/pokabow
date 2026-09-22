@@ -301,7 +301,11 @@ func test_the_controller_reports_an_ai_thinking_state() -> void:
 	check_eq(
 		controller.get_session().move_count(), 1, "the human move must commit exactly once"
 	)
-	check(not controller.is_human_turn(), "the committed move must pass the turn")
+	# ADR-010 section 3 step 9: a committed placement leaves the turn open, so
+	# the human closes it explicitly before the rival may answer (section 4).
+	check(controller.is_human_turn(), "a committed move must leave the turn open")
+	controller.end_human_turn()
+	check(not controller.is_human_turn(), "ending the turn must pass play to the rival")
 
 	controller._on_ai_think_timeout()
 	check_eq(
@@ -404,6 +408,11 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	if not check(result != null and result.was_committed(), "the human move must commit"):
 		return null
 	TurnManager.resolve(session, result)
+	# ADR-010 section 3 makes a turn one or more placements, so one committed
+	# tile does not pass play: the human ends the turn explicitly (section 4)
+	# before the opponent can reach its action phase and be topped up at the
+	# turn boundary (section 5).
+	TurnManager.end_turn(session)
 	if not check(
 		TurnManager.is_awaiting_ai_action(session),
 		"the fixture must reach the opponent's action phase"

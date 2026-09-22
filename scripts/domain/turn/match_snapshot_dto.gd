@@ -2,7 +2,7 @@ class_name MatchSnapshotDto
 extends RefCounted
 
 ## Versioned save record for one match (ADR-003 section 9, ADR-004 save and
-## replay requirements).
+## replay requirements, ADR-010 sections 5 and 9).
 ##
 ## ADR-003 section 9 lists what a restorable snapshot must contain; this type is
 ## that record. It deliberately stores tile *identity plus placement* rather than
@@ -11,16 +11,26 @@ extends RefCounted
 ## duplicating face and edge data.
 ##
 ## ADR-004 requires a load to assert that every tile ID appears in exactly one
-## place: the remaining bag, a player's active slot, or a committed cell. That
-## assertion lives in `GameSessionState.verify_tile_conservation()`, which
+## place: the remaining pot, a player's deck, or a committed cell. That assertion
+## lives in `GameSessionState.verify_tile_conservation()`, which
 ## `GameSessionState.from_snapshot()` runs before accepting a restore.
+##
+## ADR-010 section 5 replaces the single active tile with a per-player deck, so
+## this record stores each player's deck rather than an active-tile slot, and
+## ADR-010 section 9 records the deck rules version alongside the other rule
+## versions so a deck-size change can be detected on load.
 ##
 ## ADR-003 section 9 forbids persisting a transient visual preview as
 ## authoritative board state, and requires a resume during a preview to come back
-## at `AWAIT_ACTION` with the active tile uncommitted. A snapshot taken while a
-## move is mid-resolution is therefore rejected rather than restored.
+## at `AWAIT_ACTION` with the player's uncommitted tiles intact. A snapshot taken
+## while a move is mid-resolution is therefore rejected rather than restored.
 
-const SCHEMA_VERSION: int = 1
+## Save schema version.
+##
+## Raised to 2 when ADR-010 replaced the single active tile with per-player
+## decks: a version 1 record has no deck identity and would restore a match with
+## no tiles in hand, so it is refused rather than migrated.
+const SCHEMA_VERSION: int = 2
 
 var schema_version: int = SCHEMA_VERSION
 
@@ -36,14 +46,23 @@ var tile_generation_version: String = ""
 ## Scoring rules version recorded in force for this match.
 var scoring_version: String = ""
 
+## Deck rules version recorded in force for this match (ADR-010 section 9).
+##
+## Deck size and the placements-per-turn allowance live in a versioned resource
+## (ADR-010 section 1), so a match saved under one deck rule set cannot be
+## silently resumed under another.
+var deck_rules_version: String = ""
+
 ## Complete bag order, draw position, and generation identity (ADR-004).
 var tile_source: TileSourceDto = null
 
 ## Committed tiles: records of `{tile_id, cell, rotation}`.
 var board: Array = []
 
-## Each player's active uncommitted tile: `{player_id: tile_id}`.
-var active_tiles: Dictionary = {}
+## Each player's deck of unplayed tiles: `{player_id: [tile_id, ...]}`
+## (ADR-010 section 2). Only the IDs are stored; the tile values come back out of
+## the bag record on restore.
+var decks: Dictionary = {}
 
 ## Turn position: `{phase, active_player_id, turn_number, consecutive_no_tile_skips}`.
 var turn: Dictionary = {}
@@ -73,6 +92,8 @@ func is_valid() -> bool:
 		return false
 	if tile_generation_version.is_empty() or scoring_version.is_empty():
 		return false
+	if deck_rules_version.is_empty():
+		return false
 	if tile_source == null or not tile_source.is_valid():
 		return false
 	if not turn.has("phase"):
@@ -96,6 +117,9 @@ func is_valid() -> bool:
 	for record: Variant in board:
 		if not _is_board_record_valid(record):
 			return false
+	for key: Variant in decks.keys():
+		if not _is_deck_record_valid(decks[key]):
+			return false
 	for record: Variant in history:
 		if not (record is Dictionary):
 			return false
@@ -114,9 +138,10 @@ func to_dictionary() -> Dictionary:
 		"seed": seed,
 		"tile_generation_version": tile_generation_version,
 		"scoring_version": scoring_version,
+		"deck_rules_version": deck_rules_version,
 		"tile_source": null if tile_source == null else tile_source.to_dictionary(),
 		"board": board.duplicate(),
-		"active_tiles": active_tiles.duplicate(),
+		"decks": decks.duplicate(),
 		"turn": turn.duplicate(),
 		"history": history_records,
 		"ledger": ledger.duplicate(),
@@ -134,15 +159,16 @@ static func from_dictionary(source: Dictionary) -> MatchSnapshotDto:
 	dto.seed = int(source.get("seed", 0))
 	dto.tile_generation_version = String(source.get("tile_generation_version", ""))
 	dto.scoring_version = String(source.get("scoring_version", ""))
+	dto.deck_rules_version = String(source.get("deck_rules_version", ""))
 	var raw_source: Variant = source.get("tile_source", null)
 	if raw_source is Dictionary:
 		dto.tile_source = TileSourceDto.from_dictionary(raw_source)
 	var raw_board: Variant = source.get("board", [])
 	if raw_board is Array:
 		dto.board = raw_board.duplicate()
-	var raw_active: Variant = source.get("active_tiles", {})
-	if raw_active is Dictionary:
-		dto.active_tiles = raw_active.duplicate()
+	var raw_decks: Variant = source.get("decks", {})
+	if raw_decks is Dictionary:
+		dto.decks = raw_decks.duplicate()
 	var raw_turn: Variant = source.get("turn", {})
 	if raw_turn is Dictionary:
 		dto.turn = raw_turn.duplicate()
@@ -158,6 +184,21 @@ static func from_dictionary(source: Dictionary) -> MatchSnapshotDto:
 	dto.outcome = int(source.get("outcome", TurnEnums.MatchOutcome.IN_PROGRESS))
 	dto.end_reason = int(source.get("end_reason", TurnEnums.EndReason.NONE))
 	return dto
+
+
+## Returns true when one deck record is a list of non-empty tile identifiers.
+##
+## An empty deck is legal (ADR-010 section 6 lets a player finish a turn with no
+## tiles left while the pot is empty), so only the record's shape is checked here;
+## whether the tiles it names actually exist is settled by the tile-conservation
+## check on restore.
+static func _is_deck_record_valid(record: Variant) -> bool:
+	if not (record is Array):
+		return false
+	for entry: Variant in record:
+		if String(entry).is_empty():
+			return false
+	return true
 
 
 ## Returns true when one board record names a tile and a valid cell and rotation.

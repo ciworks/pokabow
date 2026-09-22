@@ -221,12 +221,62 @@ func clear_saved_match() -> void:
 # --- Commands (presentation to application, ADR-008 section 7) -------------
 
 
-## Previews a placement of the active tile at `cell`.
+## Selects one of the human's deck tiles as the tile to place (ADR-010 section 4).
+##
+## ADR-010 section 12 makes selecting a deck tile what arms a placement, so this
+## is the only way a player chooses which of their six tiles to commit. The
+## selection is an application-layer choice, not authoritative state: it only
+## names a tile the player already holds, which the session verifies.
+##
+## Returns true when the selection was accepted. An outstanding preview is
+## re-checked against the newly selected tile at the same cell, so switching
+## tiles never leaves a stale preview behind.
+func select_deck_tile(tile_id: StringName) -> bool:
+	if not is_human_turn():
+		return false
+	var tile: TileDefinition = _session.deck_tile(TurnEnums.HUMAN_PLAYER_ID, tile_id)
+	if tile == null:
+		notice.emit("That tile is not in your deck")
+		return false
+	if not _session.set_active_tile(TurnEnums.HUMAN_PLAYER_ID, tile):
+		return false
+
+	if _pending_snapshot != null:
+		_validate_pending(tile, _pending_cell, _pending_rotation)
+	else:
+		_pending_rotation = 0
+	preview_changed.emit()
+	return true
+
+
+## Ends the human's turn, keeping any unplaced tiles in the deck
+## (ADR-010 section 4).
+##
+## End-turn is available throughout the action phase, including before any tile
+## has been placed, so a player may pass. The turn boundary itself is the domain's
+## (`TurnManager.end_turn`): it refills the deck, checks the end conditions, and
+## hands play over.
+func end_human_turn() -> void:
+	if _session == null or _session.is_over():
+		return
+	if not TurnManager.is_awaiting_human_action(_session):
+		return
+	_reset_pending()
+	TurnManager.end_turn(_session)
+	_after_state_change()
+
+
+## Previews a placement of the selected deck tile at `cell`.
+##
+## ADR-010 section 4: a placement is armed by selecting a deck tile, so the tile
+## previewed is the player's selected tile, or the deck's first tile when they
+## have not chosen one yet.
 func preview_placement(cell: Vector2i) -> void:
 	if not is_human_turn():
 		return
-	var tile: TileDefinition = _session.active_tile_for(TurnEnums.HUMAN_PLAYER_ID)
+	var tile: TileDefinition = human_tile()
 	if tile == null:
+		notice.emit("Your deck is empty")
 		return
 	_pending_rotation = 0 if _pending_snapshot == null else _pending_rotation
 	_pending_cell = cell
@@ -241,7 +291,7 @@ func preview_placement(cell: Vector2i) -> void:
 func rotate_pending() -> void:
 	if not is_human_turn():
 		return
-	var tile: TileDefinition = _session.active_tile_for(TurnEnums.HUMAN_PLAYER_ID)
+	var tile: TileDefinition = human_tile()
 	if tile == null:
 		return
 	_pending_rotation = (_pending_rotation + 1) % TileEnums.ROTATION_COUNT
@@ -256,6 +306,9 @@ func rotate_pending() -> void:
 ## preview so the player can adjust and retry (ADR-003 section 5).
 func confirm_pending() -> PlacementResult:
 	if not is_human_turn():
+		return null
+	if human_tile() == null:
+		notice.emit("Your deck is empty")
 		return null
 	if _pending_snapshot == null:
 		notice.emit("Choose a cell first")
@@ -273,6 +326,11 @@ func confirm_pending() -> PlacementResult:
 		return result
 
 	_reset_pending()
+	# ADR-010 section 5: the committed tile left the deck and the deck does not
+	# refill mid-turn, so a selection of that tile is released with it (the
+	# commit removes the tile from the deck, which disarms it). Any remaining
+	# tile may then be placed in the same turn (ADR-010 section 3 step 9).
+	state_changed.emit()
 	return result
 
 
@@ -369,13 +427,50 @@ func pending_rotation() -> int:
 
 ## Returns the human's uncommitted tile, or null when they hold none.
 ##
-## ADR-003 section 4: a player has at most one active tile, so this is exactly
-## what the active-tile panel must display and exactly what a confirm would
-## place.
+## ADR-010 section 4: a placement commits a tile the player holds, so this is the
+## tile a confirm would place: the selected deck tile when one is selected, and
+## otherwise the deck's first tile.
 func human_tile() -> TileDefinition:
 	if _session == null:
 		return null
 	return _session.active_tile_for(TurnEnums.HUMAN_PLAYER_ID)
+
+
+## Returns the human's deck in deal order, or an empty array (ADR-010 section 1).
+##
+## This is what the deck row renders: a copy of the authoritative deck, so the
+## view cannot mutate the match by drawing from it. Returning the tiles rather
+## than only their count is deliberate: ADR-010 section 12 has the player choose
+## among their own six tiles, and the six are the player's own information.
+func human_deck() -> Array[TileDefinition]:
+	if _session == null:
+		return [] as Array[TileDefinition]
+	return _session.deck_for(TurnEnums.HUMAN_PLAYER_ID)
+
+
+## Returns how many tiles the human holds.
+func human_deck_count() -> int:
+	if _session == null:
+		return 0
+	return _session.deck_count(TurnEnums.HUMAN_PLAYER_ID)
+
+
+## Returns the identity of the human's selected deck tile, or an empty name.
+##
+## The selection lives on the session, so this and `human_tile()` can never
+## disagree about which tile the next placement commits.
+func selected_deck_tile_id() -> StringName:
+	if _session == null:
+		return &""
+	return _session.armed_tile_id_for(TurnEnums.HUMAN_PLAYER_ID)
+
+
+## Returns true while the human may end their turn (ADR-010 section 4).
+##
+## End-turn is available throughout the action phase, including before any tile
+## has been placed, so this is the same condition as `is_human_turn()`.
+func can_end_turn() -> bool:
+	return is_human_turn()
 
 
 ## Returns true while a placement is previewed and awaiting confirmation.
@@ -399,14 +494,27 @@ func is_over() -> bool:
 ## Selects the opponent difficulty (ADR-005 sections 4 to 6).
 ##
 ## The change takes effect on the next decision; an analysis in flight is
-## cancelled rather than finished under the previous policy.
+## cancelled rather than finished under the previous policy. An unknown value is
+## normalised to the documented default here rather than left for the search, so
+## `ai_difficulty()` always reports the policy that is actually in force.
+##
+## The opponent is never stranded by the change: a cancelled analysis is not
+## resumed by itself, so when the match is still waiting on the rival the move is
+## scheduled again under the new policy (ADR-005 section 9, ADR-010 section 4).
 func set_ai_difficulty(difficulty: int) -> void:
+	var selected: int = difficulty
+	if not AiEnums.is_valid_difficulty(selected):
+		selected = DEFAULT_AI_DIFFICULTY
 	if _ai == null:
-		_ai = AiCoordinator.create(difficulty)
+		_ai = AiCoordinator.create(selected)
+	else:
+		_cancel_ai_analysis()
+		_set_ai_thinking(false)
+		_ai.set_difficulty(selected)
+	if _session == null or _session.is_over():
 		return
-	_cancel_ai_analysis()
-	_set_ai_thinking(false)
-	_ai.set_difficulty(difficulty)
+	if TurnManager.is_awaiting_ai_action(_session):
+		_schedule_ai_move()
 
 
 ## Returns the opponent difficulty in force (`AiEnums.Difficulty` value).
@@ -556,13 +664,18 @@ func _after_state_change() -> void:
 ## it is presentation pacing only and cannot influence move selection, because
 ## ADR-005 section 8 requires deterministic work budgets rather than wall-clock
 ## cutoffs inside the search (ADR-008 section 9).
+##
+## The thinking state is deliberately NOT raised here. ADR-005 section 9 makes it
+## describe an analysis, not a pause, and a turn now holds several placements
+## (ADR-010 section 11), so raising it at scheduling time would report the rival
+## as still thinking the moment its previous placement landed and never let the
+## state clear between placements.
 func _schedule_ai_move() -> void:
 	if _ai_scheduled:
 		return
 	if get_tree() == null:
 		return
 	_ai_scheduled = true
-	_set_ai_thinking(true)
 	var delay: float = 0.0
 	if _ai != null:
 		delay = _ai.presentation_delay_seconds()
@@ -571,6 +684,9 @@ func _schedule_ai_move() -> void:
 
 
 ## Plays the scheduled opponent move.
+##
+## This is where the rival's analysis actually starts, so this is where the
+## thinking state is raised (ADR-005 section 9).
 func _on_ai_think_timeout() -> void:
 	_ai_scheduled = false
 	if _session == null or _session.is_over():
@@ -579,28 +695,67 @@ func _on_ai_think_timeout() -> void:
 	if not TurnManager.is_awaiting_ai_action(_session):
 		_set_ai_thinking(false)
 		return
+	_set_ai_thinking(true)
 	_play_ai_move()
 
 
-## Asks the domain coordinator for a move and commits it through the move path.
+## Plays one opponent placement, then lets the turn continue or close.
 ##
 ## The AI never reaches the board directly: it returns a proposal and
 ## `_commit()` validates, commits, and resolves it exactly as a human move is
 ## resolved, so there is one commit path for both players (ADR-005 section 11,
 ## ADR-007 section 4).
+##
+## ADR-010 section 11 makes a placement commit one tile out of the rival's whole
+## deck and its turn policy "keep placing until the deck is exhausted, then end
+## the turn". The rival therefore places one tile here, and the turn either
+## continues (the deck still holds a tile, so a follow-up analysis is scheduled
+## through the ordinary presentation timer) or closes:
+##
+## - a deck emptied by the placement ends the turn inside `TurnManager.resolve`
+##   (ADR-010 section 4), and
+## - a refusal or a decision with no legal move ends the turn here, through the
+##   same `TurnManager.end_turn` boundary the human uses, so a rival who cannot
+##   move never leaves the match waiting.
 func _play_ai_move() -> void:
-	var tile: TileDefinition = _session.active_tile_for(TurnEnums.AI_PLAYER_ID)
-	if tile == null or _ai == null:
+	if _session == null or _session.is_over():
 		_set_ai_thinking(false)
 		return
+	if _ai == null:
+		_set_ai_thinking(false)
+		return
+	if not TurnManager.is_awaiting_ai_action(_session):
+		_set_ai_thinking(false)
+		return
+	var deck: Array[TileDefinition] = _session.deck_for(TurnEnums.AI_PLAYER_ID)
+	if deck.is_empty():
+		# ADR-010 section 4: a player holding no tiles has no legal placement, so
+		# the turn ends rather than stalling the match.
+		TurnManager.end_turn(_session)
+		_set_ai_thinking(false)
+		_after_state_change()
+		return
 
+	# ADR-010 section 11: the candidate source is every tile in the rival's own
+	# deck, never a single tile and never the undrawn pot (ADR-004 section 7).
 	_ai_cancellation = AiCancellationToken.new()
-	var decision: AiDecision = _ai.choose_move(_session, tile, _ai_cancellation)
+	var decision: AiDecision = _ai.choose_move(_session, deck, _ai_cancellation)
 	_ai_cancellation = null
 	_set_ai_thinking(_ai.is_thinking())
 
 	if decision == null or not decision.has_move():
 		_report_unplayable_decision(decision)
+		return
+
+	# ADR-010 sections 3 and 4: the commit path places the tile the player has
+	# armed, so the tile the decision was made with is armed here. The rival
+	# therefore commits through exactly the same path as the human, and a
+	# proposal decided for one deck tile can never be committed with another.
+	var decided: TileDefinition = _ai.decided_tile()
+	if decided == null or not _session.set_active_tile(TurnEnums.AI_PLAYER_ID, decided):
+		notice.emit("Rival could not play a move")
+		TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
+		_after_state_change()
 		return
 
 	var result: PlacementResult = _commit(
@@ -618,26 +773,31 @@ func _play_ai_move() -> void:
 	_after_state_change()
 
 
-## Reports a decision that carried no committable move.
+## Reports a decision that carried no committable move, and closes the turn.
 ##
 ## ADR-005 section 2 requires the structured refusal to be reported rather than
 ## replaced with an illegal fallback, and ADR-005 section 9 forbids acting on a
 ## cancelled analysis at all. ADR-005 section 11 sends an AI implementation
 ## failure to ADR-003's recoverable error state instead of substituting a move.
+##
+## ADR-010 section 4 ends the rival's turn in every non-failure case, so a
+## structured refusal can never leave the match waiting on a move that will not
+## come. The turn boundary stays the domain's: `TurnManager.end_turn` refills the
+## deck, checks the end conditions, and hands play back.
 func _report_unplayable_decision(decision: AiDecision) -> void:
-	if decision == null:
-		TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
-		notice.emit("Rival could not choose a move")
-		return
-	if decision.is_cancelled():
+	if decision != null and decision.is_cancelled():
 		# The match moved on (a restart, a difficulty change, or the node being
-		# freed), so nothing is wrong and nothing is reported.
+		# freed), so the turn is not closed here and nothing is reported.
 		return
-	if decision.is_no_legal_move():
+
+	if decision == null or not decision.is_no_legal_move():
+		notice.emit("Rival could not choose a move")
+		TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
+	else:
 		notice.emit("Rival has no legal move")
-		return
-	TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
-	notice.emit("Rival could not choose a move")
+		TurnManager.end_turn(_session)
+
+	_set_ai_thinking(false)
 	_after_state_change()
 
 

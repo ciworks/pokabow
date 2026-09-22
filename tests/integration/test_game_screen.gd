@@ -39,6 +39,7 @@ func test_game_screen_provides_the_adr_008_hierarchy() -> void:
 		"Root/Column/Hud/HumanScorePanel": "PanelContainer",
 		"Root/Column/Hud/AiScorePanel": "PanelContainer",
 		"Root/Column/Body/SidePanel/ActiveTilePanel": "PanelContainer",
+		"Root/Column/DeckBar/DeckPanel/DeckRow/DeckView": "Control",
 	}
 	for path: String in expected.keys():
 		var node: Node = screen.get_node_or_null(path)
@@ -54,9 +55,11 @@ func test_game_screen_provides_the_adr_008_hierarchy() -> void:
 		"BoardView",
 		"BoardInputController",
 		"ActiveTileView",
+		"DeckView",
 		"RotateButton",
 		"ConfirmButton",
 		"CancelButton",
+		"EndTurnButton",
 		"RestartButton",
 		"HumanScoreValue",
 		"AiScoreValue",
@@ -134,16 +137,52 @@ func test_human_input_is_gated_to_the_human_action_phase() -> void:
 	check(screen.board_input.enabled, "the board accepts input on the human's turn")
 	check(not screen.confirm_button.disabled, "Confirm is available on the human's turn")
 	check(not screen.rotate_button.disabled, "Rotate is available on the human's turn")
+	check(not screen.end_turn_button.disabled, "End Turn is available on the human's turn")
+	check(not screen.deck_view.is_locked(), "the deck row is selectable on the human's turn")
 
-	# Commit a legal opening move, which hands the turn to the opponent.
+	# ADR-010 section 3 step 9: a turn holds one or more placements, so a
+	# committed placement must NOT freeze the human's input. The turn stays open
+	# until the explicit end-turn action of ADR-010 section 4.
 	screen._on_cell_tapped(_first_frontier(controller.get_board()))
 	screen._on_confirm_pressed()
 
-	check(not controller.is_human_turn(), "the committed move passes the turn")
+	check(controller.is_human_turn(), "one placement does not end the turn")
+	check_eq(
+		controller.get_session().move_count(), 1, "the placement must be committed"
+	)
+	check(
+		screen.board_input.enabled,
+		"the board must keep accepting input for the player's further placements"
+	)
+	check(
+		not screen.confirm_button.disabled,
+		"Confirm stays available for a further placement in the same turn"
+	)
+	check(
+		not screen.rotate_button.disabled,
+		"Rotate stays available for a further placement in the same turn"
+	)
+	check(
+		not screen.end_turn_button.disabled, "End Turn stays available until the turn ends"
+	)
+	check(
+		not screen.deck_view.is_locked(), "the deck row stays selectable while the turn is open"
+	)
+	check(
+		screen.deck_view.deck_size() > 0, "the player's remaining tiles are still shown"
+	)
+
+	# ADR-010 section 4: the explicit end-turn action is what closes the turn, and
+	# only then does the human's input freeze.
+	screen._on_end_turn_pressed()
+
+	check(not controller.is_human_turn(), "the explicit end-turn hands play to the rival")
 	check(not screen.board_input.enabled, "the board must not accept input off-turn")
 	check(screen.confirm_button.disabled, "Confirm must be disabled off-turn")
 	check(screen.cancel_button.disabled, "Cancel must be disabled off-turn")
 	check(screen.rotate_button.disabled, "Rotate must be disabled off-turn")
+	check(screen.end_turn_button.disabled, "End Turn must be disabled off-turn")
+	check(screen.deck_view.is_locked(), "the deck row must not be selectable off-turn")
 	_release(screen)
 
 
@@ -322,7 +361,10 @@ func _host_screen() -> GameScreen:
 		screen.free()
 		return null
 
-	var controller: GameSessionController = GameSessionController.create()
+	# Built with `new()` because that is how `AppRoot` composes the game
+	# (ADR-008 section 5); the `create()` factory exists for intent and must not
+	# be the only path these smoke tests exercise.
+	var controller: GameSessionController = GameSessionController.new()
 	screen.add_child(controller)
 	screen.attach_controller(controller)
 	controller.start_new_match(TEST_MATCH_ID, TEST_SEED)

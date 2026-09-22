@@ -277,7 +277,12 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	return session
 
 
-## Commits the human's first legal move and resolves the turn.
+## Commits the human's first legal move and closes the turn (ADR-010 section 4).
+##
+## ADR-010 section 3 makes a turn one or more placements, so a committed tile no
+## longer passes play by itself: the fixture ends the turn explicitly before the
+## opponent can reach its action phase. Ending it here also runs the turn
+## boundary of ADR-010 section 5, so the deck a test inspects is the refilled one.
 func _play_human_move(session: GameSessionState) -> void:
 	var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
 	if not check(frontier.size() > 0, "the board must offer a frontier cell"):
@@ -288,6 +293,7 @@ func _play_human_move(session: GameSessionState) -> void:
 	):
 		return
 	TurnManager.resolve(session, result)
+	TurnManager.end_turn(session)
 
 
 ## Builds a standard-rules session.

@@ -1,0 +1,8 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/domain/turn/deck_rules.gd" id="1_deck"]
+
+[resource]
+script = ExtResource("1_deck")
+schema_version = 1
+deck_size = 6

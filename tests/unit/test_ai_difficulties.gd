@@ -322,7 +322,8 @@ func test_a_stale_proposal_is_refused_and_the_retry_is_bounded() -> void:
 		return
 	var coordinator: AiCoordinator = AiCoordinator.create(AiEnums.Difficulty.MEDIUM)
 	var tile: TileDefinition = session.active_tile_for(AI)
-	var decision: AiDecision = coordinator.choose_move(session, tile, AiCancellationToken.new())
+	var tiles: Array[TileDefinition] = [tile]
+	var decision: AiDecision = coordinator.choose_move(session, tiles, AiCancellationToken.new())
 	if not check_not_null(decision, "the coordinator must produce a decision"):
 		return
 	if not check(decision.has_move(), "the coordinator must propose a move"):
@@ -460,8 +461,9 @@ func _play(session: GameSessionState, coordinator: AiCoordinator, ai_turns: int)
 			var tile: TileDefinition = session.active_tile_for(AI)
 			if tile == null:
 				break
+			var tiles: Array[TileDefinition] = [tile]
 			var decision: AiDecision = coordinator.choose_move(
-				session, tile, AiCancellationToken.new()
+				session, tiles, AiCancellationToken.new()
 			)
 			if decision == null or not decision.has_move():
 				check(false, "the AI must always have a legal move while the frontier is open")
@@ -610,6 +612,10 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	if not check(result != null and result.was_committed(), "the human move must commit"):
 		return null
 	TurnManager.resolve(session, result)
+	# ADR-010 section 3: a turn is one or more placements ended by an explicit
+	# end-turn action, so the fixture must end the human's turn before play can
+	# pass to the opponent. Resolving the placement alone no longer does that.
+	TurnManager.end_turn(session)
 	if not check(
 		TurnManager.is_awaiting_ai_action(session),
 		"the fixture must reach the opponent's action phase"

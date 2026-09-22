@@ -278,3 +278,4 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 ## Amendments
 
 - 2026-09-21: The initial proposal was accepted without changes.
+- 2026-09-22: Superseded in part by ADR-010 (Deck of Six and Multi-Placement Turns). Sections 3 (turn structure), 4 (active tile ownership), 5 (passing and invalid actions), 7 (end conditions) and the active-tile fields of 9 (save) are replaced there: a player now holds a deck of six tiles and may place one or more of them in a single turn, ending the turn explicitly. Implement ADR-010 for those areas; the rest of this ADR stands.

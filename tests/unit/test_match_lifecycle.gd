@@ -1,19 +1,56 @@
 extends TestCase
 
-## Milestone 4 match lifecycle tests (ADR-003 sections 3, 7, 8, and 9).
+## Milestone 4 match lifecycle tests (ADR-003 sections 3, 7, 8, and 9),
+## retargeted to ADR-010's deck of six and multi-placement turns.
 ##
 ## This suite contains the Milestone 4 exit criterion: a complete match between
 ## two scripted players runs headlessly to a verified result, and that result is
 ## checked against an ordered replay of its own move history through the same
 ## pure rules pipeline (ADR-007 section 9).
 ##
+## ADR-010 changes what a turn is, so the scripted players below end their turns
+## explicitly through `TurnManager.end_turn()` (ADR-010 section 4) rather than
+## assuming that one placement passes play. That makes every turn exercise the
+## real turn boundary: the refill of section 5 and the end conditions of
+## section 7. The save coverage follows section 10: both decks and the pot's draw
+## position are restored, and tile conservation spans the pot, both decks, and
+## the board.
+##
 ## Domain-level: no scene tree, no rendering, no input.
 
 const HUMAN: StringName = TurnEnums.HUMAN_PLAYER_ID
 const AI: StringName = TurnEnums.AI_PLAYER_ID
 
+## The Phase 1 deck size every deck is filled to (ADR-010 section 1).
+const DECK_SIZE: int = DeckRules.DEFAULT_DECK_SIZE
+
 ## A full board takes the whole bag, so this is the longest match the tests run.
 const FULL_BOARD_MOVES: int = 144
+
+## Placements each scripted turn commits before handing over (ADR-010 section 6
+## allows up to `deck_size`, and staying below it means the hand-over always goes
+## through the explicit end-turn action rather than the empty-deck automatic one).
+##
+## This is the scripted players' pace, and with the Phase 1 supplies it is exact.
+## ADR-010 section 5 refills a deck only from the pot: the pot's 132 remaining
+## tiles cover the refill of every turn up to the turn-44 boundary, and the four
+## turns after that play from the decks they still hold (six, then three each).
+## Every turn of a full match therefore starts with at least three tiles and
+## commits this many, so no turn is starved and none is skipped.
+const TARGET_PLACEMENTS_PER_TURN: int = 3
+
+## Turns a full match takes at that pace: 144 placements / 3 per turn.
+##
+## An equality rather than a lower bound. ADR-010 section 5 refills a deck only
+## from the pot, and the pot covers every refill until the turn-44 boundary, so
+## the 48th turn places the last three tiles and ends the match on a full board.
+## A match that stopped earlier, or that opened a further turn after the pot was
+## exhausted, would report any other count, so this expectation is what proves the
+## final tiles were placed rather than stranded in hand.
+const MIN_FULL_BOARD_TURNS: int = BoardEnums.CELL_COUNT / TARGET_PLACEMENTS_PER_TURN
+
+## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
+const POT_AFTER_SETUP: int = BoardEnums.CELL_COUNT - DECK_SIZE * 2
 
 ## Loop guard, so a rule error shows up as a failure instead of a hang.
 const MOVE_LIMIT: int = 400
@@ -29,7 +66,7 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 	check_eq(
 		outcome["moves"],
 		FULL_BOARD_MOVES,
-		"one tile per cell fills the board in exactly 144 turns"
+		"one tile per cell fills the board in exactly 144 placements"
 	)
 	check(session.get_board().is_full(), "the match must end with every cell filled")
 	check_eq(session.move_count(), FULL_BOARD_MOVES, "every move joins the history")
@@ -42,13 +79,32 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 	check_eq(
 		session.get_end_reason(),
 		TurnEnums.EndReason.BOARD_FULL,
-		"the board filling is the end condition"
+		"the board filling is end condition 1 (ADR-010 section 7)"
 	)
-	check_eq(session.remaining_tile_count(), 0, "the bag is spent exactly as the board fills")
+	check_eq(session.remaining_tile_count(), 0, "the pot is spent exactly as the board fills")
+	check_eq(
+		session.deck_count(HUMAN) + session.deck_count(AI),
+		0,
+		"the 144th placement leaves neither player holding a tile (ADR-010 section 7)"
+	)
 	check_eq(
 		session.get_turn_state().turn_number,
-		FULL_BOARD_MOVES,
-		"the 144th placement ends the match without opening a further turn"
+		MIN_FULL_BOARD_TURNS,
+		"144 placements at three per turn fill the board on turn 48: a higher count means a starved turn was opened after the board could no longer be filled, and a lower one that play stopped early"
+	)
+	check_eq(
+		session.remaining_tile_count()
+			+ session.deck_count(HUMAN)
+			+ session.deck_count(AI)
+			+ session.get_board().occupied_count(),
+		BoardEnums.CELL_COUNT,
+		"the pot, both decks, and the board must account for all 144 tiles"
+	)
+	check_eq(
+		session.verify_tile_conservation().size(),
+		0,
+		"every tile must sit in exactly one place at the end: %s"
+		% str(session.verify_tile_conservation())
 	)
 
 	# ADR-003 section 8: the outcome is derived from committed totals.
@@ -115,6 +171,11 @@ func test_a_partial_match_survives_save_and_resume() -> void:
 
 	var snapshot: MatchSnapshotDto = original.to_snapshot()
 	check(snapshot.is_valid(), "a snapshot taken between turns must be restorable")
+	check_eq(
+		snapshot.decks.size(),
+		TurnEnums.player_ids().size(),
+		"the save record carries one deck per player (ADR-010 section 10)"
+	)
 
 	var restored: GameSessionState = GameSessionState.from_snapshot(
 		snapshot, ScoringRules.create_default(), TileGenerationRules.create_default()
@@ -128,6 +189,7 @@ func test_a_partial_match_survives_save_and_resume() -> void:
 	var restored_next: Dictionary = _play_moves(restored, 5)
 
 	check_eq(restored_next["rejected"], 0, "the restored match must accept legal moves")
+	check_eq(restored_next["moves"], 5, "the restored match must keep playing after the resume")
 	check_eq(
 		restored_next["moves"],
 		original_next["moves"],
@@ -145,9 +207,10 @@ func test_a_match_resumes_mid_preview_without_a_committed_tile() -> void:
 	var session: GameSessionState = _new_session(&"match-preview", 77)
 	TurnManager.setup(session)
 
-	# The human holds an uncommitted tile and the board is still empty: exactly
-	# the state an interrupted preview leaves behind (ADR-003 section 9).
-	var held_id: StringName = session.active_tile_for(HUMAN).tile_id
+	# The human holds an uncommitted deck and the board is still empty: exactly
+	# the state an interrupted preview leaves behind (ADR-003 section 9,
+	# ADR-010 section 10).
+	var held_ids: PackedStringArray = _deck_ids(session, HUMAN)
 	var snapshot: MatchSnapshotDto = session.to_snapshot()
 
 	check_eq(snapshot.board.size(), 0, "a preview must never be saved as board state")
@@ -169,19 +232,31 @@ func test_a_match_resumes_mid_preview_without_a_committed_tile() -> void:
 		"resume must restore whose turn it was"
 	)
 	check_eq(
-		restored.active_tile_for(HUMAN).tile_id,
-		held_id,
-		"resume must restore the uncommitted active tile"
+		_deck_ids(restored, HUMAN),
+		held_ids,
+		"resume must restore the uncommitted deck in its saved order"
 	)
-	check_eq(restored.remaining_tile_count(), 143, "resume must restore the draw position")
+	check_eq(
+		restored.deck_count(AI), DECK_SIZE, "resume must restore the rival's deck as well"
+	)
+	check_eq(
+		restored.remaining_tile_count(),
+		POT_AFTER_SETUP,
+		"resume must restore the pot's draw position"
+	)
 
 	var cell: Vector2i = _first_frontier(restored.get_board())
 	var resumed_move: PlacementResult = MoveCommitter.commit(restored, HUMAN, cell, 0)
-	check(resumed_move.was_committed(), "the restored active tile must still be placeable")
+	check(resumed_move.was_committed(), "the restored deck tile must still be placeable")
 	check_eq(
 		String(resumed_move.move_id),
-		"move:match-preview:1",
+		"move:match-preview:1:1",
 		"the resumed match must commit the opening move it was about to make"
+	)
+	check_eq(
+		restored.deck_count(HUMAN),
+		DECK_SIZE - 1,
+		"the committed tile leaves the restored deck exactly once"
 	)
 
 
@@ -208,15 +283,24 @@ func test_tiles_are_conserved_across_a_save_and_resume() -> void:
 		% str(restored.verify_tile_conservation())
 	)
 
-	# The bag is one tile per cell, and every tile is bag, hand, or board.
+	# The pot is one tile per cell, and every tile is pot, deck, or board
+	# (ADR-010 section 10).
 	check_eq(restored.get_tile_source().get_bag_size(), BoardEnums.CELL_COUNT, "144 tiles exist")
 	check_eq(
 		restored.get_tile_source().get_bag_size(),
 		restored.remaining_tile_count()
 			+ restored.get_board().occupied_count()
-			+ restored.players_with_active_tiles().size(),
-		"remaining bag, committed tiles, and held tiles must account for the whole bag"
+			+ restored.deck_count(HUMAN)
+			+ restored.deck_count(AI),
+		"the remaining pot, the committed board, and both decks must account for the whole bag"
 	)
+	check_eq(
+		restored.get_board().occupied_count(),
+		30,
+		"the restored board must hold every placement the save recorded"
+	)
+
+	_compare_sessions(session, restored, "after restoring the conservation fixture")
 
 
 func test_a_snapshot_of_a_move_in_flight_is_refused() -> void:
@@ -260,11 +344,28 @@ func test_a_snapshot_from_other_rules_is_refused() -> void:
 	)
 
 
-## Plays legal moves until the match ends or the guard trips.
+## Plays `count` placements, closing each turn with the explicit end-turn action.
 ##
 ## Every move takes the first frontier cell in row-major order at rotation 0.
 ## ADR-006 section 8 guarantees every frontier cell accepts every available tile,
 ## so this always commits and never needs a fallback pick.
+##
+## ADR-010 section 4 makes the end-turn action the way a turn closes, so once the
+## turn has committed `TARGET_PLACEMENTS_PER_TURN` placements the scripted player
+## ends it explicitly: the refill of section 5 and the end conditions of section 7
+## then run at the real turn boundary.
+##
+## How many placements the open turn has committed is read from the turn position
+## (`TurnState.placements_this_turn`, the counter ADR-010 section 9 gives the move
+## identifier) rather than counted here. That counter restarts whenever a player is
+## seated, and a placement that empties the active player's deck ends the turn
+## inside `TurnManager.resolve` (ADR-010 section 4), seating the other player.
+## Re-reading it is what stops the loop from closing a turn the domain has already
+## closed: the turn boundary would then run twice, which consumes an extra turn
+## number (ADR-010 section 4) and, while one player is starved, hands the turn
+## straight back to the player who just ended it. Counting here instead of reading
+## the turn position is what left the board three tiles short of full with those
+## tiles still in hand.
 func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 	var committed: int = 0
 	var rejected: int = 0
@@ -274,6 +375,12 @@ func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 		var turn_state: TurnState = session.get_turn_state()
 		if not turn_state.is_awaiting_action():
 			break
+
+		if turn_state.placements_this_turn >= TARGET_PLACEMENTS_PER_TURN:
+			# ADR-010 section 4: the explicit end-turn action closes the turn.
+			TurnManager.end_turn(session)
+			continue
+
 		var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
 		if frontier.is_empty():
 			break
@@ -357,13 +464,25 @@ func _compare_sessions(a: GameSessionState, b: GameSessionState, label: String) 
 		"remaining tile count must agree %s" % label
 	)
 	check_eq(
+		b.get_tile_source().get_draw_index(),
+		a.get_tile_source().get_draw_index(),
+		"the pot's draw position must agree %s" % label
+	)
+	check_eq(
 		b.score_for(HUMAN),
 		a.score_for(HUMAN),
 		"the human total must agree %s" % label
 	)
 	check_eq(b.score_for(AI), a.score_for(AI), "the AI total must agree %s" % label)
 
+	# ADR-010 section 10: both decks are authoritative saved state, so a restore
+	# is only equivalent when each deck matches tile for tile and in order.
 	for player_id: StringName in TurnEnums.player_ids():
+		check_eq(
+			_deck_ids(b, player_id),
+			_deck_ids(a, player_id),
+			"the deck of '%s' must agree %s" % [String(player_id), label]
+		)
 		var a_active: TileDefinition = a.active_tile_for(player_id)
 		var b_active: TileDefinition = b.active_tile_for(player_id)
 		var a_id: StringName = &"" if a_active == null else a_active.tile_id
@@ -380,6 +499,15 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 	)
 	check_not_null(session, "the session must be constructible")
 	return session
+
+
+## Returns one player's deck as a list of tile identities, in deal order.
+func _deck_ids(session: GameSessionState, player_id: StringName) -> PackedStringArray:
+	var ids: PackedStringArray = PackedStringArray()
+	for tile: TileDefinition in session.deck_for(player_id):
+		if tile != null:
+			ids.append(String(tile.tile_id))
+	return ids
 
 
 ## Returns the first legal frontier cell in row-major order.

@@ -9,6 +9,7 @@
 [ext_resource type="Script" uid="uid://5058aup06e2b" path="res://scripts/presentation/board_input_controller.gd" id="7_input"]
 [ext_resource type="Script" uid="uid://n875e0v1g7xa" path="res://scripts/presentation/active_tile_view.gd" id="8_active_tile"]
 [ext_resource type="Script" uid="uid://dlcrc0w3gg2qd" path="res://scripts/presentation/floating_scores.gd" id="9_scores"]
+[ext_resource type="Script" uid="uid://84qy7swejcdg" path="res://scripts/presentation/deck_view.gd" id="10_deck"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
 content_margin_left = 14.0
@@ -252,6 +253,43 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 17
 disabled = true
 text = "Cancel"
+
+[node name="EndTurnButton" type="Button" parent="Root/Column/Body/SidePanel" unique_id=1572761049]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 19
+disabled = true
+text = "End Turn"
+
+[node name="DeckBar" type="HBoxContainer" parent="Root/Column" unique_id=1895277371]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="DeckPanel" type="PanelContainer" parent="Root/Column/DeckBar" unique_id=1505792857]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="DeckRow" type="HBoxContainer" parent="Root/Column/DeckBar/DeckPanel" unique_id=1672349972]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="DeckTitle" type="Label" parent="Root/Column/DeckBar/DeckPanel/DeckRow" unique_id=1812554635]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.7, 0.82, 1)
+theme_override_font_sizes/font_size = 16
+text = "Your tiles"
+
+[node name="DeckView" type="Control" parent="Root/Column/DeckBar/DeckPanel/DeckRow" unique_id=1274533187]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+size_flags_horizontal = 3
+script = ExtResource("10_deck")
 
 [node name="BoardInputController" type="Node" parent="." unique_id=238671052]
 unique_name_in_owner = true

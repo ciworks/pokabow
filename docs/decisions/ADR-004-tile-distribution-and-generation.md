@@ -273,6 +273,7 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 ## Amendments
 
 - 2026-09-21: The initial proposal was accepted without changes.
+- 2026-09-22: Section 6 (draw timing and ownership) is superseded by ADR-010. Tiles are no longer drawn one at a time at TURN_START: each player holds a deck of six, dealt from the shared pot at match setup and topped back up to six when a turn ends. Sections 1 to 5 and 7 to 9 stand unchanged, including the finite pot, the hidden future order, and the tile-conservation save requirements.
 - 2026-09-22: Engine-forced rename. Section 4 declares the domain tile type as
   `TileData`, but Godot 4 ships a native `TileData` class (the TileSet tile
   resource). `class_name TileData` is a GDScript analyzer error ("Class

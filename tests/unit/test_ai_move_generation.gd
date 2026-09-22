@@ -277,12 +277,17 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	return session
 
 
-## Commits the human's first legal move and closes the turn (ADR-010 section 4).
+## Commits the human's opening move and closes the turn (ADR-011 section 7).
 ##
-## ADR-010 section 3 makes a turn one or more placements, so a committed tile no
-## longer passes play by itself: the fixture ends the turn explicitly before the
-## opponent can reach its action phase. Ending it here also runs the turn
-## boundary of ADR-010 section 5, so the deck a test inspects is the refilled one.
+## ADR-011 section 7 makes a turn exactly one move, so resolving the committed
+## move passes play to the opponent by itself: the explicit end-turn action of
+## ADR-010 section 4 is gone. Resolving it here also runs the turn boundary of
+## ADR-011 section 8, so the deck a test inspects is the refilled one.
+##
+## The commit itself still goes through `MoveCommitter.commit`, the per-tile
+## transaction of ADR-007 section 4, because retargeting the candidate generator
+## to whole lines is ADR-011 section 12's later pass; the commit is then resolved
+## as the one move the turn holds.
 func _play_human_move(session: GameSessionState) -> void:
 	var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
 	if not check(frontier.size() > 0, "the board must offer a frontier cell"):
@@ -292,8 +297,34 @@ func _play_human_move(session: GameSessionState) -> void:
 		result != null and result.was_committed(), "the human's opening move must commit"
 	):
 		return
-	TurnManager.resolve(session, result)
-	TurnManager.end_turn(session)
+	TurnManager.resolve(session, _as_whole_move(result))
+
+
+## Re-expresses a committed per-tile move as the whole-move result the ADR-011
+## turn boundary resolves (ADR-011 section 7).
+##
+## The AI candidate generator still proposes one coordinate and rotation for one
+## deck tile, and retargeting it to whole lines is ADR-011 section 12's later
+## pass, so this fixture commits through `MoveCommitter.commit` as it did under
+## ADR-010 and then resolves the commit as the one move a turn holds. Only the
+## fields the boundary reads are carried - the committed flag, the move
+## identifier, and the tile count the deck is refilled by (section 8) - and
+## nothing is re-scored: the points stay on the committed result's own events.
+func _as_whole_move(result: PlacementResult) -> LineResult:
+	if result == null or result.placed_tile == null:
+		return null
+	var tile: TileDefinition = result.placed_tile.get_tile()
+	if tile == null:
+		return null
+	var cell: Vector2i = result.placed_tile.get_cell()
+	var snapshots: Array[TileSnapshot] = [result.placed_tile]
+	var cells: Array[Vector2i] = [cell]
+	var ranks: Array[int] = [int(tile.rank)]
+	var view: LineResult = LineResult.create_accepted(
+		ScoringEnums.HandOrientation.HORIZONTAL, snapshots, cells, ranks, cells
+	)
+	view.move_id = result.move_id
+	return view
 
 
 ## Builds a standard-rules session.

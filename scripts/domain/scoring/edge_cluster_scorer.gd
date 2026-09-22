@@ -133,6 +133,12 @@ static func total_entitlement(board: BoardState, rules: ClusterScoreRules) -> in
 ## deltas produce no result, because a growing or merging cluster may correctly
 ## award nothing.
 ##
+## This is the one-tile case of `evaluate_line`, which ADR-011 section 5 makes the
+## unit of a commit, so the two forms cannot disagree about what a move completes
+## (AGENTS.md section 15). With one staged tile the line form measures exactly
+## this: the entry's own tile, the same distinct pre-move regions the tile
+## touched, and the same post-move component.
+##
 ## Never mutates the board or the rules.
 static func evaluate_placement(
 	board: BoardState,
@@ -144,55 +150,137 @@ static func evaluate_placement(
 		return results
 	if rules == null or not rules.is_valid():
 		return results
+	var staged: Array[TileSnapshot] = [snapshot]
+	return evaluate_line(board, staged, rules)
 
-	var placed_cell: Vector2i = snapshot.get_cell()
-	if not board.is_empty_cell(placed_cell):
+
+## Returns the cluster entitlement deltas a whole line creates, ordered by colour
+## then key (ADR-011 sections 5 and 10).
+##
+## A whole-line commit introduces several tiles at once, so the delta is measured
+## over the components the LINE changes rather than over one tile's four sides:
+##
+## - the colours examined are exactly those the move forms a matching boundary of,
+##   whether to a committed neighbour or between two staged tiles of the line,
+##   because those are the colours whose component structure the move can change;
+## - the pre side is every distinct pre-move region of that colour the line
+##   touched, de-duplicated by canonical component key, so a line that joins one
+##   region twice cannot award the pre-entitlement twice;
+## - the post side is every distinct post-move component of that colour which now
+##   contains a staged tile, de-duplicated by canonical component key, because two
+##   staged tiles can end up in the same component and counting it twice would
+##   invent entitlement the board does not hold;
+## - the awarded points stay the entitlement formula of ADR-002 section 5,
+##   `max(0, post - pre)` over the current rules, so the values are unchanged.
+##
+## That keeps the ledger's cluster points equal to the board's total entitlement
+## the way `ScoringAudit` independently checks it, which is what ADR-002 section 8
+## requires of any incremental implementation.
+##
+## Never mutates the board or the rules. Returns an empty array when the inputs
+## are unusable, and a zero-point delta produces no result.
+static func evaluate_line(
+	board: BoardState,
+	snapshots: Array[TileSnapshot],
+	rules: ClusterScoreRules
+) -> Array[ClusterScoreResult]:
+	var results: Array[ClusterScoreResult] = []
+	if board == null or snapshots == null or snapshots.is_empty():
+		return results
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot == null or not snapshot.is_valid():
+			return results
+		if not board.is_empty_cell(snapshot.get_cell()):
+			return results
+	if rules == null or not rules.is_valid():
 		return results
 
-	var touched: Dictionary = {}
-	var colors: Array[int] = []
-	for offset: Vector2i in BoardEnums.neighbor_offsets():
-		var neighbor: Vector2i = placed_cell + offset
-		var neighbor_tile: TileSnapshot = board.get_tile(neighbor)
-		if neighbor_tile == null:
-			continue
-		var position: int = BoardEnums.edge_position_toward(offset)
-		var placed_color: int = snapshot.get_edge_at(position)
-		var neighbor_color: int = neighbor_tile.get_edge_at(
-			BoardEnums.opposite_edge_position(position)
-		)
-		if placed_color < 0 or neighbor_color < 0 or placed_color != neighbor_color:
-			continue
-		if not touched.has(placed_color):
-			touched[placed_color] = []
-			colors.append(placed_color)
-		var neighbors: Array = touched[placed_color]
-		if not neighbors.has(neighbor):
-			neighbors.append(neighbor)
+	var staged_cells: Array[Vector2i] = []
+	for snapshot: TileSnapshot in snapshots:
+		staged_cells.append(snapshot.get_cell())
+	var hypothetical: BoardState = board.with_tiles(snapshots)
 
+	# The colours the move forms a boundary of, keyed by colour, with the
+	# committed partners that matched it.
+	var touched: Dictionary = {}
+	for snapshot: TileSnapshot in snapshots:
+		var placed_cell: Vector2i = snapshot.get_cell()
+		for offset: Vector2i in BoardEnums.neighbor_offsets():
+			var neighbor: Vector2i = placed_cell + offset
+			var position: int = BoardEnums.edge_position_toward(offset)
+			var placed_color: int = snapshot.get_edge_at(position)
+			if placed_color < 0:
+				continue
+			if staged_cells.has(neighbor):
+				# A boundary between two staged tiles: the colour is in play even
+				# with no committed neighbour.
+				var other: TileSnapshot = _staged_at(snapshots, neighbor)
+				if other == null:
+					continue
+				if other.get_edge_at(BoardEnums.opposite_edge_position(position)) != placed_color:
+					continue
+				if not touched.has(placed_color):
+					touched[placed_color] = [] as Array[Vector2i]
+				continue
+			var neighbor_tile: TileSnapshot = board.get_tile(neighbor)
+			if neighbor_tile == null:
+				continue
+			var neighbor_color: int = neighbor_tile.get_edge_at(
+				BoardEnums.opposite_edge_position(position)
+			)
+			if neighbor_color != placed_color:
+				continue
+			if not touched.has(placed_color):
+				touched[placed_color] = [] as Array[Vector2i]
+			var neighbors: Array[Vector2i] = touched[placed_color]
+			if not neighbors.has(neighbor):
+				neighbors.append(neighbor)
+
+	var colors: Array[int] = []
+	for key: Variant in touched.keys():
+		colors.append(int(key))
 	colors.sort()
-	var hypothetical: BoardState = board.with_tile(snapshot)
 
 	for color: int in colors:
-		var neighbors: Array = touched[color]
-		var seen_keys: Dictionary = {}
+		var neighbors: Array[Vector2i] = touched[color]
+		var seen_pre_keys: Dictionary = {}
 		var previous_entitlement: int = 0
-		for neighbor: Variant in neighbors:
+		for neighbor: Vector2i in neighbors:
 			var region: Array[Vector2i] = _pre_move_region(board, neighbor, color)
 			var key: StringName = ScoringEnums.component_key_for(color, region)
-			if seen_keys.has(key):
+			if seen_pre_keys.has(key):
 				continue
-			seen_keys[key] = true
+			seen_pre_keys[key] = true
 			previous_entitlement += rules.entitlement_for_size(region.size())
 
-		var component: Array[Vector2i] = component_of(hypothetical, placed_cell, color)
-		var current_entitlement: int = rules.entitlement_for_size(component.size())
+		var seen_post_keys: Dictionary = {}
+		var current_entitlement: int = 0
+		var cluster_cells: Array[Vector2i] = []
+		for cell: Vector2i in staged_cells:
+			var component: Array[Vector2i] = component_of(hypothetical, cell, color)
+			if component.is_empty():
+				continue
+			var component_key: StringName = ScoringEnums.component_key_for(color, component)
+			if seen_post_keys.has(component_key):
+				continue
+			seen_post_keys[component_key] = true
+			current_entitlement += rules.entitlement_for_size(component.size())
+			for member: Vector2i in component:
+				if not cluster_cells.has(member):
+					cluster_cells.append(member)
+
+		if cluster_cells.is_empty():
+			continue
 		var points: int = maxi(0, current_entitlement - previous_entitlement)
 		if points <= 0:
 			continue
 		results.append(
 			ClusterScoreResult.create(
-				color, component, previous_entitlement, current_entitlement, points
+				color,
+				ScoringEnums.sort_cells(cluster_cells),
+				previous_entitlement,
+				current_entitlement,
+				points
 			)
 		)
 
@@ -203,6 +291,14 @@ static func evaluate_placement(
 			return String(a.component_key) < String(b.component_key)
 	)
 	return results
+
+
+## Returns the staged snapshot at `cell`, or null when none is staged there.
+static func _staged_at(snapshots: Array[TileSnapshot], cell: Vector2i) -> TileSnapshot:
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot != null and snapshot.get_cell() == cell:
+			return snapshot
+	return null
 
 
 ## Returns the pre-move colour region containing `cell`.

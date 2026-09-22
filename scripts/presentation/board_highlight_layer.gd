@@ -40,14 +40,24 @@ func _draw_frontier() -> void:
 		draw_rect(rect, FRONTIER_FILL, true)
 
 
-## Outlines where the previous move's tile landed, so the opponent's reply is
+## Outlines where the previous move's line landed, so the opponent's reply is
 ## readable on a busy board.
+##
+## ADR-011 section 1 makes a move a whole line, so every cell the move wrote is
+## outlined; a single-cell move still draws one outline.
 func _draw_last_move() -> void:
-	if state.last_committed_cell == BoardMetrics.NO_CELL:
+	for cell: Vector2i in state.last_committed_cells:
+		_draw_last_move_cell(cell)
+	if not state.last_committed_cells.is_empty():
 		return
-	if not BoardMetrics.is_valid_cell(state.last_committed_cell, state.grid):
+	_draw_last_move_cell(state.last_committed_cell)
+
+
+## Outlines one cell of the previous move, if it is a real cell.
+func _draw_last_move_cell(cell: Vector2i) -> void:
+	if cell == BoardMetrics.NO_CELL:
 		return
-	var rect: Rect2 = BoardMetrics.cell_rect(
-		state.board_rect, state.last_committed_cell, state.grid
-	)
+	if not BoardMetrics.is_valid_cell(cell, state.grid):
+		return
+	var rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, state.grid)
 	draw_rect(rect.grow(-2.0), LAST_MOVE_OUTLINE, false, 2.0)

@@ -69,17 +69,79 @@ static func build_events(
 	rules: ScoringRules,
 	scored_hand_ids: ScoredHandSet
 ) -> Array[ScoreEvent]:
+	# ADR-011 section 5 makes a move one line, so the single-tile entry point is
+	# the one-tile case of the line entry point. Routing it through the same
+	# function is what stops the two from drifting apart (AGENTS.md section 15);
+	# a lone tile is not a legal move (ADR-011 sections 1 and 4), so callers of
+	# this overload are replay and test paths, not the live commit path.
 	var events: Array[ScoreEvent] = []
 	if board == null or snapshot == null or not snapshot.is_valid():
 		return events
+	var group: Array[TileSnapshot] = [snapshot]
+	return build_events_for_line(
+		board, group, player_id, move_id, turn_number, rules, scored_hand_ids
+	)
+
+
+## Returns the events a whole line of tiles would create, in ADR-007 section 7
+## order (ADR-011 sections 5 and 10).
+##
+## ADR-011 section 5 commits an assembled line as one atomic move and section 10
+## leaves scoring untouched, so this is `build_events` with the unit changed: the
+## event identifiers still carry the move identity, and every calculator is the
+## same one the single-tile path used. `board` is the pre-move board and
+## `snapshots` the tiles the move writes.
+##
+## A move may complete several five-cell windows, including windows that span its
+## staged tiles and the committed tiles it joins (ADR-011 section 2), so the
+## candidate windows are the windows of every contiguous run through the staged
+## cells rather than of a single coordinate. The poker results are then ordered by
+## canonical window identifier, exactly as before.
+##
+## Returns an empty array rather than a partial one when the inputs are unusable,
+## so a caller can never commit half a move's events.
+static func build_events_for_line(
+	board: BoardState,
+	snapshots: Array[TileSnapshot],
+	player_id: StringName,
+	move_id: StringName,
+	turn_number: int,
+	rules: ScoringRules,
+	scored_hand_ids: ScoredHandSet
+) -> Array[ScoreEvent]:
+	var events: Array[ScoreEvent] = []
+	if board == null or snapshots == null or snapshots.is_empty():
+		return events
+	var staged_cells: Array[Vector2i] = []
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot == null or not snapshot.is_valid():
+			return events
+		if not board.is_empty_cell(snapshot.get_cell()):
+			return events
+		staged_cells.append(snapshot.get_cell())
 	if not _inputs_are_usable(rules, player_id, move_id):
 		return events
 
 	var rules_version: String = rules.version_key()
+	var hypothetical: BoardState = board.with_tiles(snapshots)
 
-	for result: PokerHandResult in PokerHandEvaluator.evaluate_placement(
-		board, snapshot, rules.poker, scored_hand_ids
-	):
+	var poker_results: Array[PokerHandResult] = []
+	for window: Variant in PokerHandEvaluator.windows_through_cells(hypothetical, staged_cells):
+		var cells: Array[Vector2i] = window
+		var result: PokerHandResult = PokerHandEvaluator.evaluate_window(
+			hypothetical, cells, rules.poker
+		)
+		if result == null:
+			continue
+		if scored_hand_ids != null and scored_hand_ids.has(result.hand_id):
+			continue
+		poker_results.append(result)
+	poker_results.sort_custom(
+		func(a: PokerHandResult, b: PokerHandResult) -> bool:
+			return String(a.hand_id) < String(b.hand_id)
+	)
+
+	for result: PokerHandResult in poker_results:
 		var evidence: Dictionary = {
 			"hand_id": String(result.hand_id),
 			"category": result.get_category_name(),
@@ -103,7 +165,15 @@ static func build_events(
 			)
 		)
 
-	for result: EdgeMatchResult in EdgeMatchScorer.evaluate_placement(board, snapshot):
+	# ADR-011 section 5 makes the whole line one move and section 10 leaves
+	# ADR-002 section 1's +1 per new matching boundary unchanged, so the boundary
+	# set is read ONCE over the whole line. The line form is what sees a boundary
+	# between two staged tiles, which a per-tile evaluation against the pre-move
+	# board cannot see; it de-duplicates by canonical boundary identifier itself,
+	# so a boundary is never credited twice.
+	var edge_results: Array[EdgeMatchResult] = EdgeMatchScorer.evaluate_line(board, snapshots)
+
+	for result: EdgeMatchResult in edge_results:
 		var evidence: Dictionary = {
 			"boundary_id": String(result.boundary_id),
 			"color": result.get_color_name(),
@@ -133,8 +203,8 @@ static func build_events(
 	# component key travels in the event evidence instead, where ADR-002 section 7
 	# places it.
 	var cluster_ordinals: Dictionary = {}
-	for result: ClusterScoreResult in EdgeClusterScorer.evaluate_placement(
-		board, snapshot, rules.cluster
+	for result: ClusterScoreResult in EdgeClusterScorer.evaluate_line(
+		board, snapshots, rules.cluster
 	):
 		var color_key: String = result.get_color_name().to_lower()
 		var ordinal: int = int(cluster_ordinals.get(color_key, 0)) + 1
@@ -171,6 +241,121 @@ static func build_events(
 	# (sorting by event identifier would put "cluster" before "edge" before
 	# "poker").
 	return events
+
+
+## Returns a non-authoritative preview of what a whole line would score
+## (ADR-011 section 5).
+##
+## ADR-007 section 3's guarantees are unchanged: preview never updates board
+## cells, scored window identifiers, cluster indexes, the ledger, player totals,
+## or turn state, and the transaction carries the revision it was calculated
+## against. The unit is the line, so the transaction's `placed_cell` is the line's
+## first staged cell and every event belongs to the one provisional move identity.
+static func preview_line(
+	board: BoardState,
+	snapshots: Array[TileSnapshot],
+	player_id: StringName,
+	rules: ScoringRules,
+	scored_hand_ids: ScoredHandSet = null,
+	turn_number: int = 0
+) -> ScoreTransaction:
+	var no_events: Array[ScoreEvent] = []
+	if board == null or snapshots == null or snapshots.is_empty():
+		return ScoreTransaction.create(
+			PREVIEW_MOVE_ID, 0, player_id, no_events, Vector2i.ZERO
+		)
+
+	var events: Array[ScoreEvent] = build_events_for_line(
+		board, snapshots, player_id, PREVIEW_MOVE_ID, turn_number, rules, scored_hand_ids
+	)
+	return ScoreTransaction.create(
+		PREVIEW_MOVE_ID,
+		board.get_revision(),
+		player_id,
+		events,
+		snapshots[0].get_cell()
+	)
+
+
+## Commits a whole line's board and score changes as one prepared batch
+## (ADR-007 section 4, ADR-011 section 5).
+##
+## The transaction is the one ADR-007 section 4 describes with the unit changed
+## from a tile to a line: build the hypothetical post-move board, generate the
+## proposed events, refuse a duplicate identifier, then write the board, the
+## ledger, and the scored-window set together. The whole line is written by the
+## board's own batch commit, so a refusal leaves the board exactly as it was --
+## a half-written line is not reachable.
+##
+## Returns an empty transaction, with nothing mutated, when any precondition
+## fails.
+static func commit_line(
+	board: BoardState,
+	snapshots: Array[TileSnapshot],
+	ledger: ScoreLedger,
+	scored_hand_ids: ScoredHandSet,
+	player_id: StringName,
+	move_id: StringName,
+	turn_number: int,
+	rules: ScoringRules
+) -> ScoreTransaction:
+	var no_events: Array[ScoreEvent] = []
+	if board == null or ledger == null or scored_hand_ids == null:
+		push_error(
+			"ScoringCoordinator.commit_line: a board, ledger, and scored-hand set are required."
+		)
+		return ScoreTransaction.create(move_id, 0, player_id, no_events, Vector2i.ZERO)
+	if snapshots == null or snapshots.is_empty():
+		return ScoreTransaction.create(
+			move_id, board.get_revision(), player_id, no_events, Vector2i.ZERO
+		)
+
+	var anchor: Vector2i = snapshots[0].get_cell()
+	var revision: int = board.get_revision()
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot == null or not snapshot.is_valid() or not board.is_empty_cell(snapshot.get_cell()):
+			return ScoreTransaction.create(move_id, revision, player_id, no_events, anchor)
+
+	var events: Array[ScoreEvent] = build_events_for_line(
+		board, snapshots, player_id, move_id, turn_number, rules, scored_hand_ids
+	)
+
+	# Reject a repeated event identifier before anything is mutated, so a commit
+	# retry can never award the same points twice (ADR-007 sections 5 and 11).
+	for event: ScoreEvent in events:
+		if ledger.has_event(event.event_id):
+			push_error(
+				"ScoringCoordinator.commit_line: event '%s' is already committed; refusing to score twice."
+				% String(event.event_id)
+			)
+			return ScoreTransaction.create(move_id, revision, player_id, no_events, anchor)
+
+	# Window identifiers are recorded only for windows that actually scored, which
+	# is what makes each window score once for the whole match (ADR-001 section 5).
+	var pending_hand_ids: Array[StringName] = []
+	for event: ScoreEvent in events:
+		if event.category != ScoringEnums.ScoreCategory.POKER_HAND:
+			continue
+		pending_hand_ids.append(StringName(String(event.evidence.get("hand_id", ""))))
+
+	if not board.commit_tiles(snapshots):
+		push_error(
+			"ScoringCoordinator.commit_line: the board refused a validated line commit at %s."
+			% BoardEnums.cell_name(anchor)
+		)
+		return ScoreTransaction.create(move_id, revision, player_id, no_events, anchor)
+
+	for event: ScoreEvent in events:
+		if not ledger.add(event):
+			push_error(
+				"ScoringCoordinator.commit_line: the ledger refused event '%s' after the board commit; board and ledger now disagree."
+				% String(event.event_id)
+			)
+			return ScoreTransaction.create(move_id, revision, player_id, no_events, anchor)
+	for hand_id: StringName in pending_hand_ids:
+		scored_hand_ids.add(hand_id)
+
+	return ScoreTransaction.create(move_id, revision, player_id, events, anchor)
 
 
 ## Returns a non-authoritative preview of what a placement would score.

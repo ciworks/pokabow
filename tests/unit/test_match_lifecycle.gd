@@ -1,20 +1,21 @@
 extends TestCase
 
 ## Milestone 4 match lifecycle tests (ADR-003 sections 3, 7, 8, and 9),
-## retargeted to ADR-010's deck of six and multi-placement turns.
+## retargeted to the whole-line move and the one-move turn of ADR-011 sections 1,
+## 5, 7, and 8 over ADR-010's deck of six.
 ##
 ## This suite contains the Milestone 4 exit criterion: a complete match between
 ## two scripted players runs headlessly to a verified result, and that result is
 ## checked against an ordered replay of its own move history through the same
 ## pure rules pipeline (ADR-007 section 9).
 ##
-## ADR-010 changes what a turn is, so the scripted players below end their turns
-## explicitly through `TurnManager.end_turn()` (ADR-010 section 4) rather than
-## assuming that one placement passes play. That makes every turn exercise the
-## real turn boundary: the refill of section 5 and the end conditions of
-## section 7. The save coverage follows section 10: both decks and the pot's draw
-## position are restored, and tile conservation spans the pot, both decks, and
-## the board.
+## ADR-011 changes what a move and a turn are, so the scripted players below place
+## two-tile lines and let the commit close the turn (sections 1, 5, and 7): there
+## is no end-turn action left to call. Every turn therefore exercises the real
+## turn boundary - the refill of section 8 and the end conditions of ADR-010
+## section 7, which section 9 keeps. The save coverage follows ADR-010
+## section 10: both decks and the pot's draw position are restored, and tile
+## conservation spans the pot, both decks, and the board.
 ##
 ## Domain-level: no scene tree, no rendering, no input.
 
@@ -24,30 +25,22 @@ const AI: StringName = TurnEnums.AI_PLAYER_ID
 ## The Phase 1 deck size every deck is filled to (ADR-010 section 1).
 const DECK_SIZE: int = DeckRules.DEFAULT_DECK_SIZE
 
-## A full board takes the whole bag, so this is the longest match the tests run.
-const FULL_BOARD_MOVES: int = 144
+## Tiles each scripted move places: the shortest legal line (ADR-011 section 1).
+const TILES_PER_MOVE: int = 2
 
-## Placements each scripted turn commits before handing over (ADR-010 section 6
-## allows up to `deck_size`, and staying below it means the hand-over always goes
-## through the explicit end-turn action rather than the empty-deck automatic one).
+## Moves a full match takes at that length: 144 cells / 2 tiles per move.
 ##
-## This is the scripted players' pace, and with the Phase 1 supplies it is exact.
-## ADR-010 section 5 refills a deck only from the pot: the pot's 132 remaining
-## tiles cover the refill of every turn up to the turn-44 boundary, and the four
-## turns after that play from the decks they still hold (six, then three each).
-## Every turn of a full match therefore starts with at least three tiles and
-## commits this many, so no turn is starved and none is skipped.
-const TARGET_PLACEMENTS_PER_TURN: int = 3
+## An equality rather than a lower bound. ADR-011 section 8 refills a deck by the
+## number of tiles the move used, and the pot covers every refill, so the 72nd
+## line places the last two tiles and ends the match on a full board. A match that
+## stopped earlier, or that opened a further turn after the pot was exhausted,
+## would report another count, so this expectation is what proves the final tiles
+## were placed rather than stranded in hand.
+const FULL_BOARD_MOVES: int = BoardEnums.CELL_COUNT / TILES_PER_MOVE
 
-## Turns a full match takes at that pace: 144 placements / 3 per turn.
-##
-## An equality rather than a lower bound. ADR-010 section 5 refills a deck only
-## from the pot, and the pot covers every refill until the turn-44 boundary, so
-## the 48th turn places the last three tiles and ends the match on a full board.
-## A match that stopped earlier, or that opened a further turn after the pot was
-## exhausted, would report any other count, so this expectation is what proves the
-## final tiles were placed rather than stranded in hand.
-const MIN_FULL_BOARD_TURNS: int = BoardEnums.CELL_COUNT / TARGET_PLACEMENTS_PER_TURN
+## The opening line every match in this suite opens with: a horizontal pair of two
+## of the four central cells (ADR-006 section 2, ADR-011 sections 1 and 4).
+const OPENING_LINE: Array[Vector2i] = [Vector2i(5, 5), Vector2i(6, 5)]
 
 ## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
 const POT_AFTER_SETUP: int = BoardEnums.CELL_COUNT - DECK_SIZE * 2
@@ -57,16 +50,21 @@ const MOVE_LIMIT: int = 400
 
 
 func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
-	var session: GameSessionState = _new_session(&"match-full", 20260922)
+	# ADR-011 section 1 makes a move a line of two or more tiles, so the shortest
+	# full match is 72 two-tile lines. The all-Ace generation rules give every
+	# pair of deck tiles a repeated rank, so the fixture measures the board
+	# filling rather than the ranks the deal happened to produce (section 3),
+	# which ADR-004 section 8 allows because the weights are data.
+	var session: GameSessionState = _new_all_ace_session(&"match-full", 20260922)
 	TurnManager.setup(session)
 
-	var outcome: Dictionary = _play_to_the_end(session)
+	var outcome: Dictionary = _play_paired_lines(session)
 
 	check_eq(outcome["rejected"], 0, "no move may be refused during a legal match")
 	check_eq(
 		outcome["moves"],
 		FULL_BOARD_MOVES,
-		"one tile per cell fills the board in exactly 144 placements"
+		"two-tile lines fill the board in exactly 72 whole-move placements"
 	)
 	check(session.get_board().is_full(), "the match must end with every cell filled")
 	check_eq(session.move_count(), FULL_BOARD_MOVES, "every move joins the history")
@@ -85,12 +83,12 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 	check_eq(
 		session.deck_count(HUMAN) + session.deck_count(AI),
 		0,
-		"the 144th placement leaves neither player holding a tile (ADR-010 section 7)"
+		"the last line leaves neither player holding a tile (ADR-010 section 7)"
 	)
 	check_eq(
 		session.get_turn_state().turn_number,
-		MIN_FULL_BOARD_TURNS,
-		"144 placements at three per turn fill the board on turn 48: a higher count means a starved turn was opened after the board could no longer be filled, and a lower one that play stopped early"
+		FULL_BOARD_MOVES,
+		"one move per turn fills the board on turn 72: a higher count means a starved turn was opened after the board could no longer be filled, and a lower one that play stopped early"
 	)
 	check_eq(
 		session.remaining_tile_count()
@@ -245,18 +243,25 @@ func test_a_match_resumes_mid_preview_without_a_committed_tile() -> void:
 		"resume must restore the pot's draw position"
 	)
 
-	var cell: Vector2i = _first_frontier(restored.get_board())
-	var resumed_move: PlacementResult = MoveCommitter.commit(restored, HUMAN, cell, 0)
-	check(resumed_move.was_committed(), "the restored deck tile must still be placeable")
+	# ADR-011 sections 1, 3, and 4: the opening move is a contiguous line of at
+	# least two tiles of one rank in the centre, so the resumed deck must still be
+	# able to assemble one - a deck of six drawn from four ranks always holds a
+	# pair.
+	var staged: Array[TileSnapshot] = _staged_line(restored, HUMAN, OPENING_LINE)
+	check_eq(
+		staged.size(), TILES_PER_MOVE, "the restored deck must still hold a legal pair"
+	)
+	var resumed_move: LineResult = MoveCommitter.commit_line(restored, HUMAN, staged)
+	check(resumed_move.was_committed(), "the restored deck tiles must still form a legal line")
 	check_eq(
 		String(resumed_move.move_id),
 		"move:match-preview:1:1",
-		"the resumed match must commit the opening move it was about to make"
+		"the resumed match must commit the opening line it was about to make"
 	)
 	check_eq(
 		restored.deck_count(HUMAN),
-		DECK_SIZE - 1,
-		"the committed tile leaves the restored deck exactly once"
+		DECK_SIZE - TILES_PER_MOVE,
+		"every tile of the line leaves the restored deck exactly once"
 	)
 
 
@@ -296,8 +301,8 @@ func test_tiles_are_conserved_across_a_save_and_resume() -> void:
 	)
 	check_eq(
 		restored.get_board().occupied_count(),
-		30,
-		"the restored board must hold every placement the save recorded"
+		30 * TILES_PER_MOVE,
+		"the restored board must hold every tile of every line the save recorded"
 	)
 
 	_compare_sessions(session, restored, "after restoring the conservation fixture")
@@ -344,28 +349,25 @@ func test_a_snapshot_from_other_rules_is_refused() -> void:
 	)
 
 
-## Plays `count` placements, closing each turn with the explicit end-turn action.
+## Plays `count` committed lines, each one legal two-tile move.
 ##
-## Every move takes the first frontier cell in row-major order at rotation 0.
-## ADR-006 section 8 guarantees every frontier cell accepts every available tile,
-## so this always commits and never needs a fallback pick.
+## ADR-011 section 1 makes a move a line of two or more deck tiles, so a scripted
+## placement is a pair from the active player's own deck committed as one move;
+## section 7 makes that move the whole of the player's turn, so the commit closes
+## the turn and the refill of section 8 plus the end conditions of ADR-010
+## section 7 run at the real turn boundary. There is no end-turn action left to
+## call.
 ##
-## ADR-010 section 4 makes the end-turn action the way a turn closes, so once the
-## turn has committed `TARGET_PLACEMENTS_PER_TURN` placements the scripted player
-## ends it explicitly: the refill of section 5 and the end conditions of section 7
-## then run at the real turn boundary.
+## The pair is taken from two tiles of one rank, because a merged line is legal
+## only when its ranks repeat (section 3). A turn whose hand cannot supply such a
+## pair uses ADR-011 section 6's swap instead, which consumes the turn without
+## placing or scoring, so a starved hand does not silently leave the board short.
+## A swap the pot cannot cover ends the scripted run and is reported as a
+## rejection, because there is then no legal line and no swap (section 9).
 ##
-## How many placements the open turn has committed is read from the turn position
-## (`TurnState.placements_this_turn`, the counter ADR-010 section 9 gives the move
-## identifier) rather than counted here. That counter restarts whenever a player is
-## seated, and a placement that empties the active player's deck ends the turn
-## inside `TurnManager.resolve` (ADR-010 section 4), seating the other player.
-## Re-reading it is what stops the loop from closing a turn the domain has already
-## closed: the turn boundary would then run twice, which consumes an extra turn
-## number (ADR-010 section 4) and, while one player is starved, hands the turn
-## straight back to the player who just ended it. Counting here instead of reading
-## the turn position is what left the board three tiles short of full with those
-## tiles still in hand.
+## Nothing here is counted from `TurnState.placements_this_turn`: ADR-011
+## section 7 gives a turn exactly one move, so the turn position cannot disagree
+## with the number of lines this loop has committed.
 func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 	var committed: int = 0
 	var rejected: int = 0
@@ -376,18 +378,15 @@ func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 		if not turn_state.is_awaiting_action():
 			break
 
-		if turn_state.placements_this_turn >= TARGET_PLACEMENTS_PER_TURN:
-			# ADR-010 section 4: the explicit end-turn action closes the turn.
-			TurnManager.end_turn(session)
-			continue
-
-		var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
-		if frontier.is_empty():
-			break
-		var result: PlacementResult = MoveCommitter.commit(
-			session, turn_state.active_player_id, frontier[0], 0
-		)
-		if not result.was_committed():
+		var player_id: StringName = turn_state.active_player_id
+		var cells: Array[Vector2i] = _line_cells(session.get_board(), TILES_PER_MOVE)
+		var staged: Array[TileSnapshot] = _staged_line(session, player_id, cells)
+		var result: LineResult = null
+		if not staged.is_empty():
+			result = MoveCommitter.commit_line(session, player_id, staged)
+		if result == null or not result.was_committed():
+			if _swap_whole_deck(session, player_id):
+				continue
 			rejected += 1
 			break
 		TurnManager.resolve(session, result)
@@ -395,9 +394,195 @@ func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 	return {"moves": committed, "rejected": rejected}
 
 
-## Plays until the match reaches an end condition.
-func _play_to_the_end(session: GameSessionState) -> Dictionary:
-	return _play_moves(session, BoardEnums.CELL_COUNT)
+## Plays a whole match as two-tile lines over the fixed Hamiltonian pairing.
+##
+## The pairing covers every cell exactly once and every pair is contiguous, so
+## each move is a legal line shape (ADR-011 section 1); the all-Ace rules give
+## every pair of deck tiles a repeated rank, so each move is a legal hand
+## (section 3) and the only thing the fixture measures is whether the board
+## fills. The run goes through the ordinary commit-and-resolve path, which is
+## what makes it the Milestone 4 exit criterion rather than a shortcut.
+func _play_paired_lines(session: GameSessionState) -> Dictionary:
+	var committed: int = 0
+	var rejected: int = 0
+	for pair: Variant in _grid_pairs():
+		if session.is_over():
+			break
+		var cells: Array[Vector2i] = pair
+		var player_id: StringName = session.get_turn_state().active_player_id
+		var staged: Array[TileSnapshot] = _staged_line(session, player_id, cells)
+		var result: LineResult = null
+		if not staged.is_empty():
+			result = MoveCommitter.commit_line(session, player_id, staged)
+		if result == null or not result.was_committed():
+			rejected += 1
+			break
+		TurnManager.resolve(session, result)
+		committed += 1
+	return {"moves": committed, "rejected": rejected}
+
+
+## Returns `count` cells of the first legal line the frontier offers, or an empty
+## array when the board is full.
+##
+## A line is a run of orthogonally adjacent cells in one row or one column
+## (ADR-011 section 1), so the helper takes the first frontier cell in row-major
+## order - which is the same deterministic choice the placement rules have always
+## used - and grows the run from it through the first adjacent empty cells in the
+## canonical neighbour order.
+func _line_cells(board: BoardState, count: int) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	if board == null or count <= 0:
+		return cells
+	var first: Vector2i = _first_frontier(board)
+	if first == Vector2i(-1, -1):
+		return cells
+	cells.append(first)
+	for offset: Vector2i in BoardEnums.neighbor_offsets():
+		if cells.size() >= count:
+			break
+		var neighbor: Vector2i = first + offset
+		if board.is_empty_cell(neighbor):
+			cells.append(neighbor)
+	return cells
+
+
+## Returns snapshots of one player's own deck tiles staged at `cells`.
+##
+## ADR-011 section 3 makes the merged line legal only when its ranks repeat, so
+## the tiles are taken from one rank when the deck holds enough of them; an empty
+## array means this hand cannot assemble the line, and the caller has to reach the
+## section 6 swap instead. Nothing is chosen randomly, so the scripted players
+## stay deterministic (ADR-004 section 3).
+func _staged_line(
+	session: GameSessionState, player_id: StringName, cells: Array[Vector2i]
+) -> Array[TileSnapshot]:
+	var staged: Array[TileSnapshot] = []
+	if cells.is_empty():
+		return staged
+	var tiles: Array[TileDefinition] = _same_rank_tiles(session, player_id, cells.size())
+	if tiles.size() < cells.size():
+		return staged
+	for index: int in range(cells.size()):
+		staged.append(TileSnapshot.create(tiles[index], cells[index], 0))
+	return staged
+
+
+## Returns `count` of one player's deck tiles that share a rank, or as many as
+## the deck can supply.
+func _same_rank_tiles(
+	session: GameSessionState, player_id: StringName, count: int
+) -> Array[TileDefinition]:
+	var chosen: Array[TileDefinition] = []
+	if session == null or count <= 0:
+		return chosen
+	var deck: Array[TileDefinition] = session.deck_for(player_id)
+	var by_rank: Dictionary = {}
+	for tile: TileDefinition in deck:
+		if tile == null:
+			continue
+		var rank: int = int(tile.rank)
+		var group: Array = by_rank.get(rank, [])
+		group.append(tile)
+		by_rank[rank] = group
+	for rank: Variant in by_rank.keys():
+		var group: Array = by_rank[rank]
+		if group.size() < count:
+			continue
+		for tile: TileDefinition in group:
+			chosen.append(tile)
+			if chosen.size() == count:
+				return chosen
+	return [] as Array[TileDefinition]
+
+
+## Returns true when the active player swapped their whole deck (ADR-011
+## section 6).
+##
+## A swap returns deck tiles for equal replacements and uses the player's whole
+## turn, placing and scoring nothing. The pot must supply the whole swap: a
+## refusal keeps the player's tiles and the turn, so it is reported as false and
+## the caller stops rather than looping.
+func _swap_whole_deck(session: GameSessionState, player_id: StringName) -> bool:
+	var ids: Array[StringName] = []
+	for tile: TileDefinition in session.deck_for(player_id):
+		if tile != null:
+			ids.append(tile.tile_id)
+	if ids.is_empty():
+		return false
+	var swapped: int = session.request_swap(player_id, ids)
+	if swapped <= 0:
+		return false
+	TurnManager.resolve_swap(session, swapped)
+	return true
+
+
+## Returns the grid as a fixed sequence of adjacent cell pairs.
+##
+## The pairing is a Hamiltonian path over all 144 cells, so 72 two-tile moves
+## cover the board exactly once. Two properties are required of the order and both
+## are asserted here rather than assumed: consecutive cells in the path are
+## orthogonally adjacent, so every pair is one contiguous line; and the pair
+## boundaries fall so that the first pair covers a central opening cell and every
+## later pair contains a cell touching committed tiles.
+func _grid_pairs() -> Array:
+	var path: Array[Vector2i] = []
+
+	# Row 5 leftwards from the centre, so the first pair covers an opening cell.
+	for x: int in range(5, -1, -1):
+		path.append(Vector2i(x, 5))
+	# Rows 6 to 11, snaking.
+	for y: int in range(6, 12):
+		if (y - 6) % 2 == 0:
+			for x: int in range(0, 12):
+				path.append(Vector2i(x, y))
+		else:
+			for x: int in range(11, -1, -1):
+				path.append(Vector2i(x, y))
+	# Rows 4 up to 0, snaking.
+	for y: int in range(4, -1, -1):
+		if (4 - y) % 2 == 0:
+			for x: int in range(0, 12):
+				path.append(Vector2i(x, y))
+		else:
+			for x: int in range(11, -1, -1):
+				path.append(Vector2i(x, y))
+	# The rest of row 5, rightwards from the centre.
+	for x: int in range(6, 12):
+		path.append(Vector2i(x, 5))
+
+	check_eq(
+		path.size(), BoardEnums.CELL_COUNT, "the pairing path must cover every cell exactly once"
+	)
+	var seen: Dictionary = {}
+	for cell: Vector2i in path:
+		check(not seen.has(cell), "the pairing path must not repeat a cell")
+		seen[cell] = true
+
+	var pairs: Array = []
+	for index: int in range(0, path.size() - 1, 2):
+		var first: Vector2i = path[index]
+		var second: Vector2i = path[index + 1]
+		check(
+			_is_adjacent(first, second),
+			"every paired line must be contiguous: %s and %s"
+			% [BoardEnums.cell_name(first), BoardEnums.cell_name(second)]
+		)
+		var pair: Array[Vector2i] = [first, second]
+		pairs.append(pair)
+
+	check_eq(pairs.size() * TILES_PER_MOVE, BoardEnums.CELL_COUNT, "the pairs must cover the board")
+	var opening: Array[Vector2i] = pairs[0]
+	check(
+		BoardEnums.is_opening_cell(opening[0]) or BoardEnums.is_opening_cell(opening[1]),
+		"the first line must cover one of the four central opening cells"
+	)
+	return pairs
+
+
+## Returns true when two cells are orthogonally adjacent.
+func _is_adjacent(a: Vector2i, b: Vector2i) -> bool:
+	return absi(a.x - b.x) + absi(a.y - b.y) == 1
 
 
 ## Checks that two sessions agree on every authoritative and derived value.
@@ -499,6 +684,31 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 	)
 	check_not_null(session, "the session must be constructible")
 	return session
+
+
+## Builds a session whose whole bag is one rank, so any two deck tiles form a
+## legal hand whatever the deal (ADR-011 section 3).
+##
+## ADR-004 section 8 makes the generation weights data, so a fixture may pin the
+## ranks without touching a rule. This is what lets the full-match fixture measure
+## the board filling instead of the ranks the seeded deal happened to produce.
+func _new_all_ace_session(match_id: StringName, seed: int) -> GameSessionState:
+	var session: GameSessionState = GameSessionState.create(
+		match_id,
+		seed,
+		ScoringRules.create_default(),
+		_all_ace_generation(BoardEnums.CELL_COUNT)
+	)
+	check_not_null(session, "the all-Ace session must be constructible")
+	return session
+
+
+## Returns generation rules whose every tile shares one rank.
+func _all_ace_generation(bag_size: int) -> TileGenerationRules:
+	var rules: TileGenerationRules = TileGenerationRules.new()
+	rules.bag_size = bag_size
+	rules.rank_weights = [1.0, 0.0, 0.0, 0.0] as Array[float]
+	return rules
 
 
 ## Returns one player's deck as a list of tile identities, in deal order.

@@ -293,19 +293,32 @@ func test_the_controller_reports_an_ai_thinking_state() -> void:
 		check_eq(seen[0], true, "the first signal must report the start of the analysis")
 		check_eq(seen[1], false, "the second signal must report the end of the analysis")
 
-	# A real opponent turn must commit through the ordinary move path.
+	# A real human turn must commit through the ordinary move path. ADR-011
+	# sections 1 and 5 make that one whole line of two deck tiles, and section 7
+	# closes the turn on the commit itself, so play passes to the rival with no
+	# end-turn action in between.
 	var board: BoardState = controller.get_board()
-	var cell: Vector2i = board.get_frontier_cells()[0]
-	controller.preview_placement(cell)
-	controller.confirm_pending()
+	var opening: Vector2i = board.get_frontier_cells()[0]
+	var partner: Vector2i = _adjacent_empty_cell(board, opening)
+	if not check(
+		partner != Vector2i(-1, -1), "the opening board must offer an adjacent second cell"
+	):
+		_release(controller)
+		return
+	var closed: bool = _commit_staged_line(controller, [opening, partner])
+	check(closed, "the human's assembled line must commit through the controller")
 	check_eq(
-		controller.get_session().move_count(), 1, "the human move must commit exactly once"
+		controller.get_session().move_count(), 1, "the human line must commit exactly once"
 	)
-	# ADR-010 section 3 step 9: a committed placement leaves the turn open, so
-	# the human closes it explicitly before the rival may answer (section 4).
-	check(controller.is_human_turn(), "a committed move must leave the turn open")
-	controller.end_human_turn()
-	check(not controller.is_human_turn(), "ending the turn must pass play to the rival")
+	check_eq(
+		controller.get_session().get_board().occupied_count(),
+		2,
+		"the whole line must reach the board in one commit"
+	)
+	# ADR-011 section 7: a turn is exactly one move, so the commit passed play on
+	# by itself and the human cannot act again.
+	check(not controller.is_human_turn(), "the committed line must pass play to the rival")
+	check_eq(controller.turn_number(), 2, "the committed line must advance the turn")
 
 	controller._on_ai_think_timeout()
 	check_eq(
@@ -314,8 +327,8 @@ func test_the_controller_reports_an_ai_thinking_state() -> void:
 		"the opponent must commit one move through the same path as the human"
 	)
 	check(
-		controller.get_session().get_board().occupied_count() >= 2,
-		"the opponent's tile must reach the board"
+		controller.get_session().get_board().occupied_count() >= 3,
+		"the opponent's line must reach the board"
 	)
 	check(not controller.is_ai_thinking(), "the thinking state must clear once the move is played")
 
@@ -407,18 +420,104 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, frontier[0], 0)
 	if not check(result != null and result.was_committed(), "the human move must commit"):
 		return null
-	TurnManager.resolve(session, result)
-	# ADR-010 section 3 makes a turn one or more placements, so one committed
-	# tile does not pass play: the human ends the turn explicitly (section 4)
-	# before the opponent can reach its action phase and be topped up at the
-	# turn boundary (section 5).
-	TurnManager.end_turn(session)
+	# ADR-011 section 7 makes a turn exactly one move, so resolving the committed
+	# move passes play to the opponent by itself; there is no end-turn action to
+	# call. Resolving it also runs the turn boundary of section 8, so the
+	# opponent's deck is the refilled one when the analysis starts.
+	TurnManager.resolve(session, _as_whole_move(result))
 	if not check(
 		TurnManager.is_awaiting_ai_action(session),
 		"the fixture must reach the opponent's action phase"
 	):
 		return null
 	return session
+
+
+## Re-expresses a committed per-tile move as the whole-move result the ADR-011
+## turn boundary resolves (ADR-011 section 7).
+##
+## The AI candidate generator still proposes one coordinate and rotation for one
+## deck tile, and retargeting it to whole lines is ADR-011 section 12's later
+## pass, so this fixture commits through `MoveCommitter.commit` as it did under
+## ADR-010 and then resolves the commit as the one move a turn holds. Only the
+## fields the boundary reads are carried - the committed flag, the move
+## identifier, and the tile count the deck is refilled by (section 8) - and
+## nothing is re-scored: the points stay on the committed result's own events.
+func _as_whole_move(result: PlacementResult) -> LineResult:
+	if result == null or result.placed_tile == null:
+		return null
+	var tile: TileDefinition = result.placed_tile.get_tile()
+	if tile == null:
+		return null
+	var cell: Vector2i = result.placed_tile.get_cell()
+	var snapshots: Array[TileSnapshot] = [result.placed_tile]
+	var cells: Array[Vector2i] = [cell]
+	var ranks: Array[int] = [int(tile.rank)]
+	var view: LineResult = LineResult.create_accepted(
+		ScoringEnums.HandOrientation.HORIZONTAL, snapshots, cells, ranks, cells
+	)
+	view.move_id = result.move_id
+	return view
+
+
+## Assembles a legal line from the human's own deck and commits it through the
+## controller (ADR-011 sections 3, 5, and 11).
+##
+## ADR-011 section 3 makes a line legal only when its merged ranks repeat, so the
+## helper picks two of the player's own deck tiles of one rank - a deck of six
+## drawn from four ranks always holds a pair - stages them at `cells` with the
+## controller's own staging commands, and confirms the line once. Returns true
+## when the whole line committed.
+func _commit_staged_line(controller: GameSessionController, cells: Array[Vector2i]) -> bool:
+	var session: GameSessionState = controller.get_session()
+	if session == null:
+		return false
+	var pair: Array[TileDefinition] = _rank_pair(
+		session.deck_for(TurnEnums.HUMAN_PLAYER_ID), cells.size()
+	)
+	if pair.size() < cells.size():
+		return false
+	for index: int in range(cells.size()):
+		var tile: TileDefinition = pair[index]
+		controller.select_deck_tile(tile.tile_id)
+		if not controller.stage_tile(tile.tile_id, cells[index], 0):
+			return false
+	var result: LineResult = controller.commit_line()
+	return result != null and result.was_committed()
+
+
+## Returns `count` tiles of one shared rank from `deck`, or an empty array.
+func _rank_pair(deck: Array[TileDefinition], count: int) -> Array[TileDefinition]:
+	var empty: Array[TileDefinition] = []
+	if count <= 0:
+		return empty
+	var by_rank: Dictionary = {}
+	for tile: TileDefinition in deck:
+		if tile == null:
+			continue
+		var rank: int = int(tile.rank)
+		var group: Array = by_rank.get(rank, [])
+		group.append(tile)
+		by_rank[rank] = group
+	for rank: Variant in by_rank.keys():
+		var group: Array = by_rank[rank]
+		if group.size() < count:
+			continue
+		var chosen: Array[TileDefinition] = []
+		for tile: TileDefinition in group:
+			chosen.append(tile)
+			if chosen.size() == count:
+				return chosen
+	return empty
+
+
+## Returns the first empty orthogonal neighbour of `cell`, or (-1, -1).
+func _adjacent_empty_cell(board: BoardState, cell: Vector2i) -> Vector2i:
+	for offset: Vector2i in BoardEnums.neighbor_offsets():
+		var neighbor: Vector2i = cell + offset
+		if board.is_empty_cell(neighbor):
+			return neighbor
+	return Vector2i(-1, -1)
 
 
 ## Adds a node to the live scene tree so `_ready` runs. Returns false on failure.

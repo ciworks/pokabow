@@ -2,7 +2,8 @@ class_name TurnManager
 extends RefCounted
 
 ## The Phase 1 match lifecycle state machine (ADR-003 sections 1, 2, 6, and 8;
-## ADR-010 sections 2 to 7).
+## ADR-010 sections 2, 5, 6, and 7 as ADR-011 section 8 records them; ADR-011
+## sections 6, 7, and 8).
 ##
 ## ADR-003 section 1 states that the rules state machine, not UI animation, owns
 ## match progression, and section "Data ownership" gives `TurnManager` ownership
@@ -19,25 +20,27 @@ extends RefCounted
 ##
 ##     TURN_END -> GAME_OVER when an end condition is met
 ##
-## ADR-010 changes what a turn is, not the phase names:
+## ADR-010 and ADR-011 change what a turn is, not the phase names:
 ##
 ## - `MATCH_SETUP` deals each player a deck of `deck_size` tiles instead of one
 ##   active tile per player (ADR-010 section 2);
-## - a turn holds ONE OR MORE placements, so `resolve()` keeps the turn open in
-##   `AWAIT_ACTION` after a committed placement (ADR-010 section 3 step 9);
-## - the turn ends on the explicit `end_turn()` action, or automatically when the
-##   active player holds no tiles and the pot cannot supply one
-##   (ADR-010 section 4);
-## - the active player's deck is topped back up to `deck_size` at the turn
-##   boundary, never mid-turn (ADR-010 section 5);
+## - ADR-011 section 7 makes a turn EXACTLY ONE move: one committed line or one
+##   swap, and that move ends the turn and passes play. The explicit end-turn
+##   action of ADR-010 section 4 is removed, so `resolve()` closes the turn
+##   instead of leaving it open, and there is no `end_turn()` entry point;
+## - a swap is the other whole-turn move (ADR-011 section 6), resolved through
+##   `resolve_swap()`, which consumes the turn and cannot score;
+## - the active player's deck is refilled by the number of tiles the move used and
+##   then topped back up to `deck_size` at the turn boundary, never mid-turn
+##   (ADR-011 section 8, ADR-010 section 5);
 ## - the match ends when the board is full, or when neither player holds a tile
-##   and the pot cannot supply one (ADR-010 section 7), in place of ADR-003
-##   section 7's two-consecutive-skip rule.
+##   and the pot cannot supply one (ADR-010 section 7, which ADR-011 section 9
+##   keeps), in place of ADR-003 section 7's two-consecutive-skip rule.
 ##
 ## The human always takes the first turn (ADR-003 section 2). A turn is skipped
-## only when its player cannot be supplied a tile at `TURN_START`, so canceling a
-## preview or retrying an illegal placement never consumes a tile or a turn
-## (ADR-003 section 5).
+## only when its player cannot be supplied a tile at `TURN_START`, so cancelling
+## an assembled line or retrying an illegal one never consumes a tile or a turn
+## (ADR-003 section 5, ADR-011 section 5).
 ##
 ## Every method returns the phase the match now sits in, so a caller can branch
 ## without inspecting internals; the full details stay on the session.
@@ -87,34 +90,21 @@ static func setup(session: GameSessionState) -> int:
 	return _enter_turn_start(session)
 
 
-## Resolves one committed placement without closing the turn (ADR-010 section 3).
+## Resolves one committed line, which ends the turn (ADR-011 section 7).
 ##
-## Call this after `MoveCommitter.commit()`. A refused or canceled move leaves the
-## match at `AWAIT_ACTION` with the deck untouched, so an invalid action never
-## consumes the turn (ADR-003 section 5).
+## Call this after `MoveCommitter.commit_line()`. A refused line leaves the match
+## at `AWAIT_ACTION` with the deck and the turn position untouched, so an illegal
+## line never consumes the turn (ADR-003 section 5, ADR-011 section 5) and the
+## player may reassemble.
 ##
-## ADR-010 sections 3 and 9 make a turn a sequence of independent committed
-## placements rather than one transaction, so a committed placement keeps the
-## match in `AWAIT_ACTION` and the caller repeats it with any remaining deck tile
-## or ends the turn through `end_turn()`. The only exceptions are the two end
-## conditions of ADR-010 section 7, which end the match from the placement that
-## meets them, and an emptied deck, which ends the turn automatically because that
-## player has no legal placement for the rest of the turn (ADR-010 sections 4 and
-## 6). An empty deck is empty whatever the pot still holds: the deck does not
-## refill mid-turn, so the pot cannot rescue the turn it is in.
-##
-## That automatic end applies the whole turn boundary, exactly as `end_turn()`
-## does: the deck is refilled, the end conditions are checked, and the other
-## player is then seated with their turn position reset. A caller that also closes
-## the turn it has just resolved therefore closes the NEW turn instead, so the
-## boundary runs twice. That consumes an extra turn number (ADR-010 section 4),
-## and while one player can no longer be supplied from the pot it hands that
-## player's turn straight back, leaving the caller with the turn it was about to
-## take untaken. The two cases are distinguishable only through the turn position,
-## because seating a player resets `TurnState.placements_this_turn` (ADR-010
-## section 9): a caller that reads a reset count is looking at a new turn and must
-## not close it again.
-static func resolve(session: GameSessionState, result: PlacementResult) -> int:
+## ADR-011 section 7 makes a turn exactly one move, so a committed line closes the
+## turn here: the deck is refilled by the number of tiles the line used
+## (section 8), the end conditions are checked (ADR-010 section 7, which
+## ADR-011 section 9 keeps), and play passes to the opponent. This supersedes
+## ADR-010 section 3's "one or more placements ended by an explicit End Turn
+## action"; there is no end-turn entry point any more, so a caller cannot close
+## the same turn twice.
+static func resolve(session: GameSessionState, result: LineResult) -> int:
 	if session == null:
 		push_error("TurnManager.resolve: a session is required.")
 		return TurnEnums.MatchPhase.MATCH_SETUP
@@ -127,76 +117,65 @@ static func resolve(session: GameSessionState, result: PlacementResult) -> int:
 		)
 		return turn_state.phase
 
+	if result == null or not result.was_committed():
+		# ADR-011 section 5: a rejected line changes nothing at all, so the player
+		# keeps their tiles, the turn stays open, and they may reassemble. The
+		# phase is never moved into `RESOLVE_MOVE`, because no move is being
+		# resolved: a refusal must not look like a move in flight (ADR-003
+		# section 1), which is how `resolve_swap` already answers a refused swap.
+		return TurnEnums.MatchPhase.AWAIT_ACTION
+
 	turn_state.phase = TurnEnums.MatchPhase.RESOLVE_MOVE
 
-	if result == null or not result.was_committed():
-		# ADR-003 section 5: the player may retry until a legal move is committed.
-		turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
-		return TurnEnums.MatchPhase.AWAIT_ACTION
-
-	# ADR-010 section 7: the match ends after resolving the placement that fills
-	# the board or leaves both players with nothing to play.
-	var reason: int = detect_end_reason(session)
-	if reason != TurnEnums.EndReason.NONE:
-		_finish(session, reason)
-		return TurnEnums.MatchPhase.GAME_OVER
-
-	# ADR-010 section 3 step 9: the turn stays open so the active player may place
-	# any remaining deck tile, or end the turn.
-	if session.has_active_tile(turn_state.active_player_id):
-		turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
-		return TurnEnums.MatchPhase.AWAIT_ACTION
-
-	# ADR-010 section 4: the deck is empty, so the turn ends automatically. The
-	# turn boundary is applied directly here rather than through `end_turn()`:
-	# this resolution still holds the phase at `RESOLVE_MOVE`, and routing it
-	# through the explicit-action entry point would refuse the boundary and leave
-	# the match stalled in `RESOLVE_MOVE` after the first deck was emptied.
-	return _complete_turn(session)
+	# ADR-011 section 8: a line consumes several deck tiles, so the turn boundary
+	# refills by as many tiles as the line used.
+	return _complete_turn(session, result.staged_count())
 
 
-## Ends the active player's turn (ADR-010 section 4).
+## Resolves one swap, which ends the turn (ADR-011 section 6).
 ##
-## This is the explicit end-turn action of ADR-010 section 4. `resolve()` applies
-## the same boundary automatically for a player whose last placement emptied their
-## deck, so this entry point is for the player who chooses to stop. It is available
-## throughout the action phase, including before any placement, so a turn may
-## contain zero placements (ADR-010 section 4's deliberate relaxation of ADR-003
-## section 5).
+## `swapped_count` is how many tiles the swapping player returned, which is the
+## number the deck is refilled by (section 8). Pass 0 or a negative value for a
+## refused swap: the turn is not consumed then, exactly as a rejected line leaves
+## the turn open, because ADR-011 section 6 requires a refused swap to leave the
+## player with their tiles.
 ##
-## Order is the one ADR-010 section 3 step 10 fixes: refill the deck at the turn
-## boundary (section 5), check the end conditions (section 7), and only then hand
-## play to the other player and increment the turn number.
-static func end_turn(session: GameSessionState) -> int:
+## A swap cannot place a tile and cannot score (section 6): nothing is written to
+## the board, the ledger, or the history by this function, and only a positive
+## `swapped_count` closes the turn.
+static func resolve_swap(session: GameSessionState, swapped_count: int) -> int:
 	if session == null:
-		push_error("TurnManager.end_turn: a session is required.")
+		push_error("TurnManager.resolve_swap: a session is required.")
 		return TurnEnums.MatchPhase.MATCH_SETUP
 
 	var turn_state: TurnState = session.get_turn_state()
-	if turn_state.is_stopped():
-		return turn_state.phase
 	if not turn_state.is_awaiting_action():
 		push_error(
-			"TurnManager.end_turn: only an open action phase can be ended; the match is at %s."
+			"TurnManager.resolve_swap: no move is awaiting resolution; the match is at %s."
 			% TurnEnums.phase_name(turn_state.phase)
 		)
 		return turn_state.phase
-	return _complete_turn(session)
+
+	if swapped_count <= 0:
+		# A refused swap keeps the turn and the player's tiles (section 6).
+		return TurnEnums.MatchPhase.AWAIT_ACTION
+
+	turn_state.phase = TurnEnums.MatchPhase.RESOLVE_MOVE
+	return _complete_turn(session, swapped_count)
 
 
-## Applies the turn boundary of ADR-010 sections 3 to 7.
+## Applies the turn boundary of ADR-010 sections 5 to 7 and ADR-011 section 8.
 ##
-## This is the one place a turn is closed. It is reached by the explicit end-turn
-## action (`end_turn`), by `resolve` when the active player's deck was emptied by
-## the placement it just committed (ADR-010 section 4), and by the application
-## layer's forced handover (`end_turn_for`). Keeping the boundary in one function
-## is what stops the phases of ADR-003 section 1 from having two different orders
-## (AGENTS.md section 15).
+## This is the one place a turn is closed, and ADR-011 section 7 gives it exactly
+## two callers: `resolve` for a committed line and `resolve_swap` for a swap.
+## Keeping the boundary in one function is what stops the phases of ADR-003
+## section 1 from having two different orders (AGENTS.md section 15).
 ##
-## Order is the one ADR-010 section 3 step 10 fixes: refill the deck at the turn
-## boundary (section 5), check the end conditions (section 7), and only then hand
-## play to the other player and increment the turn number.
-static func _complete_turn(session: GameSessionState) -> int:
+## Order: refill the deck by the tiles the move used (ADR-011 section 8), top it
+## back up to `deck_size` (ADR-010 section 5), check the end conditions
+## (ADR-010 section 7), and only then hand play to the other player and increment
+## the turn number.
+static func _complete_turn(session: GameSessionState, consumed_tiles: int) -> int:
 	var turn_state: TurnState = session.get_turn_state()
 	var player_id: StringName = turn_state.active_player_id
 	if not TurnEnums.is_valid_player_id(player_id):
@@ -207,9 +186,12 @@ static func _complete_turn(session: GameSessionState) -> int:
 
 	turn_state.phase = TurnEnums.MatchPhase.TURN_END
 
-	# ADR-010 section 5: the deck is topped back up at the turn boundary, never
-	# after an individual placement, which is what bounds a turn at `deck_size`
-	# placements.
+	# ADR-011 section 8: a line (or a swap) consumes several deck tiles, so the
+	# deck is refilled by as many tiles as the move used, capped by the pot.
+	session.refill_deck_by(player_id, consumed_tiles)
+
+	# ADR-010 section 5: the deck is then topped back up to `deck_size` at the
+	# turn boundary, never mid-turn.
 	session.top_up_deck(player_id)
 
 	# ADR-010 section 7: an end condition is checked after the refill, so a deck
@@ -224,7 +206,7 @@ static func _complete_turn(session: GameSessionState) -> int:
 		# There is no third player, so this is an implementation error rather
 		# than a game outcome (ADR-003 section 7 condition 3).
 		push_error(
-			"TurnManager.end_turn: '%s' has no opponent to hand the turn to."
+			"TurnManager: '%s' has no opponent to hand the turn to."
 			% String(player_id)
 		)
 		return fail_recovery(session, TurnEnums.EndReason.RULES_FAILURE)
@@ -232,22 +214,6 @@ static func _complete_turn(session: GameSessionState) -> int:
 	turn_state.active_player_id = next_player
 	turn_state.turn_number += 1
 	return _enter_turn_start(session)
-
-
-## Ends the active player's turn on their behalf (ADR-010 section 4).
-##
-## The application layer uses this when the human's turn must close while the
-## rival is seated as the active player, so a stalled rival cannot leave the
-## match stuck. The turn boundary itself is unchanged: `end_turn()` still owns the
-## refill, the end conditions, and the handover.
-static func end_turn_for(session: GameSessionState, player_id: StringName) -> int:
-	if session == null:
-		push_error("TurnManager.end_turn_for: a session is required.")
-		return TurnEnums.MatchPhase.MATCH_SETUP
-	var turn_state: TurnState = session.get_turn_state()
-	if not TurnEnums.is_valid_player_id(player_id) or turn_state.active_player_id != player_id:
-		return turn_state.phase
-	return end_turn(session)
 
 
 ## Stops the match in the recoverable error state (ADR-003 section 6).
@@ -301,9 +267,10 @@ static func detect_end_reason(session: GameSessionState) -> int:
 
 ## Returns true when the human may act: `AWAIT_ACTION` on the human's turn.
 ##
-## ADR-003 section 6 disables human input while the AI turn is active. ADR-010
-## section 4 allows the human to end their turn, so this is the whole condition
-## for accepting human input; ending the turn is a separate command.
+## ADR-003 section 6 disables human input while the AI turn is active. ADR-011
+## section 7 gives the human exactly two whole-turn moves, a committed line and a
+## swap, and both are submitted while this is true; there is no separate end-turn
+## command, because committing or swapping ends the turn itself.
 static func is_awaiting_human_action(session: GameSessionState) -> bool:
 	if session == null:
 		return false
@@ -333,9 +300,11 @@ static func is_awaiting_ai_action(session: GameSessionState) -> bool:
 ## which the `MATCH_SETUP` deal has already covered.
 ##
 ## ADR-010 section 4 ends a turn automatically when the active player holds no
-## tiles and the pot cannot supply one, because that player has no legal
-## placement. Such a turn still hands play to the other player and increments the
-## turn number: it is not a pause, it is a turn that cannot be played.
+## tiles and the pot cannot supply one. Such a turn still hands play to the other
+## player and increments the turn number: it is not a pause, it is a turn that
+## cannot be played. ADR-011 section 6's swap is the ordinary way out of a hand
+## that cannot form a line, so this automatic handover is reached only when the
+## pot cannot supply a swap either (ADR-011 section 9).
 ##
 ## The loop is bounded rather than endless. With the Phase 1 two-player rules at
 ## most one handover can happen before end condition 2 of ADR-010 section 7

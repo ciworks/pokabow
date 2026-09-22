@@ -40,7 +40,9 @@ const RIVAL_WAITING_TEXT: String = "Rival is choosing a move..."
 @onready var rotate_button: Button = %RotateButton
 @onready var confirm_button: Button = %ConfirmButton
 @onready var cancel_button: Button = %CancelButton
-@onready var end_turn_button: Button = %EndTurnButton
+@onready var swap_button: Button = %SwapButton
+@onready var swap_confirm_button: Button = %SwapConfirmButton
+@onready var swap_cancel_button: Button = %SwapCancelButton
 @onready var restart_button: Button = %RestartButton
 @onready var human_score_value: Label = %HumanScoreValue
 @onready var ai_score_value: Label = %AiScoreValue
@@ -55,6 +57,14 @@ const RIVAL_WAITING_TEXT: String = "Rival is choosing a move..."
 ## The application-layer controller this screen drives, or null before boot.
 var controller: GameSessionController = null
 
+## Deck tiles the player has marked to return in the swap they are assembling
+## (ADR-011 section 6). Presentation-only: the swap is submitted as a whole, and
+## a refused swap leaves both this set and the deck untouched.
+var _swap_tiles: Array[StringName] = []
+
+## True while the screen is collecting the swap set rather than the pending line.
+var _swap_mode: bool = false
+
 
 func _ready() -> void:
 	_bind_nodes()
@@ -62,6 +72,7 @@ func _ready() -> void:
 	_setup_buttons()
 	if summary_overlay != null:
 		summary_overlay.visible = false
+	_apply_swap_controls()
 	_refresh_all()
 
 
@@ -80,7 +91,9 @@ func _bind_nodes() -> void:
 	rotate_button = get_node_or_null("%RotateButton") as Button
 	confirm_button = get_node_or_null("%ConfirmButton") as Button
 	cancel_button = get_node_or_null("%CancelButton") as Button
-	end_turn_button = get_node_or_null("%EndTurnButton") as Button
+	swap_button = get_node_or_null("%SwapButton") as Button
+	swap_confirm_button = get_node_or_null("%SwapConfirmButton") as Button
+	swap_cancel_button = get_node_or_null("%SwapCancelButton") as Button
 	restart_button = get_node_or_null("%RestartButton") as Button
 	human_score_value = get_node_or_null("%HumanScoreValue") as Label
 	ai_score_value = get_node_or_null("%AiScoreValue") as Label
@@ -102,11 +115,20 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 		return
 	_bind_nodes()
 	controller = controller_ref
+	# Wiring runs here as well as in `_ready`, and both calls are idempotent.
+	# A host may add this screen to the tree in the same operation that attaches
+	# the controller (ADR-008 section 5), and `_ready` is not guaranteed to have
+	# run by then, so a screen that wired itself only in `_ready` would leave the
+	# deck row and the board input silently dead: no tap would stage a tile and
+	# no tap would mark a swap tile. The input wiring is therefore reachable from
+	# the path that actually composes the screen, exactly as `_bind_nodes` is.
+	_setup_input()
+	_setup_buttons()
 	if not controller.session_started.is_connected(_on_session_started):
 		controller.session_started.connect(_on_session_started)
 		controller.state_changed.connect(_refresh_all)
 		controller.preview_changed.connect(_refresh_preview)
-		controller.move_committed.connect(_on_move_committed)
+		controller.line_committed.connect(_on_line_committed)
 		controller.score_awarded.connect(_on_score_awarded)
 		controller.match_ended.connect(_on_match_ended)
 		controller.notice.connect(_on_notice)
@@ -114,73 +136,260 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 	_refresh_all()
 
 
-## Connects the board's gesture signals. Gestures only ever produce a placement
+## Connects the board's gesture signals. Gestures only ever produce a staging
 ## intent; committing stays an explicit button press (ADR-008 section 8).
+##
+## Idempotent and null-safe: it runs from `_ready` and from `attach_controller`,
+## and a missing node is reported rather than dereferenced, because an error
+## raised here must not be able to stop the deck row from being wired.
+##
+## Gating is deliberately not set here. `_refresh_all` is the only authority for
+## whether the board accepts input, because it reads the turn phase from the
+## controller; this clears input only for a screen that has no controller yet,
+## so running the wiring again after the controller is attached cannot freeze a
+## live board.
 func _setup_input() -> void:
+	if board_input == null:
+		push_error("GameScreen._setup_input: the board input controller is missing.")
+		return
 	board_input.board_view = board_view
-	board_input.enabled = false
-	board_input.cell_tapped.connect(_on_cell_tapped)
-	board_input.cell_dragged.connect(_on_cell_dragged)
+	if controller == null:
+		board_input.enabled = false
+	_connect_once(board_input.cell_tapped, _on_cell_tapped)
+	_connect_once(board_input.cell_dragged, _on_cell_dragged)
 
 
+## Connects the action controls and the deck row (ADR-011 sections 6 and 11).
+##
+## There is no end-turn control: ADR-011 section 7 makes a turn exactly one move,
+## so committing the line or submitting the swap is what passes play. Rotate acts
+## on the staged line, Confirm commits it whole, Cancel returns every staged tile
+## to the deck, and Swap opens the swap set.
+##
+## Idempotent and null-safe, and the deck row is connected BEFORE the side
+## controls. Staging a line and marking a swap both begin with a tap on that row,
+## so it is the one connection the screen cannot do without: wiring it first
+## means nothing that happens to the controls above it can leave the player
+## unable to stage a tile or mark a swap.
 func _setup_buttons() -> void:
-	rotate_button.pressed.connect(_on_rotate_pressed)
-	confirm_button.pressed.connect(_on_confirm_pressed)
-	cancel_button.pressed.connect(_on_cancel_pressed)
-	end_turn_button.pressed.connect(_on_end_turn_pressed)
-	restart_button.pressed.connect(_on_restart_pressed)
-	deck_view.tile_selected.connect(_on_deck_tile_selected)
+	_connect_deck_view()
+	_connect_button(rotate_button, _on_rotate_pressed)
+	_connect_button(confirm_button, _on_confirm_pressed)
+	_connect_button(cancel_button, _on_cancel_pressed)
+	_connect_button(swap_button, _on_swap_pressed)
+	_connect_button(swap_confirm_button, _on_swap_confirm_pressed)
+	_connect_button(swap_cancel_button, _on_swap_cancel_pressed)
+	_connect_button(restart_button, _on_restart_pressed)
 
 
+## Connects the deck row's two taps: the selection that names the tile the next
+## board tap stages, and the toggle that collects a swap set (ADR-011 sections 6
+## and 11).
+func _connect_deck_view() -> void:
+	if deck_view == null:
+		push_error("GameScreen._connect_deck_view: the deck row is missing.")
+		return
+	_connect_once(deck_view.tile_selected, _on_deck_tile_selected)
+	_connect_once(deck_view.tile_toggled, _on_deck_tile_toggled)
+
+
+## Connects one action button, tolerating a missing node rather than raising.
+func _connect_button(button: Button, handler: Callable) -> void:
+	if button == null:
+		return
+	_connect_once(button.pressed, handler)
+
+
+## Connects `signal_ref` to `handler` exactly once.
+##
+## Both `_ready` and `attach_controller` run the wiring, so a plain `connect`
+## would make one gesture stage two tiles and mark a swap tile twice.
+func _connect_once(signal_ref: Signal, handler: Callable) -> void:
+	if not signal_ref.is_connected(handler):
+		signal_ref.connect(handler)
+
+
+## Stages the selected deck tile at `cell` as one tile of the pending line
+## (ADR-011 section 11).
+##
+## A board gesture only ever appends to the pending line; it never writes to the
+## board, and it never commits. Committing stays an explicit confirm press
+## (ADR-008 section 8).
 func _on_cell_tapped(cell: Vector2i) -> void:
 	if controller == null:
 		return
-	controller.preview_placement(cell)
+	stage_at(cell)
 
 
 func _on_cell_dragged(cell: Vector2i) -> void:
 	if controller == null:
 		return
-	controller.preview_placement(cell)
+	stage_at(cell)
 
 
+## Stages the player's selected deck tile at `cell`, or reports the refusal.
+##
+## The line's legality is never decided here: the controller re-validates the
+## whole line on every staging command and this only reports which tile it took
+## (AGENTS.md section 19). Nothing is written to the board, and nothing commits:
+## ADR-011 section 5 keeps board, ledger, and history untouched until Confirm.
+##
+## Tapping a cell the pending line already holds takes that tile back out, so a
+## mistap is undone without cancelling the whole line.
+func stage_at(cell: Vector2i) -> bool:
+	if controller == null:
+		return false
+	if controller.staged_cells().has(cell):
+		controller.unstage_tile(cell)
+		_refresh_all()
+		return false
+	var tile: TileDefinition = controller.human_tile()
+	if tile == null:
+		_refresh_all()
+		return false
+	var staged: bool = controller.stage_tile(tile.tile_id, cell)
+	# The row is drawn from the controller, so the tile the next board tap stages
+	# is always the tile the row shows as selected, and a refused stage cannot
+	# leave the row showing something the application layer did not accept.
+	_refresh_all()
+	return staged
+
+
+## Rotates the staged tile one quarter-turn, updating the pending line without
+## writing to the board (ADR-011 section 11).
 func _on_rotate_pressed() -> void:
 	if controller == null:
 		return
-	controller.rotate_pending()
+	controller.rotate_staged()
 
 
+## Commits the whole pending line as one move (ADR-011 sections 5, 7, and 11).
 func _on_confirm_pressed() -> void:
 	if controller == null:
 		return
-	controller.confirm_pending()
+	controller.commit_line()
 
 
+## Returns every staged tile to the deck without touching the turn or the board
+## (ADR-011 section 11).
 func _on_cancel_pressed() -> void:
 	if controller == null:
 		return
-	controller.cancel_pending()
+	controller.cancel_staged()
 
 
-## Ends the human's turn, keeping any unplaced tiles (ADR-010 section 4).
+## Opens the swap set, clearing the pending line first (ADR-011 section 6).
 ##
-## ADR-010 section 4 makes ending a turn an explicit action available throughout
-## the action phase, so this is what closes a multi-placement turn; a placement
-## never closes it.
-func _on_end_turn_pressed() -> void:
+## A swap cannot place a tile, so opening it cancels the pending line rather than
+## leaving it staged behind the swap. Cancelling the pending line touches neither
+## the deck nor the turn, so the player simply re-stages afterwards if they
+## change their mind.
+func _on_swap_pressed() -> void:
+	if controller == null or not controller.is_human_turn():
+		return
+	controller.cancel_staged()
+	_swap_mode = true
+	_swap_tiles = [] as Array[StringName]
+	deck_view.set_mark_mode(true)
+	_refresh_all()
+
+
+## Submits the marked set as one swap, which consumes the whole turn
+## (ADR-011 section 6).
+##
+## A refusal leaves the marked set and the deck as they were, so the player can
+## adjust and retry; the controller reports why through `notice`.
+func _on_swap_confirm_pressed() -> void:
 	if controller == null:
 		return
-	controller.end_human_turn()
+	if _swap_tiles.is_empty():
+		_set_status("Tap at least one tile to swap")
+		return
+	var swapped: int = controller.request_swap(_swap_tiles)
+	if swapped > 0:
+		_close_swap_mode()
+		return
+	# Refused: the tiles are kept and the turn stays open, so the swap set stays
+	# open for the player to adjust.
+	_refresh_all()
+
+
+## Closes the swap set without submitting it, keeping the player's tiles.
+func _on_swap_cancel_pressed() -> void:
+	if _swap_mode:
+		_close_swap_mode()
+		_refresh_all()
+		_set_status("Swap cancelled")
+		return
+	_refresh_all()
+
+
+## Writes one line of feedback under the active tile.
+##
+## ADR-011 section 11 leaves the wording to presentation while the rule stays in
+## the application layer, so this only displays a sentence it is handed.
+func _set_status(text: String) -> void:
+	if status_label != null:
+		status_label.text = text
+
+
+## Leaves swap mode and clears every mark, on both the screen and the row.
+func _close_swap_mode() -> void:
+	_swap_mode = false
+	_swap_tiles = [] as Array[StringName]
+	if deck_view != null:
+		deck_view.set_mark_mode(false)
+	_apply_swap_controls()
+
+
+## Shows only the swap controls that belong to the current mode.
+##
+## Swap opens the set and the confirm/cancel pair closes it, so the three are
+## never all on screen at once: one control is open on any mobile viewport.
+func _apply_swap_controls() -> void:
+	if swap_button != null:
+		swap_button.visible = not _swap_mode
+	if swap_confirm_button != null:
+		swap_confirm_button.visible = _swap_mode
+	if swap_cancel_button != null:
+		swap_cancel_button.visible = _swap_mode
+
+
+## Returns true while the screen is collecting the swap set (ADR-011 section 6).
+func is_swap_mode() -> bool:
+	return _swap_mode
+
+
+## Returns the tiles the player has marked to return, in the order they were
+## marked. Empty when no swap is being assembled.
+func swap_tiles() -> Array[StringName]:
+	return _swap_tiles.duplicate()
+
+
+## Marks or unmarks one deck tile for the swap (ADR-011 section 6).
+func _on_deck_tile_toggled(tile_id: StringName) -> void:
+	if not _swap_mode:
+		return
+	if _swap_tiles.has(tile_id):
+		_swap_tiles.erase(tile_id)
+		deck_view.set_marked(tile_id, false)
+	else:
+		_swap_tiles.append(tile_id)
+		deck_view.set_marked(tile_id, true)
+	_refresh_status()
 
 
 ## Arms one of the human's deck tiles (ADR-010 section 12).
 ##
-## Selecting a deck tile is what a placement is armed with (ADR-010 section 4),
-## so this is the only way the player chooses which of their tiles to commit. The
-## selection is forwarded to the controller, which is where a tile is armed; the
-## screen only reports the player's choice.
+## Selecting a deck tile names the tile the next staging command takes from the
+## deck (ADR-011 section 11), so this is how the player chooses which tile joins
+## the pending line. The selection is forwarded to the controller, which is where
+## a tile is armed; the screen only reports the player's choice.
 func _on_deck_tile_selected(tile_id: StringName) -> void:
 	if controller == null:
+		return
+	if _swap_mode:
+		_on_deck_tile_toggled(tile_id)
 		return
 	controller.select_deck_tile(tile_id)
 	# The row is re-rendered from the controller either way, so a refused
@@ -200,6 +409,9 @@ func _on_session_started() -> void:
 		summary_overlay.visible = false
 	if floating_scores != null:
 		floating_scores.clear_all()
+	# A new or resumed match has no assembled swap, so the set is closed rather
+	# than carried into a deck that no longer holds those tiles.
+	_close_swap_mode()
 	_refresh_all()
 
 
@@ -216,11 +428,22 @@ func _on_ai_thinking_changed(_thinking: bool) -> void:
 	_refresh_status()
 
 
-## Redraws the board at the cell the move just committed.
-func _on_move_committed(result: PlacementResult, _turn_phase: int) -> void:
+## Redraws the board over every cell the committed line wrote
+## (ADR-011 sections 1 and 5).
+##
+## ADR-011 section 1 makes the move a whole line, so the mark covers the line
+## rather than one cell, and the line commits as one atomic write: the board is
+## re-read from authoritative state after the marks are placed.
+func _on_line_committed(result: LineResult, _turn_phase: int) -> void:
 	if result == null:
 		return
-	board_view.mark_committed(result.cell)
+	if controller != null:
+		board_view.set_board(controller.get_board())
+	board_view.mark_committed_line(result.staged_cells())
+	# The committed line must not also be drawn as pending. The controller emits
+	# `state_changed` immediately after this signal, which re-renders every HUD
+	# value and the deck row from the post-commit state.
+	board_view.clear_preview()
 
 
 ## Plays one popup per committed score event, in the deterministic order the
@@ -288,13 +511,17 @@ func _refresh_all() -> void:
 	_refresh_preview()
 
 
-## Redraws the human's deck row and its selection (ADR-010 section 12).
+## Redraws the human's deck row and its selection (ADR-010 section 12,
+## ADR-011 sections 6 and 11).
 ##
 ## Both values come from the controller, so the row can never disagree with the
-## tile the next placement would commit: the deck is what the human holds and the
+## tile the next staging command takes: the deck is what the human holds and the
 ## selection is what the application layer has armed (ADR-010 sections 4 and 10).
+## Off-turn the row is locked, which is what stops a deck tile being staged while
+## the opponent holds the turn (ADR-008 section 8).
 func _refresh_deck() -> void:
 	if controller == null:
+		deck_view.set_mark_mode(false)
 		deck_view.set_deck([] as Array[TileDefinition])
 		deck_view.set_locked(true)
 		return
@@ -314,56 +541,76 @@ func _refresh_active_tile() -> void:
 	active_tile_view.set_tile(tile, controller.pending_rotation())
 
 
-## Shows board-level preview state, or clears it.
+## Shows the whole pending line on the board, or clears it
+## (ADR-011 sections 11 and 5).
+##
+## Every staged tile is drawn, with one validity verdict for the line as a whole:
+## the verdict comes from the controller, which got it from `LineValidator`, so
+## the board never decides legality itself (AGENTS.md section 19).
 func _refresh_preview() -> void:
 	if controller == null or not controller.has_pending():
 		board_view.clear_preview()
 		_refresh_status()
 		return
-	board_view.show_preview(
-		controller.pending_snapshot(),
-		controller.is_pending_valid(),
-		controller.pending_reason()
+	board_view.show_line(
+		controller.staged_snapshots(),
+		controller.is_line_valid(),
+		controller.line_reason()
 	)
 	_refresh_status()
 
 
 ## Chooses the one-line instruction or refusal shown under the tile.
+##
+## ADR-011 section 7 removed the explicit end-turn action, so the screen names
+## the two ways a turn can finish: commit the line, or swap.
 func _refresh_status() -> void:
 	if controller == null:
-		status_label.text = ""
+		_set_status("")
 		return
 	if controller.is_over():
-		status_label.text = ""
+		_set_status("")
 		return
 	if not controller.is_human_turn():
-		status_label.text = (
+		_set_status(
 			RIVAL_THINKING_TEXT if controller.is_ai_thinking() else RIVAL_WAITING_TEXT
 		)
 		return
-	if controller.has_pending():
-		if controller.is_pending_valid():
-			status_label.text = "Tap Confirm to place"
+	if _swap_mode:
+		if _swap_tiles.is_empty():
+			_set_status("Tap at least one tile to return")
 		else:
-			status_label.text = controller.pending_reason()
+			_set_status("Returning %d tile(s)" % _swap_tiles.size())
 		return
-	# ADR-010 sections 3 and 4: a placement no longer ends the turn, so the
-	# screen states how the turn finishes rather than leaving the player waiting
-	# for a hand-over that only the end-turn action causes.
-	status_label.text = "Tap a highlighted cell, or End Turn"
+	if controller.has_pending():
+		if controller.is_line_valid():
+			_set_status("Tap Confirm to place the line")
+		else:
+			_set_status(controller.line_reason())
+		return
+	_set_status("Tap tiles to build a line, or Swap")
 
 
 ## Enables the tile controls only when the human may act.
 ##
-## ADR-010 section 4 keeps end-turn available throughout the action phase,
-## including before any tile has been placed, so it is gated by the same
-## condition as the placement controls rather than by whether a placement has
-## happened.
+## ADR-011 section 7 makes a turn one move, so every control here belongs to the
+## single move the turn allows: Rotate, Confirm, and Cancel act on the pending
+## line, and Swap is the alternative move of section 6. All four are gated by the
+## same turn condition, and none of them is a hand-over.
 func _set_interactive(enabled: bool) -> void:
 	rotate_button.disabled = not enabled
 	confirm_button.disabled = not enabled
 	cancel_button.disabled = not enabled
-	end_turn_button.disabled = not enabled
+	swap_button.disabled = not enabled
+	# The swap set belongs to the player's own turn, so it is closed as soon as
+	# they may no longer act: a locked row must never keep collecting marks.
+	if not enabled:
+		_close_swap_mode()
+	if swap_confirm_button != null:
+		swap_confirm_button.disabled = not enabled
+	if swap_cancel_button != null:
+		swap_cancel_button.disabled = not enabled
+	_apply_swap_controls()
 
 
 ## Returns where a popup for `cell` should appear, in this screen's coordinates.

@@ -238,6 +238,42 @@ func commit_tile(snapshot: TileSnapshot) -> bool:
 	return true
 
 
+## Commits a whole line of tiles in one board commit (ADR-011 section 5).
+##
+## ADR-011 section 5 commits an assembled line as one atomic move, so the board
+## half of that transaction writes every tile together: either every snapshot is
+## accepted and written, or nothing changes at all. The preconditions are checked
+## for the whole batch before the first write, so a refusal cannot leave the board
+## holding half a line (ADR-006 section 6, which ADR-011 section 5 keeps).
+##
+## The revision advances once for the commit, not once per tile, because
+## ADR-007 section 8's staleness check compares revisions per move.
+func commit_tiles(snapshots: Array[TileSnapshot]) -> bool:
+	if snapshots == null or snapshots.is_empty():
+		return false
+
+	var indices: Array[int] = []
+	var seen: Dictionary = {}
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot == null or not snapshot.is_valid():
+			return false
+		var cell: Vector2i = snapshot.get_cell()
+		if not is_empty_cell(cell) or seen.has(cell):
+			return false
+		seen[cell] = true
+		indices.append(_index_of(cell))
+
+	var was_empty_board: bool = not has_any_tile()
+	for position: int in range(snapshots.size()):
+		var snapshot: TileSnapshot = snapshots[position]
+		var cell: Vector2i = snapshot.get_cell()
+		_cells[indices[position]] = snapshot
+		_occupied_count += 1
+		_apply_frontier_after_commit(cell, was_empty_board and position == 0)
+	_revision += 1
+	return true
+
+
 ## Returns an independent copy of this board, including its frontier index.
 ##
 ## The revision is copied, not incremented: a copy is not a commit.
@@ -271,6 +307,21 @@ func with_tile(snapshot: TileSnapshot) -> BoardState:
 	hypothetical._cells[hypothetical._index_of(cell)] = snapshot
 	hypothetical._occupied_count += 1
 	hypothetical._apply_frontier_after_commit(cell, not has_any_tile())
+	return hypothetical
+
+
+## Returns a copy of this board with a whole hypothetical line added
+## (ADR-011 sections 1, 2, and 5).
+##
+## The line-shaped counterpart of `with_tile`: the read-only post-move view
+## ADR-011 section 5 asks scoring to be evaluated against. It never mutates this
+## board, never increments the board revision, and returns the unchanged copy when
+## the snapshots are unusable or target cells that are not empty and in bounds.
+func with_tiles(snapshots: Array[TileSnapshot]) -> BoardState:
+	var hypothetical: BoardState = copy()
+	if snapshots == null or snapshots.is_empty():
+		return hypothetical
+	hypothetical.commit_tiles(snapshots)
 	return hypothetical
 
 

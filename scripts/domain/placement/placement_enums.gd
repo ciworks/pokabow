@@ -47,6 +47,18 @@ enum PlacementRejection {
 	## so in both cases no further move may resolve. Like `DUPLICATE_MOVE` this
 	## reports an existing rule outcome rather than adding one.
 	MATCH_FINISHED = 9,
+	## The assembled line mixes rows and columns: a move must place its tiles in
+	## one orientation only (ADR-011 section 1).
+	MIXED_ORIENTATION = 10,
+	## The line has a hole in it: the staged tiles are not contiguous, or the
+	## merged line they join is not (ADR-011 sections 1 and 2).
+	LINE_GAP = 11,
+	## The move stages fewer than two tiles. A single tile cannot form a hand, so
+	## a lone tile is not a move (ADR-011 sections 1 and 4).
+	LONE_TILE = 12,
+	## The merged line's ranks hold no repeated rank, so it is not at least a pair
+	## (ADR-011 section 3).
+	NO_REPEATED_RANK = 13,
 }
 
 

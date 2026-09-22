@@ -14,9 +14,11 @@ extends RefCounted
 ## layer, which got it from `PlacementValidator` (ADR-008 section 4:
 ## presentation reflects state, it does not own rules).
 ##
-## `pending` is the preview snapshot - a tile that is *not* on the board yet.
-## Keeping it here rather than in the board is what makes a preview incapable of
-## corrupting committed state (ADR-007 section 3).
+## `pending_line` is the uncommitted line - tiles that are *not* on the board yet.
+## Keeping them here rather than in the board is what makes a preview incapable of
+## corrupting committed state (ADR-007 section 3). ADR-011 section 11 makes the
+## preview a whole staged line rather than one tile, and `pending` stays the
+## line's first tile so a caller that only needs the anchor keeps working.
 
 ## Authoritative board, or null before a match starts.
 var board: BoardState = null
@@ -27,7 +29,12 @@ var board_rect: Rect2 = Rect2()
 ## Board side length in cells.
 var grid: int = BoardEnums.BOARD_WIDTH
 
-## The uncommitted preview placement, or null when nothing is previewed.
+## The pending line in staging order (ADR-011 section 11). Empty when nothing is
+## staged. Never part of `board`.
+var pending_line: Array[TileSnapshot] = []
+
+## The uncommitted preview placement, or null when nothing is previewed. The
+## pending line's first tile when one is staged.
 var pending: TileSnapshot = null
 
 ## Whether `pending` is a legal placement.
@@ -39,11 +46,20 @@ var pending_reason: String = ""
 ## Cell of the most recently committed tile, or `BoardMetrics.NO_CELL`.
 var last_committed_cell: Vector2i = BoardMetrics.NO_CELL
 
+## Every cell the most recent committed move wrote. ADR-011 section 1 makes a
+## move a whole line, so the highlight marks the line rather than one cell.
+var last_committed_cells: Array[Vector2i] = []
+
 ## True while the human owns the action phase, which gates frontier
 ## highlighting (ADR-008 section 8: human input is gated by phase).
 var human_turn: bool = true
 
 
-## Returns true when a preview is being shown.
+## Returns true when a preview is being shown, whole line or single tile.
 func has_pending() -> bool:
-	return pending != null
+	return not pending_line.is_empty() or pending != null
+
+
+## Returns how many tiles the pending line holds (ADR-011 section 11).
+func pending_count() -> int:
+	return pending_line.size()

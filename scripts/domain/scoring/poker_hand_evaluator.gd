@@ -306,6 +306,119 @@ static func full_board_hand_ids(board: BoardState) -> Array[StringName]:
 	return ids
 
 
+## Returns every in-bounds five-cell window that contains at least one of `cells`
+## on the post-move board (ADR-011 sections 2, 5, and 10).
+##
+## ADR-011 section 5 commits a whole line at once and section 2 judges the hand
+## over the merged line, so the candidate windows are no longer "windows through
+## one coordinate": they are the windows through any of the move's staged cells,
+## including windows that mix staged and committed tiles. ADR-001 section 1's
+## definition of a window is unchanged, and each window is still identified by its
+## canonical identifier, so ADR-001 section 5's score-once rule is unchanged.
+##
+## `board` is the hypothetical post-move board and `cells` the staged coordinates.
+## Returns windows ordered by identifier. A run shorter than five cells yields no
+## window, which is correct: only a complete five-cell window scores.
+static func windows_through_cells(board: BoardState, cells: Array[Vector2i]) -> Array:
+	var windows: Array = []
+	if board == null or cells.is_empty():
+		return windows
+
+	var staged: Dictionary = {}
+	for cell: Vector2i in cells:
+		if BoardEnums.is_in_bounds(cell):
+			staged[cell] = true
+	if staged.is_empty():
+		return windows
+
+	var rows: Array[int] = []
+	var columns: Array[int] = []
+	for key: Variant in staged.keys():
+		var cell: Vector2i = key
+		if not rows.has(cell.y):
+			rows.append(cell.y)
+		if not columns.has(cell.x):
+			columns.append(cell.x)
+	rows.sort()
+	columns.sort()
+
+	var seen: Dictionary = {}
+	var candidates: Array = []
+	candidates.append_array(_windows_along(board, staged, true, rows))
+	candidates.append_array(_windows_along(board, staged, false, columns))
+	for candidate: Variant in candidates:
+		var window: Array[Vector2i] = candidate
+		var id: StringName = window_id(window)
+		if String(id).is_empty() or seen.has(id):
+			continue
+		seen[id] = true
+		windows.append(window)
+
+	windows.sort_custom(
+		func(a: Variant, b: Variant) -> bool:
+			return String(window_id(a)) < String(window_id(b))
+	)
+	return windows
+
+
+## Returns the windows through staged cells along every listed line.
+##
+## `lines` holds the fixed coordinates to walk: row indices for horizontals and
+## column indices for verticals.
+static func _windows_along(
+	board: BoardState, staged: Dictionary, horizontal: bool, lines: Array[int]
+) -> Array:
+	var windows: Array = []
+	var limit: int = BoardEnums.BOARD_WIDTH if horizontal else BoardEnums.BOARD_HEIGHT
+	for fixed: int in lines:
+		var run_start: int = -1
+		for axis: int in range(limit + 1):
+			var filled: bool = false
+			if axis < limit:
+				filled = _is_line_cell_filled(board, staged, horizontal, fixed, axis)
+			if filled:
+				if run_start < 0:
+					run_start = axis
+				continue
+			if run_start >= 0:
+				_append_run_windows(windows, staged, horizontal, fixed, run_start, axis - 1)
+				run_start = -1
+	return windows
+
+
+## Returns true when a line cell holds a staged tile or a committed tile.
+static func _is_line_cell_filled(
+	board: BoardState, staged: Dictionary, horizontal: bool, fixed: int, axis: int
+) -> bool:
+	var cell: Vector2i = Vector2i(axis, fixed) if horizontal else Vector2i(fixed, axis)
+	return staged.has(cell) or board.is_occupied(cell)
+
+
+## Appends every five-cell window inside one run that contains a staged cell.
+static func _append_run_windows(
+	windows: Array,
+	staged: Dictionary,
+	horizontal: bool,
+	fixed: int,
+	low: int,
+	high: int
+) -> void:
+	var last_start: int = high - ScoringEnums.WINDOW_SIZE + 1
+	if last_start < low:
+		return
+	for start: int in range(low, last_start + 1):
+		var window: Array[Vector2i] = []
+		var holds_staged: bool = false
+		for step: int in range(ScoringEnums.WINDOW_SIZE):
+			var axis: int = start + step
+			var cell: Vector2i = Vector2i(axis, fixed) if horizontal else Vector2i(fixed, axis)
+			window.append(cell)
+			if staged.has(cell):
+				holds_staged = true
+		if holds_staged:
+			windows.append(window)
+
+
 ## Returns true when an ascending list holds five consecutive integers.
 static func _is_contiguous(values: Array[int]) -> bool:
 	if values.size() != ScoringEnums.WINDOW_SIZE:

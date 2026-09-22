@@ -121,37 +121,68 @@ static func replay(
 			report.deviations.append("move %d is not a valid record" % (index + 1))
 			return report
 
-		var tile: TileDefinition = null
-		if tile_lookup.is_valid():
-			tile = tile_lookup.call(move.tile_id) as TileDefinition
-		if tile == null:
-			report.deviations.append(
-				"move %s: tile '%s' could not be supplied" % [String(move.move_id), String(move.tile_id)]
-			)
-			return report
+		# ADR-011 section 5 makes a committed move one whole line, so a replay
+		# supplies every tile of the move and pushes the assembled line back
+		# through the same validator and the same transaction the live path uses.
+		# A one-placement record is replayed through the single-tile path, which
+		# keeps ADR-007's fixtures and the pre-ADR-011 history shape replayable
+		# rather than silently dropped.
+		var snapshots: Array[TileSnapshot] = []
+		for placement: ScoringMove.Placement in move.placements:
+			var tile: TileDefinition = null
+			if tile_lookup.is_valid():
+				tile = tile_lookup.call(placement.tile_id) as TileDefinition
+			if tile == null:
+				report.deviations.append(
+					"move %s: tile '%s' could not be supplied"
+					% [String(move.move_id), String(placement.tile_id)]
+				)
+				return report
+			snapshots.append(TileSnapshot.create(tile, placement.cell, placement.rotation))
 
-		var result: PlacementResult = PlacementValidator.validate(
-			board, move.to_request(), tile, true
-		)
-		if result == null or not result.accepted:
-			var reason: String = "null result"
-			if result != null:
-				reason = result.get_rejection_name()
-			report.deviations.append(
-				"move %s was rejected on replay: %s" % [String(move.move_id), reason]
+		var committed: ScoreTransaction = null
+		if snapshots.size() >= 2:
+			var line: LineResult = LineValidator.validate(board, snapshots)
+			if line == null or not line.accepted:
+				var line_reason: String = "null result"
+				if line != null:
+					line_reason = line.get_rejection_name()
+				report.deviations.append(
+					"move %s was rejected on replay: %s" % [String(move.move_id), line_reason]
+				)
+				return report
+			committed = ScoringCoordinator.commit_line(
+				board,
+				line.staged_tiles,
+				ledger,
+				scored_hand_ids,
+				move.player_id,
+				move.move_id,
+				move.move_number,
+				rules
 			)
-			return report
-
-		var committed: ScoreTransaction = ScoringCoordinator.commit_placement(
-			board,
-			result.placed_tile,
-			ledger,
-			scored_hand_ids,
-			move.player_id,
-			move.move_id,
-			move.move_number,
-			rules
-		)
+		else:
+			var result: PlacementResult = PlacementValidator.validate(
+				board, move.to_request(move.first_placement()), snapshots[0].get_tile(), true
+			)
+			if result == null or not result.accepted:
+				var reason: String = "null result"
+				if result != null:
+					reason = result.get_rejection_name()
+				report.deviations.append(
+					"move %s was rejected on replay: %s" % [String(move.move_id), reason]
+				)
+				return report
+			committed = ScoringCoordinator.commit_placement(
+				board,
+				result.placed_tile,
+				ledger,
+				scored_hand_ids,
+				move.player_id,
+				move.move_id,
+				move.move_number,
+				rules
+			)
 		if committed.board_revision_before != board.get_revision() - 1:
 			report.deviations.append(
 				"move %s did not advance the board revision" % String(move.move_id)

@@ -477,8 +477,37 @@ func _play(session: GameSessionState, coordinator: AiCoordinator, ai_turns: int)
 		if result == null or not result.was_committed():
 			check(false, "every resolved move in this fixture must commit")
 			break
-		TurnManager.resolve(session, result)
+		# ADR-011 section 7 makes a turn exactly one move, so the resolved move
+		# ends the turn and there is no separate end-turn step.
+		TurnManager.resolve(session, _as_whole_move(result))
 	return ai_moves
+
+
+## Re-expresses a committed per-tile move as the whole-move result the ADR-011
+## turn boundary resolves (ADR-011 section 7).
+##
+## The AI candidate generator still proposes one coordinate and rotation for one
+## deck tile, and retargeting it to whole lines is ADR-011 section 12's later
+## pass, so this fixture commits through `MoveCommitter.commit` as it did under
+## ADR-010 and then resolves the commit as the one move a turn holds. Only the
+## fields the boundary reads are carried - the committed flag, the move
+## identifier, and the tile count the deck is refilled by (section 8) - and
+## nothing is re-scored: the points stay on the committed result's own events.
+func _as_whole_move(result: PlacementResult) -> LineResult:
+	if result == null or result.placed_tile == null:
+		return null
+	var tile: TileDefinition = result.placed_tile.get_tile()
+	if tile == null:
+		return null
+	var cell: Vector2i = result.placed_tile.get_cell()
+	var snapshots: Array[TileSnapshot] = [result.placed_tile]
+	var cells: Array[Vector2i] = [cell]
+	var ranks: Array[int] = [int(tile.rank)]
+	var view: LineResult = LineResult.create_accepted(
+		ScoringEnums.HandOrientation.HORIZONTAL, snapshots, cells, ranks, cells
+	)
+	view.move_id = result.move_id
+	return view
 
 
 ## Returns the candidate the ADR-005 section 5 tuple selects.
@@ -611,11 +640,11 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, frontier[0], 0)
 	if not check(result != null and result.was_committed(), "the human move must commit"):
 		return null
-	TurnManager.resolve(session, result)
-	# ADR-010 section 3: a turn is one or more placements ended by an explicit
-	# end-turn action, so the fixture must end the human's turn before play can
-	# pass to the opponent. Resolving the placement alone no longer does that.
-	TurnManager.end_turn(session)
+	# ADR-011 section 7 makes a turn exactly one move, so resolving the committed
+	# move passes play to the opponent; ADR-010's explicit end-turn action is
+	# gone. Resolving it also runs the turn boundary of section 8, so the
+	# opponent's deck is the refilled one when the analysis starts.
+	TurnManager.resolve(session, _as_whole_move(result))
 	if not check(
 		TurnManager.is_awaiting_ai_action(session),
 		"the fixture must reach the opponent's action phase"

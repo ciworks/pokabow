@@ -26,6 +26,10 @@ extends Control
 ## Emitted when the player taps a deck tile, with that tile's identity.
 signal tile_selected(tile_id: StringName)
 
+## Emitted when the player taps a deck tile while the row is in mark mode
+## (ADR-011 section 6: the tiles a swap would return).
+signal tile_toggled(tile_id: StringName)
+
 ## Gap between tiles as a fraction of one tile's width.
 const GAP_RATIO: float = 0.10
 
@@ -41,6 +45,14 @@ const SELECTED_OUTLINE: float = 3.0
 ## Selection outline colour. Presentation only, like the tile palette.
 const SELECTED_COLOR: Color = Color(1.0, 0.86, 0.42, 1.0)
 
+## Outline colour of a tile marked for the swap, so a marked tile is never
+## mistaken for the tile the next staging command takes.
+const MARKED_COLOR: Color = Color(0.52, 0.78, 1.0, 1.0)
+
+## Inner inset of the marked outline, in pixels, so the two outlines can both be
+## read on one tile.
+const MARKED_INSET: float = 3.0
+
 ## The player's tiles, in deck order.
 var _deck: Array[TileDefinition] = []
 
@@ -49,6 +61,14 @@ var _selected_index: int = -1
 
 ## True while the row rejects taps, because it is not the player's turn.
 var _locked: bool = true
+
+## True while the row collects a set of tiles instead of one selection
+## (ADR-011 section 6).
+var _mark_mode: bool = false
+
+## Identities the player has marked for the swap, filtered to the drawn deck on
+## every redraw so a marked tile that left the deck is never drawn as marked.
+var _marked: Array[StringName] = []
 
 
 ## Accepts taps, so the row can arm a placement.
@@ -67,6 +87,7 @@ func set_deck(tiles: Array[TileDefinition], selected_id: StringName = &"") -> vo
 	for tile: TileDefinition in tiles:
 		if tile != null:
 			_deck.append(tile)
+	_prune_marked()
 	_selected_index = _index_of(_deck, selected_id)
 	if _selected_index < 0 and not _deck.is_empty():
 		# Nothing is armed yet, so the deck's first tile is the one a placement
@@ -117,7 +138,12 @@ func set_selected(tile_id: StringName) -> void:
 	queue_redraw()
 
 
-## Draws the tile row and the selection outline.
+## Draws the tile row, the selection outline, and any swap marks.
+##
+## While the row is collecting a swap set it draws no selection and no lift: the
+## tiles a swap returns are a set of marks (ADR-011 section 6), no tile is armed
+## for a staging that a whole-turn swap would consume, and an un-lifted row makes
+## the drawn tile exactly the shape and place the finger has to hit.
 func _draw() -> void:
 	if _deck.is_empty():
 		return
@@ -125,7 +151,7 @@ func _draw() -> void:
 		var rect: Rect2 = tile_rect(index, _deck.size(), size)
 		if not TilePainter.is_drawable(rect):
 			continue
-		if index == _selected_index:
+		if index == _selected_index and not _mark_mode:
 			rect = _lifted(rect)
 			# TilePainter reads a tile's visible edges from a snapshot, so the
 			# row draws the identical face the board would commit (ADR-006
@@ -134,13 +160,27 @@ func _draw() -> void:
 				self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, 0)
 			)
 			draw_rect(rect, SELECTED_COLOR, false, SELECTED_OUTLINE)
+			_draw_mark(index, rect)
 			continue
 		TilePainter.paint_tile(
 			self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, 0)
 		)
+		_draw_mark(index, rect)
 
 
-## Reports a tap as a selection, or ignores it while locked.
+## Outlines one tile when it is marked for the swap (ADR-011 section 6).
+func _draw_mark(index: int, rect: Rect2) -> void:
+	if not is_marked(_deck[index].tile_id):
+		return
+	draw_rect(rect.grow(-MARKED_INSET), MARKED_COLOR, false, SELECTED_OUTLINE)
+
+
+## Reports a tap as a selection, or as a swap mark in mark mode, and ignores it
+## while locked.
+##
+## ADR-011 section 6 lets a swap return any number of deck tiles, so mark mode
+## collects a set instead of one selection. The locked check comes first in both
+## modes, which is what gates the row off-turn (ADR-008 section 8).
 func _gui_input(event: InputEvent) -> void:
 	if _locked:
 		return
@@ -152,10 +192,84 @@ func _gui_input(event: InputEvent) -> void:
 	var index: int = _index_at(button.position, _deck.size(), size)
 	if index < 0:
 		return
+	if _mark_mode:
+		tile_toggled.emit(_deck[index].tile_id)
+		return
 	if index != _selected_index:
 		_selected_index = index
 		queue_redraw()
 	tile_selected.emit(_deck[index].tile_id)
+
+
+## Collects or releases taps as swap marks rather than selections
+## (ADR-011 section 6).
+##
+## Entering or leaving mark mode clears the marks: a marked set belongs to one
+## swap attempt, and the screen re-reads what the row holds when it submits.
+func set_mark_mode(enabled: bool) -> void:
+	if _mark_mode == enabled:
+		return
+	_mark_mode = enabled
+	_marked.clear()
+	queue_redraw()
+
+
+## Returns true while taps are collected as swap marks.
+func is_mark_mode() -> bool:
+	return _mark_mode
+
+
+## Draws or clears the swap mark on one deck tile.
+##
+## The screen drives this from its own set of returned tiles, so the drawn marks
+## and the submitted set cannot disagree. An identity the row does not hold is
+## dropped rather than drawn.
+func set_marked(tile_id: StringName, marked: bool) -> void:
+	var found: bool = is_marked(tile_id)
+	if marked == found:
+		return
+	if marked:
+		if _index_of(_deck, tile_id) < 0:
+			return
+		_marked.append(tile_id)
+	else:
+		_marked.erase(tile_id)
+	queue_redraw()
+
+
+## Returns how many deck tiles the row is drawing as marked.
+func marked_count() -> int:
+	return _marked.size()
+
+
+## Returns a copy of the marked identities, in the order they were marked.
+func marked_ids() -> Array[StringName]:
+	return _marked.duplicate()
+
+
+## Clears every swap mark without leaving mark mode.
+func clear_marks() -> void:
+	if _marked.is_empty():
+		return
+	_marked.clear()
+	queue_redraw()
+
+
+## Returns true when `tile_id` is currently marked for the swap.
+func is_marked(tile_id: StringName) -> bool:
+	return _marked.has(tile_id)
+
+
+## Drops marks for tiles the row no longer holds, so a deck change cannot leave a
+## stale mark behind.
+func _prune_marked() -> void:
+	if _marked.is_empty():
+		return
+	var kept: Array[StringName] = []
+	for tile_id: StringName in _marked:
+		if _index_of(_deck, tile_id) >= 0:
+			kept.append(tile_id)
+	_marked = kept
 
 
 ## Returns the pixel rectangle of one tile in a row of `count` tiles.

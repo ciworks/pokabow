@@ -85,6 +85,31 @@ func draw() -> TileDefinition:
 	return tile
 
 
+## Returns one tile to the pot, so it can be drawn again later (ADR-011
+## section 6).
+##
+## ADR-011 section 6 has a swapping player return deck tiles to the shared pot and
+## draw the same number of replacements. The pot is this bag, so returning a tile
+## makes it available again.
+##
+## The tile is appended to the end of the bag rather than inserted at the draw
+## position, which is the one detail ADR-011 leaves unstated. Drawing the returned
+## tiles straight back would make a swap a no-op, and section 4 makes the swap the
+## escape hatch for a hand that cannot open, so the returned tiles must not be the
+## immediate replacements. Appending keeps this deterministic without consuming
+## any randomness, which ADR-004 section 3 requires of everything that can alter
+## draw order.
+##
+## Returns false when the source is not initialized or the tile has no identity.
+func return_to_pot(tile: TileDefinition) -> bool:
+	if not _initialized:
+		return false
+	if tile == null or not tile.is_valid():
+		return false
+	_bag.append(tile)
+	return true
+
+
 ## Returns how many tiles are still available to draw.
 func remaining_count() -> int:
 	if not _initialized:

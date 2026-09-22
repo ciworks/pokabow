@@ -30,7 +30,15 @@ extends RefCounted
 ## Raised to 2 when ADR-010 replaced the single active tile with per-player
 ## decks: a version 1 record has no deck identity and would restore a match with
 ## no tiles in hand, so it is refused rather than migrated.
-const SCHEMA_VERSION: int = 2
+##
+## Raised to 3 when ADR-011 made a move one whole line of two or more tiles
+## (section 5) and a turn exactly one move (section 7). The history record shape
+## changed (a move now carries several placements, not one tile), and a version 2
+## record could describe a turn holding several committed placements, which the
+## one-move turn of section 7 cannot represent: its move identifier would already
+## exist, so the rest of that turn could neither be replayed nor continued. The
+## record is therefore refused rather than migrated, exactly as version 1 was.
+const SCHEMA_VERSION: int = 3
 
 var schema_version: int = SCHEMA_VERSION
 
@@ -67,7 +75,13 @@ var decks: Dictionary = {}
 ## Turn position: `{phase, active_player_id, turn_number, consecutive_no_tile_skips}`.
 var turn: Dictionary = {}
 
-## Ordered committed move history (ADR-007 section 10).
+## Ordered committed move history (ADR-007 section 10, ADR-011 section 5).
+##
+## Each record is `{move_id, move_number, player_id, placements: [{tile_id, cell,
+## rotation}, ...], is_opening_move}`. ADR-011 section 5 commits a whole line as
+## one move with one identifier and one history entry, so the record carries every
+## tile that move placed rather than a single tile; `is_history_record_valid()`
+## enforces that shape on load.
 var history: Array = []
 
 ## Committed score ledger (ADR-007 section 1).
@@ -121,7 +135,7 @@ func is_valid() -> bool:
 		if not _is_deck_record_valid(decks[key]):
 			return false
 	for record: Variant in history:
-		if not (record is Dictionary):
+		if not is_history_record_valid(record):
 			return false
 	return true
 
@@ -199,6 +213,54 @@ static func _is_deck_record_valid(record: Variant) -> bool:
 		if String(entry).is_empty():
 			return false
 	return true
+
+
+## Returns true when one history record describes a committable move
+## (ADR-007 section 10, ADR-011 section 5).
+##
+## ADR-011 section 5 makes a move one whole line, so the record must carry a move
+## identity, a player, a positive turn number, and at least one placement, and
+## every placement must name a tile and sit on a valid cell with a valid rotation.
+## A record written in the pre-ADR-011 single-tile shape is read as a
+## one-placement move rather than refused, so a fixture in that shape still
+## replays; the record shape check itself is unchanged either way.
+static func is_history_record_valid(record: Variant) -> bool:
+	if not (record is Dictionary):
+		return false
+	if String(record.get("move_id", "")).is_empty():
+		return false
+	if String(record.get("player_id", "")).is_empty():
+		return false
+	if int(record.get("move_number", 0)) <= 0:
+		return false
+
+	var raw_placements: Variant = record.get("placements", null)
+	if raw_placements is Array:
+		if (raw_placements as Array).is_empty():
+			return false
+		for entry: Variant in raw_placements:
+			if not _is_placement_record_valid(entry):
+				return false
+		return true
+
+	# The single-placement shape ADR-011 section 5 replaced.
+	return record.has("tile_id") and _is_placement_record_valid(record)
+
+
+## Returns true when one placement record names a tile on a valid cell.
+static func _is_placement_record_valid(record: Variant) -> bool:
+	if not (record is Dictionary):
+		return false
+	if String(record.get("tile_id", "")).is_empty():
+		return false
+	var raw_cell: Variant = record.get("cell", null)
+	if not (raw_cell is Array) or raw_cell.size() < 2:
+		return false
+	var cell: Vector2i = Vector2i(int(raw_cell[0]), int(raw_cell[1]))
+	if not BoardEnums.is_in_bounds(cell):
+		return false
+	var rotation: int = int(record.get("rotation", 0))
+	return rotation >= 0 and rotation < TileEnums.ROTATION_COUNT
 
 
 ## Returns true when one board record names a tile and a valid cell and rotation.

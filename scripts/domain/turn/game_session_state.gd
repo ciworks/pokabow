@@ -231,6 +231,108 @@ func top_up_deck(player_id: StringName) -> int:
 	return taken
 
 
+## Refills one player's deck by the number of tiles a move consumed
+## (ADR-011 section 8).
+##
+## ADR-011 section 8 keeps ADR-010's deck and dealing rules and adds that a line
+## consumes several deck tiles at once, so the deck is refilled by as many tiles as
+## the line used, capped by the pot. The refill is also capped so the deck can
+## never exceed the configured deck size (ADR-010 section 5).
+##
+## Returns how many tiles were actually taken, which is zero once the pot is
+## exhausted.
+func refill_deck_by(player_id: StringName, count: int) -> int:
+	if not TurnEnums.is_valid_player_id(player_id):
+		push_error(
+			"GameSessionState.refill_deck_by: '%s' is not a Phase 1 player." % String(player_id)
+		)
+		return 0
+	if _tile_source == null or not _tile_source.is_initialized():
+		return 0
+	if _deck_rules == null:
+		return 0
+	var spent: int = maxi(0, count)
+	if spent == 0:
+		return 0
+	var deck: Array[TileDefinition] = _deck(player_id)
+	var room: int = _deck_rules.deck_size - deck.size()
+	var wanted: int = mini(spent, room)
+	var taken: int = 0
+	while taken < wanted:
+		var tile: TileDefinition = _tile_source.draw()
+		if tile == null:
+			break
+		deck.append(tile)
+		taken += 1
+	_decks[player_id] = deck
+	return taken
+
+
+## Returns deck tiles to the pot and draws the same number of replacements
+## (ADR-011 section 6).
+##
+## Returns how many tiles were swapped, or -1 when the swap is refused. A refusal
+## changes nothing at all: the player keeps their tiles and the pot is untouched,
+## which is what section 6 requires when the pot cannot supply the whole amount.
+##
+## The whole swap is checked before the first mutation, so a partially applied
+## swap is not reachable. Duplicate identities in `tile_ids` are ignored rather
+## than refused, because returning the same tile twice is not a rule the ADR
+## states and the count of distinct tiles is what the pot must cover.
+##
+## This does not advance the turn: ADR-011 section 7 makes a swap one whole-turn
+## move, and `TurnManager.resolve_swap` owns that boundary, so the pairing rule of
+## the turn model stays in one place (ADR-011 section 5).
+func request_swap(player_id: StringName, tile_ids: Array[StringName]) -> int:
+	if not TurnEnums.is_valid_player_id(player_id):
+		push_error(
+			"GameSessionState.request_swap: '%s' is not a Phase 1 player." % String(player_id)
+		)
+		return -1
+	if tile_ids == null or tile_ids.is_empty():
+		return -1
+	if _tile_source == null or not _tile_source.is_initialized():
+		return -1
+
+	var returned: Array[TileDefinition] = []
+	for tile_id: StringName in tile_ids:
+		if returned.any(func(tile: TileDefinition) -> bool: return tile.tile_id == tile_id):
+			continue
+		var tile: TileDefinition = deck_tile(player_id, tile_id)
+		if tile == null:
+			return -1
+		returned.append(tile)
+	if returned.is_empty():
+		return -1
+
+	# Section 6: the pot must hold at least as many tiles as are returned.
+	if _tile_source.remaining_count() < returned.size():
+		return -1
+
+	var deck: Array[TileDefinition] = _deck(player_id)
+	for tile: TileDefinition in returned:
+		var index: int = _deck_tile_index(player_id, tile.tile_id)
+		if index < 0:
+			return -1
+		deck.remove_at(index)
+	_decks[player_id] = deck
+	if _armed_tiles.has(player_id):
+		var armed: TileDefinition = _armed_tiles[player_id]
+		if armed != null and not holds_deck_tile(player_id, armed.tile_id):
+			_armed_tiles.erase(player_id)
+
+	# The replacements are drawn only after the whole swap was accepted.
+	for index: int in range(returned.size()):
+		var replacement: TileDefinition = _tile_source.draw()
+		if replacement == null:
+			break
+		deck.append(replacement)
+	_decks[player_id] = deck
+	for tile: TileDefinition in returned:
+		_tile_source.return_to_pot(tile)
+	return returned.size()
+
+
 ## Returns a player's deck in deal order, or an empty array.
 func deck_for(player_id: StringName) -> Array[TileDefinition]:
 	return _deck(player_id).duplicate()
@@ -685,10 +787,19 @@ func to_snapshot() -> MatchSnapshotDto:
 
 ## Rebuilds a match from a save record.
 ##
+## The board is rebuilt from the restored move history, one committed move at a
+## time, rather than from the flat board record alone. ADR-011 section 5 makes a
+## move one whole line, so a board written tile by tile would carry a revision
+## counted in tiles while live play counted moves (ADR-007 section 8), and a
+## resumed match would then disagree with a replay of its own history. The board
+## record is still read, as the authoritative rotation and tile identity of each
+## committed cell, and is checked against the history rather than trusted alone.
+##
 ## Returns null when the record is unusable, when the supplied rule sets do not
-## match the versions the record was written with, or when the restored tiles do
-## not satisfy ADR-004's conservation assertion. A match is never partially
-## restored: either every piece is rebuilt or the caller gets null.
+## match the versions the record was written with, when the board record and the
+## move history disagree, or when the restored tiles do not satisfy ADR-004's
+## conservation assertion. A match is never partially restored: either every
+## piece is rebuilt or the caller gets null.
 static func from_snapshot(
 	dto: MatchSnapshotDto,
 	scoring_rules: ScoringRules,
@@ -754,23 +865,17 @@ static func from_snapshot(
 	session._outcome = dto.outcome
 	session._end_reason = dto.end_reason
 
-	for record: Variant in dto.board:
-		var entry: Dictionary = record
-		var tile_id: StringName = StringName(String(entry.get("tile_id", "")))
-		if not by_id.has(tile_id):
+	# ADR-011 section 5 makes a move one whole line, so the flat board record and
+	# the move history describe the same tiles and the history is restored first:
+	# the board is then rebuilt move by move below. That ordering is what keeps a
+	# restored board's revision equal to the number of committed moves rather than
+	# the number of committed tiles (ADR-007 section 8), which a resumed match, a
+	# replay of its own history, and `ScoringReplay.compare` all depend on.
+	for record: Variant in dto.history:
+		var move: ScoringMove = ScoringMove.from_dictionary(record)
+		if not session.append_move(move):
 			push_error(
-				"GameSessionState.from_snapshot: committed tile '%s' is not in the restored bag."
-				% String(tile_id)
-			)
-			return null
-		var raw_cell: Array = entry.get("cell", [])
-		var cell: Vector2i = Vector2i(int(raw_cell[0]), int(raw_cell[1]))
-		var rotation: int = int(entry.get("rotation", 0))
-		var snapshot: TileSnapshot = TileSnapshot.create(by_id[tile_id], cell, rotation)
-		if not session._board.commit_tile(snapshot):
-			push_error(
-				"GameSessionState.from_snapshot: the board refused a committed tile at %s."
-				% BoardEnums.cell_name(cell)
+				"GameSessionState.from_snapshot: the move history holds an unusable or repeated move."
 			)
 			return null
 
@@ -804,13 +909,84 @@ static func from_snapshot(
 			deck.append(by_id[tile_id])
 		session._decks[player_id] = deck
 
-	for record: Variant in dto.history:
-		var move: ScoringMove = ScoringMove.from_dictionary(record)
-		if not session.append_move(move):
+	# ADR-011 section 5 and ADR-007 section 8: the board is written one committed
+	# move at a time. Each restored move supplies every tile of that move in one
+	# board commit, so the revision advances once per move exactly as the live
+	# commit did. The board record is indexed by cell and then checked against the
+	# history rather than trusted on its own, so a record and a history that
+	# disagree are refused instead of restored into an inconsistent match.
+	var board_records: Dictionary = {}
+	for record: Variant in dto.board:
+		var record_entry: Dictionary = record
+		var recorded_tile_id: StringName = StringName(
+			String(record_entry.get("tile_id", ""))
+		)
+		if not by_id.has(recorded_tile_id):
 			push_error(
-				"GameSessionState.from_snapshot: the move history holds an unusable or repeated move."
+				"GameSessionState.from_snapshot: committed tile '%s' is not in the restored bag."
+				% String(recorded_tile_id)
 			)
 			return null
+		var raw_cell: Array = record_entry.get("cell", [])
+		var cell: Vector2i = Vector2i(int(raw_cell[0]), int(raw_cell[1]))
+		if board_records.has(cell):
+			push_error(
+				"GameSessionState.from_snapshot: the board record holds two tiles at %s."
+				% BoardEnums.cell_name(cell)
+			)
+			return null
+		board_records[cell] = record_entry
+
+	var placed_cells: Dictionary = {}
+	for move: ScoringMove in session._history:
+		var snapshots: Array[TileSnapshot] = []
+		for placement: ScoringMove.Placement in move.placements:
+			if not board_records.has(placement.cell):
+				push_error(
+					"GameSessionState.from_snapshot: move '%s' places a tile at %s, which the board record does not hold."
+					% [String(move.move_id), BoardEnums.cell_name(placement.cell)]
+				)
+				return null
+			if placed_cells.has(placement.cell):
+				push_error(
+					"GameSessionState.from_snapshot: %s is placed by more than one restored move."
+					% BoardEnums.cell_name(placement.cell)
+				)
+				return null
+			var entry: Dictionary = board_records[placement.cell]
+			var entry_tile_id: StringName = StringName(String(entry.get("tile_id", "")))
+			if entry_tile_id != placement.tile_id:
+				push_error(
+					"GameSessionState.from_snapshot: %s holds tile '%s' but move '%s' places '%s' there."
+					% [
+						BoardEnums.cell_name(placement.cell),
+						String(entry_tile_id),
+						String(move.move_id),
+						String(placement.tile_id),
+					]
+				)
+				return null
+			placed_cells[placement.cell] = true
+			snapshots.append(
+				TileSnapshot.create(
+					by_id[placement.tile_id],
+					placement.cell,
+					int(entry.get("rotation", 0))
+				)
+			)
+		if not MoveCommitter.commit_move_tiles(session._board, snapshots):
+			push_error(
+				"GameSessionState.from_snapshot: the board refused the restored move '%s'."
+				% String(move.move_id)
+			)
+			return null
+
+	if placed_cells.size() != board_records.size():
+		push_error(
+			"GameSessionState.from_snapshot: the board record holds %d tile(s) that no committed move places."
+			% (board_records.size() - placed_cells.size())
+		)
+		return null
 
 	session._ledger = ScoreLedger.from_dictionary(dto.ledger)
 	for hand_id: Variant in dto.scored_hand_ids:

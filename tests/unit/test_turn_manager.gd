@@ -1,24 +1,28 @@
 extends TestCase
 
 ## Milestone 4 turn sequencing tests (ADR-003 sections 1 to 8), retargeted to the
-## deck of six and the multi-placement turn of ADR-010 sections 2 to 9.
+## whole-line move and the one-move turn of ADR-011 sections 1, 5, 6, 7, and 8.
 ##
 ## Domain-level: no scene tree, no rendering, no input. Every expectation is
 ## checked against the session, the turn state, and the commit result.
 ##
-## ADR-010 changes three things this suite previously fixed as one-tile rules, and
+## ADR-011 changes three things this suite previously fixed as ADR-010 rules, and
 ## the expectations below follow the new rules rather than the superseded ones:
 ##
-## - `MATCH_SETUP` deals six tiles to each player instead of one active tile, so
-##   the pot starts at 132 rather than 143 (ADR-010 sections 1 and 2);
-## - a turn is one or more placements, so a committed placement keeps the turn in
-##   `AWAIT_ACTION`, the turn ends on the explicit `end_turn()` action, and the
-##   move identifier carries a 1-based placement index (ADR-010 sections 3, 4, 6,
-##   and 9);
-## - the deck is topped back up at the turn boundary, and the match ends when the
-##   board is full or when neither player holds a tile while the pot is empty
-##   (ADR-010 sections 5 and 7), in place of ADR-003 section 5's two-consecutive
-##   skip rule.
+## - a move is one line of two or more deck tiles committed atomically, so a
+##   commit places several cells at once and carries ONE move identifier and ONE
+##   history entry (ADR-011 sections 1 and 5);
+## - a turn is exactly one move, so a committed line closes the turn itself and
+##   ADR-010 section 4's explicit end-turn action is gone (ADR-011 section 7).
+##   A player who cannot form a line swaps instead (section 6);
+## - the deck is refilled by the number of tiles the move used, capped by the pot,
+##   and then topped back up to `deck_size` (ADR-011 section 8, ADR-010
+##   section 5). The end conditions are unchanged (ADR-011 section 9).
+##
+## The uniform default rank weights give every deck of six at least a pair, since
+## six tiles drawn from four ranks cannot all differ. Where a test needs a pair
+## guaranteed regardless of the seed it uses the all-Ace generation rules, which
+## ADR-004 section 8 allows because weights are data.
 ##
 ## Where a rule is stated as a pure function of committed totals (the winner and
 ## draw rule of ADR-003 section 8) it is tested both directly and against a real
@@ -33,6 +37,8 @@ const NOT_CONNECTED: int = PlacementEnums.PlacementRejection.NOT_CONNECTED
 const NOT_PLAYERS_TURN: int = PlacementEnums.PlacementRejection.NOT_PLAYERS_TURN
 const DUPLICATE_MOVE: int = PlacementEnums.PlacementRejection.DUPLICATE_MOVE
 const MATCH_FINISHED: int = PlacementEnums.PlacementRejection.MATCH_FINISHED
+const INVALID_ROTATION: int = PlacementEnums.PlacementRejection.INVALID_ROTATION
+const LONE_TILE: int = PlacementEnums.PlacementRejection.LONE_TILE
 
 ## The Phase 1 deck size every deck is filled to (ADR-010 section 1).
 const DECK_SIZE: int = DeckRules.DEFAULT_DECK_SIZE
@@ -42,6 +48,10 @@ const TILES_DEALT_AT_SETUP: int = DECK_SIZE * 2
 
 ## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
 const POT_AFTER_SETUP: int = BoardEnums.CELL_COUNT - TILES_DEALT_AT_SETUP
+
+## The opening line every match in this suite opens with: a horizontal pair of
+## two of the four central cells (ADR-006 section 2, ADR-011 sections 1 and 4).
+const OPENING_LINE: Array[Vector2i] = [Vector2i(5, 5), Vector2i(6, 5)]
 
 
 func test_setup_hands_the_first_turn_to_the_human() -> void:
@@ -67,6 +77,7 @@ func test_setup_hands_the_first_turn_to_the_human() -> void:
 	check(
 		session.has_active_tile(HUMAN), "the human must be holding tiles to act with"
 	)
+	check(_holds_a_pair(session, HUMAN), "a deck of six from four ranks always holds a pair")
 	check_eq(
 		session.remaining_tile_count(),
 		POT_AFTER_SETUP,
@@ -125,134 +136,100 @@ func test_setup_is_refused_once_the_match_has_started() -> void:
 	)
 
 
-func test_a_committed_placement_keeps_the_turn_open() -> void:
+func test_a_committed_line_is_one_atomic_move_that_ends_the_turn() -> void:
+	# ADR-011 sections 1, 5, and 7: one line, one transaction, one move
+	# identifier, one history entry, and the turn closes on the commit.
 	var session: GameSessionState = _new_session(&"turn-c", 13)
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
-	var tile_id: StringName = session.active_tile_for(HUMAN).tile_id
-	var cell: Vector2i = _first_frontier(board)
+	var deck_ids: PackedStringArray = _deck_ids(session, HUMAN)
+	# Read the fixture's line tiles BEFORE the commit: the commit takes them out
+	# of the deck, so the pair has to be captured from the hand as it was dealt.
+	var expected_pair: Array[TileDefinition] = _pair_tiles(session, HUMAN, OPENING_LINE.size())
 
-	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, cell, 0)
+	var result: LineResult = _commit_line_at(session, HUMAN, OPENING_LINE)
 
-	check(result.was_committed(), "the opening placement must commit: %s" % result.describe())
-	check_eq(result.rejection, NONE_REJECTION, "an accepted placement carries no rejection")
-	check_eq(board.occupied_count(), 1, "a placement commits exactly one tile")
-	check_eq(board.get_tile(cell).get_tile_id(), tile_id, "the deck tile is the tile placed")
+	check_not_null(result, "the commit must produce a structured result")
+	check(result.was_committed(), "the opening line must commit: %s" % result.describe())
+	check_eq(result.rejection, NONE_REJECTION, "an accepted line carries no rejection")
+	check_eq(result.staged_count(), 2, "the line stages exactly the tiles the move placed")
+	check_eq(board.occupied_count(), 2, "one committed line writes both of its tiles together")
+
+	# ADR-011 sections 3 and 4: the opening line must be a pair, so the fixture
+	# stages two tiles of ONE rank, which are not necessarily the first two the
+	# deck was dealt. The commit places the tiles in row-major cell order, so the
+	# expected tile of each cell is the fixture's line pair in that order, and the
+	# two placed tiles are asserted to be that pair rather than the deck's first
+	# two.
+	if check_eq(expected_pair.size(), OPENING_LINE.size(), "the fixture must supply a held pair"):
+		check_eq(
+			board.get_tile(OPENING_LINE[0]).get_tile_id(),
+			expected_pair[0].tile_id,
+			"the first tile placed is the fixture's first line tile"
+		)
+		check_eq(
+			board.get_tile(OPENING_LINE[1]).get_tile_id(),
+			expected_pair[1].tile_id,
+			"the second tile placed is the fixture's second line tile"
+		)
+		check_eq(
+			int(expected_pair[0].rank),
+			int(expected_pair[1].rank),
+			"the placed pair must share a rank, which is what makes the line legal"
+		)
+		check(
+			deck_ids.has(String(expected_pair[0].tile_id))
+				and deck_ids.has(String(expected_pair[1].tile_id)),
+			"both placed tiles must come from the human's own deck"
+		)
 	check_eq(
 		String(result.move_id),
 		"move:turn-c:1:1",
-		"the move identifier is the match identity, the turn number, and the 1-based placement index"
+		"the whole line carries ONE move identifier: match, turn, and index 1"
 	)
-	check_eq(result.score_events.size(), 0, "the opening move scores nothing to score")
 	check(session.has_move_id(result.move_id), "the committed move joins the history")
+	check_eq(session.move_count(), 1, "the whole line is ONE history entry")
+	check_eq(
+		session.last_move().placement_count(),
+		2,
+		"the history entry carries every tile of the line"
+	)
 	check_eq(
 		session.deck_count(HUMAN),
-		DECK_SIZE - 1,
-		"the committed tile leaves its owner's deck, not an active slot"
+		DECK_SIZE - 2,
+		"both committed tiles leave their owner's deck"
 	)
 	check_eq(
 		session.remaining_tile_count(),
 		POT_AFTER_SETUP,
-		"a placement consumes no tile from the pot: refill is at the turn boundary"
+		"the pot is untouched until the turn boundary: refill happens there"
 	)
 
-	# ADR-010 section 3 step 9: the placement commits, and the turn stays open.
+	# ADR-011 section 7: the committed line ends the turn.
 	check_eq(
 		TurnManager.resolve(session, result),
 		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"a committed placement keeps the match in the action phase"
+		"a committed line closes the turn and opens the rival's"
 	)
 
 	var turn_state: TurnState = session.get_turn_state()
-	check_eq(turn_state.active_player_id, HUMAN, "a placement does not pass the turn")
-	check_eq(turn_state.turn_number, 1, "a placement does not advance the turn number")
-	check(
-		session.has_active_tile(HUMAN),
-		"the human keeps the rest of the deck for further placements"
-	)
+	check_eq(turn_state.active_player_id, AI, "the committed line passes the turn")
+	check_eq(turn_state.turn_number, 2, "the committed line advances the turn number")
+	check_eq(turn_state.placements_this_turn, 0, "seating the rival restarts the move index")
+	check_eq(session.next_placement_index(), 1, "the new turn's move is index 1")
+	check(not TurnManager.is_awaiting_human_action(session), "the human no longer acts")
+	check(TurnManager.is_awaiting_ai_action(session), "the rival acts now")
 	check_eq(
-		session.deck_count(AI),
-		DECK_SIZE,
-		"the rival's deck is untouched until the human ends the turn"
-	)
-	check_eq(
-		turn_state.consecutive_no_tile_skips, 0, "placing a tile keeps the skip count clear"
-	)
-	check(TurnManager.is_awaiting_human_action(session), "the human may keep placing")
-	check(not TurnManager.is_awaiting_ai_action(session), "the rival is not acting yet")
-	check_eq(
-		session.next_placement_index(),
-		2,
-		"the next placement of this turn carries index 2 (ADR-010 section 9)"
+		turn_state.consecutive_no_tile_skips, 0, "committing a line keeps the skip count clear"
 	)
 
-
-func test_a_second_placement_is_a_distinct_move_and_the_deck_tops_up_at_the_turn_end() -> void:
-	var session: GameSessionState = _new_session(&"turn-c2", 113)
-	TurnManager.setup(session)
-	var board: BoardState = session.get_board()
-
-	var first: PlacementResult = MoveCommitter.commit(session, HUMAN, _first_frontier(board), 0)
-	check(first.was_committed(), "the first placement of the turn must commit")
-	check_eq(
-		TurnManager.resolve(session, first),
-		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"the turn stays open after one placement"
-	)
-
-	var second: PlacementResult = MoveCommitter.commit(session, HUMAN, _first_frontier(board), 0)
-	check(second.was_committed(), "the human may place more than one tile in a turn")
-	check_eq(
-		String(first.move_id),
-		"move:turn-c2:1:1",
-		"the first placement of turn 1 carries placement index 1"
-	)
-	check_eq(
-		String(second.move_id),
-		"move:turn-c2:1:2",
-		"the second placement of turn 1 carries placement index 2"
-	)
-	check(first.move_id != second.move_id, "each placement gets a distinct move identifier")
-	check(session.has_move_id(second.move_id), "the second placement joins the history")
-	check_eq(session.move_count(), 2, "both placements are recorded")
-	check_eq(
-		session.deck_count(HUMAN), DECK_SIZE - 2, "two placements leave four tiles in the deck"
-	)
-	check_eq(
-		session.remaining_tile_count(),
-		POT_AFTER_SETUP,
-		"the pot is untouched while the turn is still open"
-	)
-	check_eq(
-		TurnManager.resolve(session, second),
-		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"the second placement still leaves the turn open"
-	)
-
-	# ADR-010 section 4: the turn ends on the explicit end-turn action.
-	check_eq(
-		TurnManager.end_turn(session),
-		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"an explicit end-turn closes the turn and opens the rival's"
-	)
-
-	var turn_state: TurnState = session.get_turn_state()
-	check_eq(turn_state.active_player_id, AI, "the explicit end-turn passes the turn")
-	check_eq(turn_state.turn_number, 2, "the explicit end-turn advances the turn number")
-
-	# ADR-010 section 5: the refill takes exactly what was played.
+	# ADR-011 section 8: the deck is refilled by the number of tiles the line used.
 	var taken: int = POT_AFTER_SETUP - session.remaining_tile_count()
-	check_eq(taken, 2, "the refill takes the number of tiles played while the pot can supply it")
+	check_eq(taken, 2, "the refill takes exactly the number of tiles the line consumed")
 	check_eq(
 		session.deck_count(HUMAN),
 		DECK_SIZE,
-		"the human's deck is topped back up to deck_size at the turn boundary"
-	)
-	check_eq(session.deck_count(AI), DECK_SIZE, "the rival holds a full deck for its turn")
-	check_eq(
-		session.remaining_tile_count(),
-		POT_AFTER_SETUP - 2,
-		"the pot supplied the refill and nothing else"
+		"the human's deck is filled back to deck_size at the turn boundary"
 	)
 	check_eq(
 		session.verify_tile_conservation().size(),
@@ -261,68 +238,167 @@ func test_a_second_placement_is_a_distinct_move_and_the_deck_tops_up_at_the_turn
 	)
 
 
-func test_an_explicit_end_turn_before_any_placement_is_accepted_and_consumes_the_turn() -> void:
+func test_a_turn_holds_exactly_one_move() -> void:
+	# ADR-011 section 7: a turn is ONE move. There is no end-turn action to close
+	# a longer turn, so a second move in the same turn is simply out of turn.
+	var session: GameSessionState = _new_session(&"turn-c2", 113)
+	TurnManager.setup(session)
+
+	var first: LineResult = _commit_line_at(session, HUMAN, OPENING_LINE)
+	check(first.was_committed(), "the human's line must commit")
+
+	var turn_state: TurnState = session.get_turn_state()
+	check_eq(turn_state.placements_this_turn, 1, "the turn holds exactly one committed move")
+	check_eq(
+		String(first.move_id),
+		"move:turn-c2:1:1",
+		"the move of turn 1 carries index 1, because a turn has only one move"
+	)
+
+	check_eq(
+		TurnManager.resolve(session, first),
+		TurnEnums.MatchPhase.AWAIT_ACTION,
+		"resolving the human's line opens the rival's turn"
+	)
+	check_eq(turn_state.active_player_id, AI, "play passes on the committed line")
+	check_eq(turn_state.turn_number, 2, "the turn number advances once for one move")
+
+	# The human's turn is over, so a second line for the human is refused.
+	var again: LineResult = _commit_line_at(session, HUMAN, [Vector2i(7, 5), Vector2i(8, 5)])
+	check(not again.accepted, "a player cannot take a second move in the closed turn")
+	check_eq(again.rejection, NOT_PLAYERS_TURN, "the reason names turn ownership")
+	check_eq(session.move_count(), 1, "the refused second move records nothing")
+
+	# The rival takes its own single move, at index 1 of its turn.
+	var rival: LineResult = _commit_line_at(session, AI, [Vector2i(7, 5), Vector2i(8, 5)])
+	check(rival.was_committed(), "the rival's line must commit: %s" % rival.describe())
+	check_eq(
+		String(rival.move_id),
+		"move:turn-c2:2:1",
+		"the rival's move is index 1 of turn 2, not a continuation of the human's turn"
+	)
+	check_eq(
+		TurnManager.resolve(session, rival),
+		TurnEnums.MatchPhase.AWAIT_ACTION,
+		"the rival's line ends its turn too"
+	)
+	check_eq(session.move_count(), 2, "two turns hold exactly two moves")
+	check_eq(turn_state.turn_number, 3, "the turn number advances once per move")
+
+
+func test_a_swap_consumes_the_whole_turn_without_placing_a_tile() -> void:
+	# ADR-011 section 6 replaces ADR-010 section 4's explicit pass: a player who
+	# cannot or will not form a line returns deck tiles for equal replacements and
+	# that is their whole turn.
 	var session: GameSessionState = _new_session(&"turn-n", 23)
 	TurnManager.setup(session)
 	var turn_state: TurnState = session.get_turn_state()
+	var before_ids: PackedStringArray = _deck_ids(session, HUMAN)
+	var returned: Array[StringName] = [StringName(before_ids[0]), StringName(before_ids[1])]
 
 	check_eq(
-		session.deck_count(HUMAN), DECK_SIZE, "the human holds a deck before deciding to pass"
+		session.deck_count(HUMAN), DECK_SIZE, "the human holds a deck before deciding to swap"
 	)
+
+	var swapped: int = session.request_swap(HUMAN, returned)
+	check_eq(swapped, 2, "the pot supplied a two-tile swap")
+
 	check_eq(
-		TurnManager.end_turn(session),
+		TurnManager.resolve_swap(session, swapped),
 		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"ending a turn with zero placements is permitted"
+		"a resolved swap closes the turn and opens the rival's"
 	)
 
-	check_eq(turn_state.active_player_id, AI, "ending the turn hands play to the rival")
-	check_eq(turn_state.turn_number, 2, "ending the turn advances the turn number")
-	check_eq(session.get_board().occupied_count(), 0, "ending a turn places no tile")
-	check_eq(session.move_count(), 0, "ending a turn records no move")
+	check_eq(turn_state.active_player_id, AI, "the swap hands play to the rival")
+	check_eq(turn_state.turn_number, 2, "the swap advances the turn number")
+	check_eq(session.get_board().occupied_count(), 0, "a swap cannot place a tile")
+	check_eq(session.move_count(), 0, "a swap records no move and cannot score")
 	check_eq(
-		session.deck_count(HUMAN),
-		DECK_SIZE,
-		"a turn with no placement needs no refill"
+		session.deck_count(HUMAN), DECK_SIZE, "two tiles returned and two replacements drawn"
 	)
-	check_eq(session.deck_count(AI), DECK_SIZE, "the rival's deck is stocked for its turn")
+	check_eq(session.deck_count(AI), DECK_SIZE, "the rival's deck is untouched by the swap")
 	check_eq(
 		session.remaining_tile_count(),
 		POT_AFTER_SETUP,
-		"ending a turn with no placement consumes no tile"
+		"a swap returns as many tiles to the pot as it draws"
+	)
+	var after_ids: PackedStringArray = _deck_ids(session, HUMAN)
+	check(after_ids != before_ids, "the replacements are different tiles")
+	check(
+		not after_ids.has(before_ids[0]) and not after_ids.has(before_ids[1]),
+		"the returned tiles are not drawn straight back"
+	)
+	check_eq(
+		session.verify_tile_conservation().size(),
+		0,
+		"a swap must keep every tile in exactly one place"
 	)
 
 
-func test_an_illegal_placement_does_not_consume_the_turn() -> void:
+func test_a_swap_the_pot_cannot_supply_is_refused_and_keeps_the_turn() -> void:
+	# ADR-011 section 6: when the pot cannot supply the whole swap, the swap is
+	# refused and the player keeps their tiles.
+	var generation: TileGenerationRules = _all_ace_generation(TILES_DEALT_AT_SETUP)
+	var deck_rules: DeckRules = DeckRules.new()
+	deck_rules.deck_size = DECK_SIZE
+	var session: GameSessionState = GameSessionState.create(
+		&"turn-n2", 123, ScoringRules.create_default(), generation, deck_rules
+	)
+	check_not_null(session, "the session must be constructible")
+	TurnManager.setup(session)
+
+	check_eq(session.remaining_tile_count(), 0, "the whole pot is dealt, so it can supply nothing")
+	var before_ids: PackedStringArray = _deck_ids(session, HUMAN)
+	var returned: Array[StringName] = [StringName(before_ids[0])]
+
+	check_eq(session.request_swap(HUMAN, returned), -1, "a swap with an empty pot is refused")
+	check_eq(
+		TurnManager.resolve_swap(session, -1),
+		TurnEnums.MatchPhase.AWAIT_ACTION,
+		"a refused swap does not consume the turn"
+	)
+
+	var turn_state: TurnState = session.get_turn_state()
+	check_eq(turn_state.active_player_id, HUMAN, "the turn stays with the human")
+	check_eq(turn_state.turn_number, 1, "a refused swap does not advance the turn")
+	check_eq(_deck_ids(session, HUMAN), before_ids, "the player keeps their tiles")
+	check_eq(session.move_count(), 0, "a refused swap records nothing")
+	check_eq(session.verify_tile_conservation().size(), 0, "a refused swap changes no tile's home")
+
+
+func test_an_illegal_line_does_not_consume_the_turn() -> void:
 	var session: GameSessionState = _new_session(&"turn-d", 14)
 	TurnManager.setup(session)
 	var held_id: StringName = session.active_tile_for(HUMAN).tile_id
 
-	# (0,0) is empty and in bounds but outside the four opening cells.
-	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, Vector2i(0, 0), 0)
+	# (0, 0) and (1, 0) are empty and in bounds but outside the opening cells.
+	var result: LineResult = _commit_line_at(session, HUMAN, [Vector2i(0, 0), Vector2i(1, 0)])
 
-	check(not result.accepted, "a tile outside the opening cells must be refused")
+	check_not_null(result, "a refused line is still a structured result")
+	check(not result.accepted, "a line outside the opening cells must be refused")
 	check_eq(result.rejection, OPENING_REQUIRED, "the reason names the opening rule")
-	check_eq(session.get_board().occupied_count(), 0, "a refused move places nothing")
-	check_eq(session.get_turn_state().turn_number, 1, "a refused move does not advance the turn")
+	check_eq(session.get_board().occupied_count(), 0, "a refused line places nothing")
+	check_eq(session.get_turn_state().turn_number, 1, "a refused line does not advance the turn")
 	check_eq(session.get_turn_state().active_player_id, HUMAN, "the turn stays with the human")
 	check_eq(
 		session.active_tile_for(HUMAN).tile_id,
 		held_id,
-		"a refused move keeps the active tile"
+		"a refused line keeps the armed tile"
 	)
 	check_eq(
-		session.deck_count(HUMAN), DECK_SIZE, "a refused move consumes no deck tile"
+		session.deck_count(HUMAN), DECK_SIZE, "a refused line consumes no deck tile"
 	)
 	check_eq(
 		session.remaining_tile_count(),
 		POT_AFTER_SETUP,
-		"a refused move consumes no tile"
+		"a refused line consumes no tile from the pot"
 	)
-	check_eq(session.move_count(), 0, "a refused move is not recorded")
+	check_eq(session.get_ledger().size(), 0, "a refused line scores nothing")
+	check_eq(session.move_count(), 0, "a refused line is not recorded")
 	check_eq(
 		TurnManager.resolve(session, result),
 		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"resolving a refused move leaves the match awaiting action"
+		"resolving a refused line leaves the match awaiting action"
 	)
 	check_eq(session.get_turn_state().turn_number, 1, "resolving a refusal still does not advance")
 	check_eq(session.move_count(), 0, "resolving a refusal records nothing")
@@ -330,36 +406,98 @@ func test_an_illegal_placement_does_not_consume_the_turn() -> void:
 	check_eq(
 		session.next_placement_index(),
 		1,
-		"a refused move consumes no placement index, so a retry is still index 1"
+		"a refused line consumes no move identifier, so a retry is still index 1"
 	)
 
 
-func test_an_invalid_rotation_is_refused_without_changing_the_turn() -> void:
+func test_a_lone_tile_is_not_a_move() -> void:
+	# ADR-011 sections 1 and 4: a move places two or more tiles, because a single
+	# tile cannot form a hand.
+	var session: GameSessionState = _new_session(&"turn-p", 41)
+	TurnManager.setup(session)
+	var board: BoardState = session.get_board()
+	var tile: TileDefinition = session.deck_for(HUMAN)[0]
+	var single: Array[TileSnapshot] = [
+		TileSnapshot.create(tile, OPENING_LINE[0], 0),
+	]
+
+	var result: LineResult = MoveCommitter.commit_line(session, HUMAN, single)
+
+	check_not_null(result, "the refusal is still a structured result")
+	check(not result.accepted, "one tile is not a legal move")
+	check_eq(result.rejection, LONE_TILE, "the reason names the lone-tile rule")
+	check_eq(board.occupied_count(), 0, "a lone tile places nothing")
+	check_eq(session.deck_count(HUMAN), DECK_SIZE, "a lone tile consumes no deck tile")
+	check_eq(session.move_count(), 0, "a lone tile is not recorded")
+
+
+func test_a_line_rotation_travels_with_its_tile() -> void:
+	# ADR-011 section 11: rotation updates the pending line without writing to the
+	# board, and the rotation committed is the rotation of that tile. The
+	# request-shaped rotation refusal of ADR-006 section 5 still owns the
+	# vocabulary for a placement request.
 	var session: GameSessionState = _new_session(&"turn-e", 15)
 	TurnManager.setup(session)
-	var cell: Vector2i = _first_frontier(session.get_board())
+	var board: BoardState = session.get_board()
+	var tiles: Array[TileDefinition] = _pair_tiles(session, HUMAN, 2)
+	var staged: Array[TileSnapshot] = [
+		TileSnapshot.create(tiles[0], Vector2i(5, 5), 1),
+		TileSnapshot.create(tiles[1], Vector2i(5, 6), 2),
+	]
 
-	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, cell, 4)
+	var result: LineResult = MoveCommitter.commit_line(session, HUMAN, staged)
 
-	check(not result.accepted, "a fifth orientation is not a rotation")
+	check(result.was_committed(), "a vertical pair is a legal opening line: %s" % result.describe())
 	check_eq(
-		result.rejection,
-		PlacementEnums.PlacementRejection.INVALID_ROTATION,
-		"the reason names the rotation rule"
+		board.get_tile(Vector2i(5, 5)).get_rotation(), 1, "each tile keeps its own rotation"
 	)
-	check_eq(session.get_turn_state().turn_number, 1, "the turn must not advance")
-	check_eq(session.get_board().occupied_count(), 0, "nothing may be placed")
 	check_eq(
-		session.deck_count(HUMAN), DECK_SIZE, "an invalid rotation consumes no deck tile"
+		board.get_tile(Vector2i(5, 6)).get_rotation(), 2, "each tile keeps its own rotation"
+	)
+
+	# ADR-011 section 7: committing the line does not advance the turn by itself;
+	# the caller pairs the commit with the resolution, exactly as the live path
+	# does, so the turn the refused request below must not touch is the rival's.
+	check_eq(
+		TurnManager.resolve(session, result),
+		TurnEnums.MatchPhase.AWAIT_ACTION,
+		"the committed line must be resolved to close the turn"
+	)
+
+	# A tile outside the deck, so this request can only be refused for its
+	# rotation: ADR-006 section 5 rejects an out-of-range rotation before it
+	# considers whether the tile is available, which is the vocabulary a
+	# per-placement request still owns.
+	var outside_deck: TileDefinition = TileDefinition.create(
+		&"turn-e:outside-the-deck",
+		TileEnums.TileRank.ACE,
+		TileEnums.FaceColor.RED,
+		[
+			TileEnums.EdgeColor.BLUE,
+			TileEnums.EdgeColor.BLUE,
+			TileEnums.EdgeColor.BLUE,
+			TileEnums.EdgeColor.BLUE,
+		]
+	)
+	var request: PlacementRequest = PlacementRequest.create(
+		HUMAN, outside_deck.tile_id, Vector2i(7, 5), 4
+	)
+	var refused: PlacementResult = PlacementValidator.validate(board, request, outside_deck, true)
+	check_not_null(refused, "the request-shaped validator still answers")
+	check(not refused.accepted, "a fifth orientation is not a rotation")
+	check_eq(refused.rejection, INVALID_ROTATION, "the reason names the rotation rule")
+	check_eq(
+		session.get_turn_state().turn_number,
+		2,
+		"a refused request-shaped placement does not touch the turn"
 	)
 
 
 func test_the_wrong_player_cannot_move() -> void:
 	var session: GameSessionState = _new_session(&"turn-f", 16)
 	TurnManager.setup(session)
-	var cell: Vector2i = _first_frontier(session.get_board())
 
-	var result: PlacementResult = MoveCommitter.commit(session, AI, cell, 0)
+	var result: LineResult = _commit_line_at(session, AI, OPENING_LINE)
 
 	check(not result.accepted, "the inactive player must not be able to move")
 	check_eq(result.rejection, NOT_PLAYERS_TURN, "the reason names turn ownership")
@@ -367,7 +505,7 @@ func test_the_wrong_player_cannot_move() -> void:
 	check_eq(session.get_turn_state().turn_number, 1, "the turn must not advance")
 	check_eq(session.deck_count(AI), DECK_SIZE, "an out-of-turn move consumes no deck tile")
 	check_eq(
-		session.next_placement_index(), 1, "an out-of-turn move consumes no placement index"
+		session.next_placement_index(), 1, "an out-of-turn move consumes no move identifier"
 	)
 
 
@@ -375,27 +513,25 @@ func test_a_repeated_move_identifier_is_refused_before_anything_changes() -> voi
 	var session: GameSessionState = _new_session(&"turn-g", 17)
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
-	var first: PlacementResult = MoveCommitter.commit(session, HUMAN, _first_frontier(board), 0)
-	check(first.was_committed(), "the first move must commit")
-	check_eq(String(first.move_id), "move:turn-g:1:1", "the first placement is index 1")
+	var first: LineResult = _commit_line_at(session, HUMAN, OPENING_LINE)
+	check(first.was_committed(), "the first line must commit")
+	check_eq(String(first.move_id), "move:turn-g:1:1", "the line of turn 1 is index 1")
 	TurnManager.resolve(session, first)
-	check_eq(session.next_placement_index(), 2, "the next placement of the turn is index 2")
 
-	# Re-open turn 1 on the placement index the move already used, which is
-	# exactly the state a retry of the first placement would present: ADR-010
-	# section 9 keeps the identifier unique per placement, so this is the only
-	# collision a caller can produce for a turn that is still open.
+	# Re-open turn 1 in the action phase, which is exactly the state a retry of
+	# the committed line would present: ADR-011 section 7 makes a turn one move,
+	# so the identifier of that turn is the only one a caller can re-present.
 	var turn_state: TurnState = session.get_turn_state()
 	turn_state.active_player_id = HUMAN
 	turn_state.turn_number = 1
+	turn_state.placements_this_turn = 0
 	turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
 
 	var occupied_before: int = board.occupied_count()
 	var ledger_before: int = session.get_ledger().size()
 	var deck_before: int = session.deck_count(HUMAN)
-	var retry_cell: Vector2i = _first_frontier(board)
 
-	var repeat: PlacementResult = MoveCommitter.commit(session, HUMAN, retry_cell, 0)
+	var repeat: LineResult = _commit_line_at(session, HUMAN, [Vector2i(7, 5), Vector2i(8, 5)])
 
 	check(not repeat.accepted, "a move identifier may be committed at most once")
 	check_eq(repeat.rejection, DUPLICATE_MOVE, "the reason names the duplicate move")
@@ -411,9 +547,7 @@ func test_a_finished_match_refuses_further_moves() -> void:
 	session.finish(TurnEnums.MatchOutcome.DRAW, TurnEnums.EndReason.BOARD_FULL)
 	session.get_turn_state().phase = TurnEnums.MatchPhase.GAME_OVER
 
-	var result: PlacementResult = MoveCommitter.commit(
-		session, HUMAN, _first_frontier(session.get_board()), 0
-	)
+	var result: LineResult = _commit_line_at(session, HUMAN, OPENING_LINE)
 
 	check(not result.accepted, "a finished match must refuse a move")
 	check_eq(result.rejection, MATCH_FINISHED, "the reason names the finished match")
@@ -423,23 +557,22 @@ func test_a_finished_match_refuses_further_moves() -> void:
 
 
 func test_neither_player_holding_a_tile_while_the_pot_is_empty_ends_the_match() -> void:
-	# ADR-010 section 7 condition 2 replaces ADR-003 section 7's two-consecutive
-	# skip rule: the match ends when neither player holds a tile and the pot
-	# cannot supply one. Two tiles with a deck of one each is the smallest board
-	# that reaches it, because the pot is empty the moment both decks are dealt.
-	var generation: TileGenerationRules = TileGenerationRules.new()
-	generation.bag_size = 2
+	# ADR-010 section 7 condition 2, kept by ADR-011 section 9: the match ends when
+	# neither player holds a tile and the pot cannot supply one. The all-Ace rules
+	# guarantee every held pair is a legal line, so the supply is the only thing
+	# under test.
+	var generation: TileGenerationRules = _all_ace_generation(4)
 	var deck_rules: DeckRules = DeckRules.new()
-	deck_rules.deck_size = 1
+	deck_rules.deck_size = 2
 	var session: GameSessionState = GameSessionState.create(
 		&"turn-i", 19, ScoringRules.create_default(), generation, deck_rules
 	)
-	check_not_null(session, "a two-tile match must be constructible")
+	check_not_null(session, "a four-tile match must be constructible")
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
 
-	check_eq(session.deck_count(HUMAN), 1, "a deck_size of one deals one tile to each player")
-	check_eq(session.deck_count(AI), 1, "a deck_size of one deals one tile to each player")
+	check_eq(session.deck_count(HUMAN), 2, "a deck_size of two deals two tiles to each player")
+	check_eq(session.deck_count(AI), 2, "a deck_size of two deals two tiles to each player")
 	check_eq(session.remaining_tile_count(), 0, "the whole pot is dealt at setup")
 	check_eq(
 		TurnManager.detect_end_reason(session),
@@ -447,19 +580,19 @@ func test_neither_player_holding_a_tile_while_the_pot_is_empty_ends_the_match() 
 		"the match continues while a player still holds a tile"
 	)
 
-	var human_move: PlacementResult = MoveCommitter.commit(session, HUMAN, _first_frontier(board), 0)
-	check(human_move.was_committed(), "the human's move must commit")
+	var human_move: LineResult = _commit_line_at(session, HUMAN, OPENING_LINE)
+	check(human_move.was_committed(), "the human's line must commit: %s" % human_move.describe())
 	check_eq(
 		TurnManager.resolve(session, human_move),
 		TurnEnums.MatchPhase.AWAIT_ACTION,
 		"play continues because the rival still holds a tile"
 	)
 	check_eq(
-		session.deck_count(HUMAN), 0, "the human's only tile left the deck when it was placed"
+		session.deck_count(HUMAN), 0, "both of the human's tiles left the deck when they were placed"
 	)
 
-	var ai_move: PlacementResult = MoveCommitter.commit(session, AI, _first_frontier(board), 0)
-	check(ai_move.was_committed(), "the AI's move must commit")
+	var ai_move: LineResult = _commit_line_at(session, AI, [Vector2i(7, 5), Vector2i(8, 5)])
+	check(ai_move.was_committed(), "the AI's line must commit: %s" % ai_move.describe())
 	check_eq(
 		TurnManager.resolve(session, ai_move),
 		TurnEnums.MatchPhase.GAME_OVER,
@@ -472,7 +605,7 @@ func test_neither_player_holding_a_tile_while_the_pot_is_empty_ends_the_match() 
 		TurnEnums.EndReason.TILE_SOURCE_EXHAUSTED,
 		"the end reason is the empty pot"
 	)
-	check_eq(board.occupied_count(), 2, "both supplied tiles were placed")
+	check_eq(board.occupied_count(), 4, "both lines were placed in full")
 	check_eq(session.deck_count(HUMAN), 0, "no player holds a tile at the end")
 	check_eq(session.deck_count(AI), 0, "no player holds a tile at the end")
 	check(not session.holds_any_tile(), "the end condition is that neither player holds a tile")
@@ -497,31 +630,39 @@ func test_neither_player_holding_a_tile_while_the_pot_is_empty_ends_the_match() 
 
 
 func test_the_match_ends_when_every_cell_is_filled() -> void:
-	# ADR-010 section 7 condition 1: the match ends after the placement that fills
-	# the board. The placements run through the ordinary commit-and-resolve path
-	# and close their own turns, because a placement never ends a turn by itself.
-	var session: GameSessionState = _new_session(&"turn-o", 24)
+	# ADR-010 section 7 condition 1, kept by ADR-011 section 9: the match ends on
+	# the move that fills the board. The fill runs through the ordinary
+	# commit-and-resolve path with ADR-011's two-tile moves, over a fixed
+	# Hamiltonian pairing of the grid, so every move is a contiguous, connected
+	# line and every cell is placed exactly once. The all-Ace rules keep a pair
+	# available in every deck size the endgame reaches, so the supply of legal
+	# lines is what the board-full condition is measured against.
+	var session: GameSessionState = GameSessionState.create(
+		&"turn-o", 24, ScoringRules.create_default(), _all_ace_generation(BoardEnums.CELL_COUNT)
+	)
+	check_not_null(session, "the session must be constructible")
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
-	var placements: int = 0
+	var pairs: Array = _grid_pairs()
+	var moves: int = 0
 
-	while (
-		placements < BoardEnums.CELL_COUNT
-		and not session.is_over()
-		and not board.is_full()
-	):
-		var frontier: Array[Vector2i] = board.get_frontier_cells()
-		if frontier.is_empty():
+	for pair: Variant in pairs:
+		if session.is_over():
 			break
-		var result: PlacementResult = MoveCommitter.commit(
-			session, session.get_turn_state().active_player_id, frontier[0], 0
+		var cells: Array[Vector2i] = pair
+		var result: LineResult = _commit_line_at(
+			session, session.get_turn_state().active_player_id, cells
 		)
 		if not result.was_committed():
 			break
 		TurnManager.resolve(session, result)
-		placements += 1
+		moves += 1
 
-	check_eq(placements, BoardEnums.CELL_COUNT, "every cell must be filled exactly once")
+	check_eq(
+		moves * 2,
+		BoardEnums.CELL_COUNT,
+		"144 cells need 72 two-tile moves, and none may be refused"
+	)
 	check(board.is_full(), "the loop must end with the board full")
 	check(session.is_over(), "the match must be over")
 	check_eq(
@@ -539,7 +680,7 @@ func test_the_match_ends_when_every_cell_is_filled() -> void:
 		TurnEnums.EndReason.BOARD_FULL,
 		"the end-condition check reports the full board"
 	)
-	check_eq(session.move_count(), BoardEnums.CELL_COUNT, "every placement joins the history")
+	check_eq(session.move_count(), moves, "each committed line is exactly one move")
 	check_eq(
 		session.remaining_tile_count()
 			+ session.deck_count(HUMAN)
@@ -547,6 +688,12 @@ func test_the_match_ends_when_every_cell_is_filled() -> void:
 			+ board.occupied_count(),
 		BoardEnums.CELL_COUNT,
 		"a full board must still account for every tile exactly once"
+	)
+	check_eq(
+		session.verify_tile_conservation().size(),
+		0,
+		"a full match must keep every tile in exactly one place: %s"
+		% str(session.verify_tile_conservation())
 	)
 
 
@@ -600,51 +747,41 @@ func test_human_and_ai_reach_scoring_through_the_same_path() -> void:
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
 
-	var human_move: PlacementResult = MoveCommitter.commit(session, HUMAN, _first_frontier(board), 0)
+	var human_move: LineResult = _commit_line_at(session, HUMAN, OPENING_LINE)
 	check_eq(
 		TurnManager.resolve(session, human_move),
 		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"the human's placement leaves their turn open"
+		"the human's line ends their turn"
 	)
-	# ADR-010 section 4: the human hands over with an explicit end-turn.
-	check_eq(
-		TurnManager.end_turn(session),
-		TurnEnums.MatchPhase.AWAIT_ACTION,
-		"the human's turn ends and the rival takes its turn"
-	)
-	var ai_cell: Vector2i = _first_frontier(board)
-	var ai_move: PlacementResult = MoveCommitter.commit(session, AI, ai_cell, 0)
+	var ai_move: LineResult = _commit_line_at(session, AI, [Vector2i(7, 5), Vector2i(8, 5)])
 
-	check(human_move.was_committed(), "the human's move commits through the transaction")
-	check(ai_move.was_committed(), "the AI's move commits through the same transaction")
+	check(human_move.was_committed(), "the human's line commits through the transaction")
+	check(ai_move.was_committed(), "the AI's line commits through the same transaction")
 	check_eq(
 		human_move.move_id,
 		StringName("move:turn-k:1:1"),
-		"the human's opening placement is turn 1, placement 1"
+		"the human's opening line is turn 1, move 1"
 	)
 	check_eq(
 		ai_move.move_id,
 		StringName("move:turn-k:2:1"),
-		"the rival's opening placement is turn 2, placement 1"
+		"the rival's opening line is turn 2, move 1"
 	)
 	check_eq(session.move_count(), 2, "both moves are recorded in history")
 
-	# The same rule refuses both players equally: a cell touching nothing.
-	var off_board_cell: Vector2i = _isolated_cell(board)
-	if off_board_cell != Vector2i(-1, -1):
+	# The same rule refuses both players equally: a line touching nothing.
+	var isolated: Vector2i = _isolated_cell(board)
+	if isolated != Vector2i(-1, -1):
 		TurnManager.resolve(session, ai_move)
-		check_eq(
-			TurnManager.end_turn(session),
-			TurnEnums.MatchPhase.AWAIT_ACTION,
-			"the rival's turn ends before the human's next turn"
-		)
-		var check_result: PlacementResult = MoveCommitter.commit(session, HUMAN, off_board_cell, 0)
-		check(not check_result.accepted, "an unconnected cell is refused")
-		check_eq(
-			check_result.rejection,
-			NOT_CONNECTED,
-			"the connection rule applies to the human exactly as it would to the AI"
-		)
+		var partner: Vector2i = _adjacent_empty_cell(board, isolated)
+		if partner != Vector2i(-1, -1):
+			var refused: LineResult = _commit_line_at(session, HUMAN, [isolated, partner])
+			check(not refused.accepted, "an unconnected line is refused")
+			check_eq(
+				refused.rejection,
+				NOT_CONNECTED,
+				"the connection rule applies to the human exactly as it would to the AI"
+			)
 
 
 func test_the_remaining_count_is_visible_but_the_bag_is_not() -> void:
@@ -663,8 +800,8 @@ func test_the_remaining_count_is_visible_but_the_bag_is_not() -> void:
 		"twelve tiles were dealt, and the pot still holds the rest undrawn"
 	)
 
-	# ADR-010 section 4: a placement commits a tile the player already holds, so
-	# the tile the human would place is a member of their own deck.
+	# ADR-011 section 1: a move takes tiles the player already holds, so the tiles
+	# the human would place are members of their own deck.
 	var human_tile: TileDefinition = session.active_tile_for(HUMAN)
 	check_not_null(human_tile, "the active player's own tile is known to them")
 	check(human_tile.is_valid(), "the active player's own tile is a usable tile")
@@ -690,6 +827,74 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 	return session
 
 
+## Returns generation rules whose every tile shares one rank, so any held pair is
+## a legal line whatever the seed (ADR-004 section 8 allows weights to be data).
+func _all_ace_generation(bag_size: int) -> TileGenerationRules:
+	var rules: TileGenerationRules = TileGenerationRules.new()
+	rules.bag_size = bag_size
+	rules.rank_weights = [1.0, 0.0, 0.0, 0.0] as Array[float]
+	return rules
+
+
+## Commits a line of `cells` for `player_id`, staging a pair of equal ranks so
+## the line is a legal hand (ADR-011 section 3) whatever the seed dealt.
+func _commit_line_at(
+	session: GameSessionState, player_id: StringName, cells: Array[Vector2i]
+) -> LineResult:
+	var tiles: Array[TileDefinition] = _pair_tiles(session, player_id, cells.size())
+	var staged: Array[TileSnapshot] = []
+	for index: int in range(cells.size()):
+		if index >= tiles.size():
+			return null
+		staged.append(TileSnapshot.create(tiles[index], cells[index], 0))
+	return MoveCommitter.commit_line(session, player_id, staged)
+
+
+## Returns `count` tiles of one player's deck, preferring `count` of equal rank so
+## the assembled line is at least a pair (ADR-011 section 3).
+func _pair_tiles(
+	session: GameSessionState, player_id: StringName, count: int
+) -> Array[TileDefinition]:
+	var deck: Array[TileDefinition] = session.deck_for(player_id)
+	var chosen: Array[TileDefinition] = []
+	var by_rank: Dictionary = {}
+	for tile: TileDefinition in deck:
+		if tile == null:
+			continue
+		var rank: int = int(tile.rank)
+		var group: Array = by_rank.get(rank, [])
+		group.append(tile)
+		by_rank[rank] = group
+	for rank: Variant in by_rank.keys():
+		var group: Array = by_rank[rank]
+		if group.size() >= count:
+			for tile: TileDefinition in group:
+				chosen.append(tile)
+				if chosen.size() == count:
+					return chosen
+	chosen.clear()
+	for tile: TileDefinition in deck:
+		if tile == null:
+			continue
+		chosen.append(tile)
+		if chosen.size() == count:
+			return chosen
+	return chosen
+
+
+## Returns true when a player's deck holds two tiles of one rank.
+func _holds_a_pair(session: GameSessionState, player_id: StringName) -> bool:
+	var ranks: Dictionary = {}
+	for tile: TileDefinition in session.deck_for(player_id):
+		if tile == null:
+			continue
+		var seen: int = int(ranks.get(int(tile.rank), 0)) + 1
+		if seen >= 2:
+			return true
+		ranks[int(tile.rank)] = seen
+	return false
+
+
 ## Returns one player's deck as a list of tile identities, in deal order.
 func _deck_ids(session: GameSessionState, player_id: StringName) -> PackedStringArray:
 	var ids: PackedStringArray = PackedStringArray()
@@ -697,6 +902,83 @@ func _deck_ids(session: GameSessionState, player_id: StringName) -> PackedString
 		if tile != null:
 			ids.append(String(tile.tile_id))
 	return ids
+
+
+## Returns the grid as a fixed sequence of adjacent cell pairs.
+##
+## The pairing is a Hamiltonian path over all 144 cells, so 72 two-tile moves
+## cover the board exactly once. Two properties are required of the order and both
+## are asserted by `test_...`'s own checks below rather than assumed: consecutive
+## cells in the path are orthogonally adjacent, so every pair is one contiguous
+## line; and the pair boundaries fall so that the first pair covers a central
+## opening cell and every later pair contains a cell touching committed tiles.
+func _grid_pairs() -> Array:
+	var path: Array[Vector2i] = []
+
+	# Row 5 leftwards from the centre, so the first pair covers an opening cell.
+	for x: int in range(5, -1, -1):
+		path.append(Vector2i(x, 5))
+	# Rows 6 to 11, snaking.
+	for y: int in range(6, 12):
+		if (y - 6) % 2 == 0:
+			for x: int in range(0, 12):
+				path.append(Vector2i(x, y))
+		else:
+			for x: int in range(11, -1, -1):
+				path.append(Vector2i(x, y))
+	# Rows 4 up to 0, snaking.
+	for y: int in range(4, -1, -1):
+		if (4 - y) % 2 == 0:
+			for x: int in range(0, 12):
+				path.append(Vector2i(x, y))
+		else:
+			for x: int in range(11, -1, -1):
+				path.append(Vector2i(x, y))
+	# The rest of row 5, rightwards from the centre.
+	for x: int in range(6, 12):
+		path.append(Vector2i(x, 5))
+
+	check_eq(
+		path.size(), BoardEnums.CELL_COUNT, "the pairing path must cover every cell exactly once"
+	)
+	var seen: Dictionary = {}
+	for cell: Vector2i in path:
+		check(not seen.has(cell), "the pairing path must not repeat a cell")
+		seen[cell] = true
+
+	var pairs: Array = []
+	for index: int in range(0, path.size() - 1, 2):
+		var first: Vector2i = path[index]
+		var second: Vector2i = path[index + 1]
+		check(
+			_is_adjacent(first, second),
+			"every paired line must be contiguous: %s and %s"
+			% [BoardEnums.cell_name(first), BoardEnums.cell_name(second)]
+		)
+		var pair: Array[Vector2i] = [first, second]
+		pairs.append(pair)
+
+	check_eq(pairs.size() * 2, BoardEnums.CELL_COUNT, "the pairs must cover the board")
+	var opening: Array[Vector2i] = pairs[0]
+	check(
+		BoardEnums.is_opening_cell(opening[0]) or BoardEnums.is_opening_cell(opening[1]),
+		"the first line must cover one of the four central opening cells"
+	)
+	return pairs
+
+
+## Returns true when two cells are orthogonally adjacent.
+func _is_adjacent(a: Vector2i, b: Vector2i) -> bool:
+	return absi(a.x - b.x) + absi(a.y - b.y) == 1
+
+
+## Returns the first empty neighbour of `cell`, or (-1, -1).
+func _adjacent_empty_cell(board: BoardState, cell: Vector2i) -> Vector2i:
+	for offset: Vector2i in BoardEnums.neighbor_offsets():
+		var neighbor: Vector2i = cell + offset
+		if board.is_empty_cell(neighbor):
+			return neighbor
+	return Vector2i(-1, -1)
 
 
 ## Returns the first legal frontier cell in row-major order.

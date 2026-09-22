@@ -243,6 +243,13 @@ func test_replay_reports_a_move_its_tile_lookup_cannot_supply() -> void:
 ## and is validated through the same `PlacementValidator` a human move uses, so
 ## the match exercises the real placement and scoring paths rather than a
 ## test-only shortcut.
+##
+## Each call commits one tile through ADR-007 section 4's per-tile transaction,
+## which ADR-011 section 5 supersedes for live play, and records it as
+## `ScoringMove.create_single`. The one-placement record is deliberately kept:
+## ADR-011 section 10 leaves scoring untouched, and `ScoringReplay` still replays
+## that record shape, so this fixture audits the unchanged scoring over a full
+## board through the history the replay layer reads.
 func _play_seeded_match(seed: int, match_id: StringName) -> Dictionary:
 	var rules: ScoringRules = ScoringRules.create_default()
 	var board: BoardState = BoardState.create()
@@ -294,7 +301,7 @@ func _play_seeded_match(seed: int, match_id: StringName) -> Dictionary:
 			rules
 		)
 		moves.append(
-			ScoringMove.create(
+			ScoringMove.create_single(
 				move_id, turn_number, &"player-1", tile.tile_id, cell, 0, turn_number == 1
 			)
 		)

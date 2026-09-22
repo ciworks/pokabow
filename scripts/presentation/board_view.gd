@@ -44,6 +44,13 @@ func _ready() -> void:
 ## as soon as the screen is in the tree (ADR-008 section 5). Re-running this is
 ## harmless, so both paths can call it.
 func _ensure_layers() -> void:
+	# The resize hook is established here as well as in `_ready`, because this
+	# runs from every redraw path. A board that was asked to render before its
+	# `_ready` ran would otherwise keep the rectangle it fitted at that moment and
+	# draw the pending line against a stale board area, which is the same trap the
+	# layer binding below exists to avoid. Connecting twice is harmless.
+	if not resized.is_connected(_on_resized):
+		resized.connect(_on_resized)
 	if tile_layer == null:
 		tile_layer = get_node_or_null("%TileLayer") as BoardTileLayer
 	if preview_layer == null:
@@ -91,16 +98,42 @@ func set_human_turn(enabled: bool) -> void:
 	_redraw_all()
 
 
-## Shows the ghost of a pending placement, legal or not.
-func show_preview(snapshot: TileSnapshot, valid: bool, reason: String) -> void:
-	_state.pending = snapshot
+## Shows the ghost of the pending line, legal or not (ADR-011 section 11).
+##
+## `snapshots` is every staged tile in staging order; the last entry is the tile
+## the rotate command acts on, which the preview layer marks. A single-tile call
+## is a valid pending line of one: ADR-011 section 1 requires two tiles for a
+## move, and `valid` says whether the line as it stands satisfies that.
+func show_line(snapshots: Array[TileSnapshot], valid: bool, reason: String) -> void:
+	var line: Array[TileSnapshot] = []
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot != null:
+			line.append(snapshot)
+	_state.pending_line = line
+	var first: TileSnapshot = null
+	if not line.is_empty():
+		first = line[0]
+	_state.pending = first
 	_state.pending_valid = valid
 	_state.pending_reason = reason
 	_redraw_all()
 
 
+## Shows the ghost of a single pending placement.
+##
+## A one-tile pending line. Kept because a caller that previews one tile is still
+## assembling the same staged line (ADR-011 section 1: the first tile of a line
+## starts it).
+func show_preview(snapshot: TileSnapshot, valid: bool, reason: String) -> void:
+	var line: Array[TileSnapshot] = []
+	if snapshot != null:
+		line.append(snapshot)
+	show_line(line, valid, reason)
+
+
 ## Removes the preview, leaving committed tiles untouched.
 func clear_preview() -> void:
+	_state.pending_line = []
 	_state.pending = null
 	_state.pending_valid = false
 	_state.pending_reason = ""
@@ -110,7 +143,29 @@ func clear_preview() -> void:
 ## Marks where the most recent tile landed.
 func mark_committed(cell: Vector2i) -> void:
 	_state.last_committed_cell = cell
+	_state.last_committed_cells = [cell]
 	_redraw_all()
+
+
+## Marks every cell the most recent committed move wrote.
+##
+## ADR-011 section 1 makes a move a whole line, so the highlight marks the line
+## rather than only its anchor; the anchor is still the first cell, so a caller
+## that asks for one cell keeps getting the move's primary cell.
+func mark_committed_line(cells: Array[Vector2i]) -> void:
+	var line: Array[Vector2i] = []
+	for cell: Vector2i in cells:
+		if not line.has(cell):
+			line.append(cell)
+	_state.last_committed_cells = line
+	_state.last_committed_cell = line[0] if not line.is_empty() else BoardMetrics.NO_CELL
+	_redraw_all()
+
+
+## Returns every cell the most recent committed move wrote, as the board is
+## drawing them. For smoke tests and diagnostics.
+func get_last_committed_cells() -> Array[Vector2i]:
+	return _state.last_committed_cells.duplicate()
 
 
 ## Rebuilds every layer from authoritative state.
@@ -123,9 +178,22 @@ func resync() -> void:
 	_redraw_all()
 
 
-## Returns the previewed snapshot, or null. For smoke tests and diagnostics.
+## Returns the previewed snapshot (the pending line's first tile), or null.
+## For smoke tests and diagnostics.
 func get_pending_snapshot() -> TileSnapshot:
 	return _state.pending
+
+
+## Returns every tile of the pending line in staging order, as the board is
+## drawing them. For smoke tests and diagnostics.
+func get_pending_line() -> Array[TileSnapshot]:
+	return _state.pending_line.duplicate()
+
+
+## Returns how many tiles the board is drawing as the pending line. For smoke
+## tests.
+func get_pending_count() -> int:
+	return _state.pending_count()
 
 
 ## Returns whether the current preview is legal. For smoke tests.
@@ -156,6 +224,14 @@ func _redraw_all() -> void:
 	# Binding here as well as in `_ready` keeps a render request made before the
 	# view is ready from dereferencing a null layer.
 	_ensure_layers()
+	# The rect is refitted on every redraw, so the drawn board follows the size
+	# the layout has actually given this control. Fitting it only in `_ready` and
+	# on `resized` means a board that was drawn before its `_ready` ran keeps the
+	# rectangle it fitted at that moment and draws its tiles against a stale area,
+	# while `global_board_rect()` - which hit-tests every gesture - recomputes from
+	# the live size. Refitting here keeps the drawn board and the tappable board
+	# the same rectangle.
+	_recompute_rect()
 	if tile_layer != null:
 		tile_layer.queue_redraw()
 	if preview_layer != null:

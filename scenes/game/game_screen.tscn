@@ -227,7 +227,7 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
-text = "Tap a highlighted cell"
+text = "Tap tiles to build a line, or Swap"
 horizontal_alignment = 1
 autowrap_mode = 2
 
@@ -253,14 +253,6 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 17
 disabled = true
 text = "Cancel"
-
-[node name="EndTurnButton" type="Button" parent="Root/Column/Body/SidePanel" unique_id=1572761049]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 19
-disabled = true
-text = "End Turn"
 
 [node name="DeckBar" type="HBoxContainer" parent="Root/Column" unique_id=1895277371]
 layout_mode = 2
@@ -290,6 +282,42 @@ custom_minimum_size = Vector2(0, 96)
 layout_mode = 2
 size_flags_horizontal = 3
 script = ExtResource("10_deck")
+
+[node name="SwapPanel" type="PanelContainer" parent="Root/Column/DeckBar" unique_id=1710293546]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="SwapBox" type="VBoxContainer" parent="Root/Column/DeckBar/SwapPanel" unique_id=1603112857]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="SwapButton" type="Button" parent="Root/Column/DeckBar/SwapPanel/SwapBox" unique_id=1572761049]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 44)
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+disabled = true
+text = "Swap"
+
+[node name="SwapConfirmButton" type="Button" parent="Root/Column/DeckBar/SwapPanel/SwapBox" unique_id=1031172853]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(150, 38)
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+disabled = true
+text = "Return tiles"
+
+[node name="SwapCancelButton" type="Button" parent="Root/Column/DeckBar/SwapPanel/SwapBox" unique_id=1787050391]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(150, 38)
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+disabled = true
+text = "Keep tiles"
 
 [node name="BoardInputController" type="Node" parent="." unique_id=238671052]
 unique_name_in_owner = true

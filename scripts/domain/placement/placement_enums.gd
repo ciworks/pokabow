@@ -34,6 +34,19 @@ enum PlacementRejection {
 	## The rotation is not one of the four accepted quarter-turn indexes 0-3
 	## (ADR-006 section 5).
 	INVALID_ROTATION = 7,
+	## This move identifier has already been committed (ADR-007 section 5).
+	##
+	## A repeated commit must be recognised rather than scored twice, and
+	## ADR-006's recommended vocabulary has no reason for it, so it is declared
+	## here. It refuses a placement without changing any rule about which
+	## placements are legal.
+	DUPLICATE_MOVE = 8,
+	## The match has stopped, so gameplay input is frozen (ADR-003 section 1).
+	##
+	## `GAME_OVER` freezes input and `RECOVERY_ERROR` marks the match incomplete,
+	## so in both cases no further move may resolve. Like `DUPLICATE_MOVE` this
+	## reports an existing rule outcome rather than adding one.
+	MATCH_FINISHED = 9,
 }
 
 

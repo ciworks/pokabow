@@ -6,3 +6,5 @@
 - No autoloads in Phase 1 unless an ADR-008 section 6 lifecycle need appears; no match state may live in a global.
 - Domain tile type is named TileDefinition (not TileData): Godot 4 has a native TileData class, so "class_name TileData" is a hard compile error.
 - Score event ids are `score:<move-id>:<poker|edge|cluster>:<discriminator>`. Cluster events use ADR-007 section 5's documented `cluster:<color>:<1-based ordinal per colour>` form, and the canonical component key travels in the event evidence (ADR-002 section 7) rather than in the id.
+- Turn flow: `MoveCommitter.commit()` performs the atomic board+score write (ADR-007 section 4 steps 1-7) and `TurnManager.resolve()` advances the turn (ADR-003 section 1 TURN_END, section 3 steps 8-11). Callers pair the two; nothing else may advance a turn.
+- PlacementRejection extends ADR-006's recommended list with DUPLICATE_MOVE and MATCH_FINISHED, for ADR-007 section 5's idempotent-commit refusal and ADR-003 section 1's frozen-input refusal.

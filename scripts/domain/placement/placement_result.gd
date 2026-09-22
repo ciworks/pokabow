@@ -30,6 +30,39 @@ var placed_tile: TileSnapshot = null
 ## up / right / down / left order. Empty when rejected.
 var changed_cells: Array[Vector2i] = []
 
+## Deterministic identifier of the move this placement committed, in the
+## `move:<match-id>:<turn-number>` form of ADR-007 section 5. Empty when the
+## result came from validation alone rather than from a committed move.
+var move_id: StringName = &""
+
+## Score events the commit awarded, in the deterministic order of ADR-007
+## section 7. Empty when rejected, and legitimately empty for a legal placement
+## that simply scores nothing.
+var score_events: Array[ScoreEvent] = []
+
+
+## Returns the points this placement awarded.
+func get_total_points() -> int:
+	var total: int = 0
+	for event: ScoreEvent in score_events:
+		total += event.points
+	return total
+
+
+## Returns the awarded points of one category.
+func get_points_for_category(category: int) -> int:
+	var total: int = 0
+	for event: ScoreEvent in score_events:
+		if event.category == category:
+			total += event.points
+	return total
+
+
+## Returns true when a move identifier was recorded, which means the placement
+## was committed rather than merely validated.
+func was_committed() -> bool:
+	return accepted and not String(move_id).is_empty()
+
 
 ## Builds an accepted result.
 static func create_accepted(

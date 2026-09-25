@@ -38,6 +38,16 @@ func spawn(at: Vector2, text: String, color: Color) -> void:
 	# Centre the label on the anchor point rather than growing from a corner.
 	label.position = at - Vector2(float(text.length()) * 5.0, FONT_SIZE * 0.5)
 
+	if AccessibilitySettings.reduced_motion():
+		# Reduced motion: the points are still shown, because the number is the
+		# whole point of a score popup, but it neither rises nor fades. It is
+		# anchored where it was asked for and removed after the same delay, so
+		# the ordering the ledger recorded still reads correctly.
+		var hold: Tween = create_tween()
+		hold.tween_interval(DURATION)
+		hold.tween_callback(label.queue_free)
+		return
+
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(label, "position:y", label.position.y - RISE_PIXELS, DURATION)

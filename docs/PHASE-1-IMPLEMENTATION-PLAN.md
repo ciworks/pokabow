@@ -114,7 +114,8 @@ Deliver a playable vertical slice in which a human and AI alternately draw, rota
 * `GameSessionState`, `TurnState`, and phase enum.
 * `TurnManager` implementing Human-first alternation.
 * Atomic `MoveCommitter` spanning board, scores, indexes, and turn state.
-* Board-full and tile-exhaustion end conditions.
+* End the match when neither current deck has a legal placement; retain the
+  board-full and tile-exhaustion checks for completeness (ADR-011 amendment).
 * Winner/draw calculation and score breakdown.
 * Save/resume at stable transaction boundaries.
 
@@ -133,6 +134,13 @@ Deliver a playable vertical slice in which a human and AI alternately draw, rota
 * A complete two-scripted-player match runs headlessly to a verified result.
 
 ## Milestone 5: Minimal playable UI
+
+**Implementation note (2026-09-22):** ADR-011 supersedes the original
+single-tile turn shape. The current interface stages a line before confirmation.
+Each staged tile is visible on the board and absent from the visible deck row;
+un-staging a cell or cancelling restores it to the row. The underlying match deck
+is changed only by the atomic line commit. Headless game-screen integration tests
+cover these transitions. Manual mobile viewport verification remains open.
 
 ### Deliverables
 
@@ -180,7 +188,39 @@ Deliver a playable vertical slice in which a human and AI alternately draw, rota
 
 * Human vs Easy, Medium, and Hard matches complete correctly and remain responsive on target-class hardware.
 
+**Implementation note (2026-09-25):** All three difficulties were implemented and
+tested, but nothing exposed them: the game ran the configured default and the
+exit criterion above was unreachable, because the player could not reach Easy or
+Hard. `GameScreen` now carries a `DifficultyPicker` in the HUD, built from
+`AiEnums.Difficulty` and wired to `GameSessionController.set_ai_difficulty()`,
+which was already documented as safe mid-match (it cancels an analysis in flight
+and re-schedules the rival rather than stranding it). "New match" now carries the
+chosen difficulty into the new match instead of letting it fall back to the
+default. Manual device verification of the three difficulties remains open.
+
 ## Milestone 7: Persistence, recovery, and diagnostics
+
+**Implementation note (2026-09-24):** Automatic save and resume are implemented
+and unit tested (`tests/unit/test_match_persistence.gd` drives a real controller
+through the commit boundary, then resumes it into a second controller and compares
+board, history, score, and pot). Saving happens at the commit boundary in
+`GameSessionController._after_state_change()`, with a suspend/shutdown save behind
+it, and `AppRoot` resumes a saved match instead of starting a new one.
+
+**All six deliverables are now implemented.** The recovery screen is a panel in
+`game_screen.tscn` (`RecoveryOverlay`): a refused restore emits
+`GameSessionController.recovery_failed`, the screen shows the reason and the
+player explicitly starts a fresh match, and the unreadable save is deliberately
+left on disk so the last valid transaction stays recoverable rather than being
+destroyed by the refusal. The development overlays are one `DebugOverlay` control
+on the board (`scripts/presentation/debug_overlay.gd`), off unless the
+`debug/overlays` project setting is on and toggled with F3; it draws cell
+coordinates, the legal frontier, the last move's cells, and a panel of board
+revision, pot, move count, and the last award's score events. The replay/export
+deliverable is `GameSessionController.export_fixture()`, bound to F4, which writes
+the same versioned snapshot the autosave writes - bag, decks, board, ledger, and
+ordered move history - to `user://match_fixture.json` so the domain replay
+verifier can consume it. None of the three mutates match state.
 
 ### Deliverables
 
@@ -206,4 +246,64 @@ Deliver a playable vertical slice in which a human and AI alternately draw, rota
 * Performance profile on representative mobile hardware.
 * Tuned rules resources without changing accepted rule semantics.
 
-### Exit criter
+**Implementation note (2026-09-25):** Two of the six deliverables have landed.
+Edge/cluster visualization is implemented (`ScoreRevealLayer` outlines every
+scoring group and sequences the poker-hand bounce), but the refinement of the
+floating score sequencing is not finished. The audio and optional haptic adapters
+are implemented in `FeedbackAdapter` (ADR-008 section 5), created by `AppRoot` and
+injected into the screen, with five cues fired by the screen when a human gesture
+resolves. Both channels are switchable and neither is read by any rule, score, or
+turn path. The five sounds are confirmed audible and accepted by the owner in play.
+Two of the five come from generic asset-store one-shots rather than purpose-matched
+effects, and no licence record for them exists in the project yet - worth resolving
+before a public build.
+**Accessibility is partly done.** The edge palette (`TilePainter.EDGE_COLORS`) is
+now an Okabe-Ito set, and the four top-edge overlays under `assets/tiles/edges/`
+are tinted by that palette instead of being drawn as authored, so one palette now
+governs every edge on every side. Before this the palette paired a red and a green
+that sit on the exact axis red-green colour blindness collapses, and the overlays
+carried their own colours - so a palette-only change would have recoloured three
+sides of a tile and left the top edge stale. Colour remains the only edge channel:
+a redundant pattern encoding was offered and declined by the owner, so this helps
+the red-green confusion pair but not every vision type. Reduced motion is now
+implemented too: `AccessibilitySettings.reduced_motion()` reads the
+`accessibility/reduced_motion` project setting (default false) at the point each
+animation starts - the reveal, the popup layer and the deal layer each ask it
+directly, so nothing is injected and a future settings screen can toggle it
+mid-session. With it on, each of those three shows the same events without moving.
+The reveal holds its
+marks and clears them without bouncing or fading, a score popup appears without
+drifting, and a deal completes in one step while still reporting every tile as
+revealed so the row unconceals the deck. No setting movement changes a point, a
+turn, or a board cell. Text size is inventoried - 15 to 34 px in `game_screen.tscn`
+against the 1280x720 target - but deliberately unchanged, because no legibility
+floor has been agreed and resizing every HUD label blind would be a guess. The
+seeded balance simulation, the mobile performance profile, and the rules tuning
+are not started.
+
+One thing to verify on a device: if an edge overlay is coloured rather than
+neutral art, tinting multiplies it and the top edge reads a shade darker than the
+other three sides. That is recorded in `_paint_edge_layer` but not confirmed by eye.
+
+### Exit criteria
+
+* Every scoring category the ledger records is revealed on the board, and the
+  floating popups play in the ledger's recorded event order, so no mark and no
+  point value can describe an award the ledger did not record.
+* A full headless match plays identically with `feedback/audio` and
+  `feedback/haptics` both off: no rule, score, or turn path reads either setting,
+  which is what makes both channels optional rather than required.
+* A cue fires for each of the five player gestures - select, place, score, refuse,
+  match end - at the moment a human gesture resolves and never on the rival's move.
+* On a device, every cue that has a sound is audible and every cue vibrates, and
+  turning either channel off silences only that channel.
+* Matching edges are readable without colour, text is legible at the 1280x720
+  target viewport, and a reduced-motion setting suppresses the reveal and bounce
+  animations without changing a single point awarded.
+* A seeded balance simulation reproduces the same report from the same seed and
+  covers all three difficulties.
+* A measured frame-time profile on representative mobile hardware meets the stated
+  frame budget across a full match.
+* Any rules tuning changes values in versioned rules resources only: the whole test
+  suite passes unchanged and incremental-versus-replay equivalence still holds, so
+  the accepted rule semantics are provably unchanged.

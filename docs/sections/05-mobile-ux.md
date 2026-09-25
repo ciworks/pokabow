@@ -200,7 +200,60 @@ neither channel can be judged from a headless run or a still frame.
 
 ---
 
-## 7. UI Architecture Boundary
+## 7. Accessibility (Specified, partially implemented)
+
+The specification requires an accessibility pass over colour differentiation, text
+size, and reduced motion. Edge-colour matching IS the scoring mechanic, so a
+board that signals a match with colour alone is a playability gap rather than a
+cosmetic one.
+
+### Current implementation
+
+**Colour.** `TilePainter.EDGE_COLORS` is an Okabe-Ito palette, chosen so the two
+colours a red-green colour blindness collapses - the previous red and green -
+separate under the common confusion pairs. The palette is the single source of
+truth for edge colour and has one consumer, so a region, an outline and a tile
+edge can never be drawn in different blues.
+
+The four top-edge overlays under `assets/tiles/edges/` are tinted by that palette
+rather than drawn as authored. This is required, not cosmetic: the painter draws
+`tile_<colour>_top.png` INSTEAD of the colour band whenever the file exists, so a
+palette-only change would have recoloured three sides of every tile and left the
+fourth - the most visible one - stale.
+
+Colour remains the only edge channel by owner decision. A redundant pattern
+encoding was considered and declined, so this palette helps the red-green
+confusion pair but not every vision type; a board readable without colour at all
+would need that pattern layer.
+
+**Reduced motion.** `AccessibilitySettings.REDUCED_MOTION_SETTING`
+(`accessibility/reduced_motion`, default false, matching how the feedback
+channels are switched) is read once into `AppRoot` and injected into the three
+layers that animate. With it on:
+
+- `ScoreRevealLayer` still marks which tiles scored and still holds the marks for
+  the full `HOLD`, but nothing bounces and nothing fades. The timer is kept as a
+  plain wait so the player is not rushed past the information;
+- `FloatingScores` still shows every award and still removes it, but the label
+  does not drift upward;
+- `DealLayer` completes at once, reporting every tile as revealed so the deck row
+  unconceals in one step through the row's own path rather than this layer
+  painting a deck of its own.
+
+Reducing motion changes no point awarded, no turn, and no board cell: the same
+committed events are shown, only without movement. Nothing reads the setting on a
+rule path.
+
+**Text size.** Not yet addressed. The font sizes in use are inventoried - the
+game screen runs from 15 to 34 px and the splash from 20 to 56 px at the 1280x720
+target viewport - but no legibility floor has been agreed, so none has been
+changed. Raising the smallest HUD labels is a visual decision that cannot be
+verified from a headless run, and it is deliberately left open rather than
+guessed at.
+
+---
+
+## 8. UI Architecture Boundary
 
 UI reflects game state rather than duplicating game rules:
 
@@ -212,7 +265,7 @@ Game State -> Turn Manager -> UI Controller -> HUD / Board UI / Score UI
 
 ---
 
-## 8. Open Items
+## 9. Open Items
 
 - Exact visual style (colors, tile art, animation language) - unspecified.
 - Screen orientation policy (portrait vs. landscape) - unspecified.
@@ -224,7 +277,7 @@ captured before implementation polish.
 
 ---
 
-## 9. Status Summary
+## 10. Status Summary
 
 | Area | Status |
 |---|---|
@@ -234,6 +287,9 @@ captured before implementation polish.
 | Edge and cluster visualization (requirement) | Implemented: transient reveal on award plus a persistent cluster display; exact visual style still open |
 | Floating score popups | Implemented; sequencing not tuned |
 | Optional haptics | Implemented via `FeedbackAdapter`; device feel unverified |
-| Cue sound | Implemented for all five cues; not heard on a device |
+| Cue sound | Implemented for all five cues; confirmed audible in play by the owner |
+| Accessibility - colour | Okabe-Ito edge palette governs all four sides; colour remains the only channel by owner decision |
+| Accessibility - reduced motion | Implemented via `accessibility/reduced_motion`; changes movement only, never a point or a turn |
+| Accessibility - text size | Inventoried (15-34 px at the 1280x720 target); unchanged pending an agreed legibility floor |
 | Rival difficulty selection | Implemented - HUD picker writing to `set_ai_difficulty()`; device QA open |
 | Visual style, orientation, exact gestures | Open - not specified |

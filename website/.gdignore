@@ -1,0 +1,4 @@
+This file tells Godot to skip this whole directory. The marketing site is not a
+game resource and must never be scanned, imported, or bundled into an export.
+Godot only checks that a file named `.gdignore` exists in a directory, so the
+contents are inert.

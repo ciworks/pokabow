@@ -21,17 +21,27 @@ grow_vertical = 2
 
 [node name="TitleBlock" type="VBoxContainer" parent="CenterContainer"]
 layout_mode = 2
-theme_override_constants/separation = 12
+theme_override_constants/separation = 14
 alignment = 1
 
 [node name="Title" type="Label" parent="CenterContainer/TitleBlock"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.93, 0.85, 1)
 theme_override_font_sizes/font_size = 56
 text = "Polkabow"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="CenterContainer/TitleBlock"]
+[node name="AccentRow" type="CenterContainer" parent="CenterContainer/TitleBlock"]
 layout_mode = 2
+
+[node name="Accent" type="ColorRect" parent="CenterContainer/TitleBlock/AccentRow"]
+custom_minimum_size = Vector2(180, 3)
+layout_mode = 2
+color = Color(1, 0.86, 0.42, 1)
+
+[node name="Tagline" type="Label" parent="CenterContainer/TitleBlock"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.68, 0.76, 1)
 theme_override_font_sizes/font_size = 20
-text = "Landscape splash - Milestone 0 bootstrap"
+text = "Place tiles. Form hands. Match edges."
 horizontal_alignment = 1

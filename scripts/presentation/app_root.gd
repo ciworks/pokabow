@@ -23,6 +23,14 @@ const ACCESSIBILITY_LAYER_PATH: NodePath = ^"AccessibilityLayer"
 ## The playable screen, loaded once the splash has served its purpose.
 const GAME_SCREEN_SCENE: String = "res://scenes/game/game_screen.tscn"
 
+## How long the authored splash is held before the match boots, in seconds.
+##
+## Long enough to read the title, short enough not to feel like a wait. The hold
+## is the whole of the splash's life: booting a match is synchronous and fast, so
+## without a deliberate beat here the composition root would replace the splash in
+## the same frame it appeared and no player would ever see it.
+const SPLASH_HOLD_SECONDS: float = 1.2
+
 ## Host for the active screen. Screens are swapped inside this node.
 var scene_host: Node = null
 
@@ -37,6 +45,11 @@ var session_controller: GameSessionController = null
 
 ## The active playable screen, or null before the match boot completes.
 var game_screen: GameScreen = null
+
+## The platform feedback service (ADR-008 section 5; Milestone 8). Owned here and
+## injected into the screen, so haptics and audio are composed in one place and
+## the screen holds no platform call of its own.
+var feedback_adapter: FeedbackAdapter = null
 
 
 ## Resolves the persistent layer nodes this composition root owns.
@@ -69,7 +82,7 @@ func _ready() -> void:
 		return
 
 	print("[AppRoot] bootstrap ready (screens hosted: %d)" % scene_host.get_child_count())
-	boot_game_screen()
+	_begin_splash_hold()
 
 
 ## Creates the match services and swaps the splash screen for the game screen.
@@ -82,6 +95,11 @@ func boot_game_screen() -> bool:
 	_bind_layers()
 	if scene_host == null:
 		return false
+	# Booting twice would build a second match service and host a second screen,
+	# stranding the first one's session. The splash hold calls this after a caller
+	# may already have booted, so the guard is what makes both paths safe together.
+	if game_screen != null:
+		return true
 
 	var packed: PackedScene = load(GAME_SCREEN_SCENE) as PackedScene
 	if packed == null:
@@ -107,6 +125,23 @@ func boot_game_screen() -> bool:
 	scene_host.add_child(screen)
 
 	screen.attach_controller(session_controller)
+
+	# Milestone 8: the platform feedback service, created alongside the match
+	# service and injected (ADR-008 section 5). The screen cues it at the moment
+	# a human gesture resolved, so the rival's move never buzzes the player's
+	# phone and a headless screen simply has no adapter to cue.
+	feedback_adapter = FeedbackAdapter.new()
+	add_child(feedback_adapter)
+	screen.attach_feedback_adapter(feedback_adapter)
+
+	# Milestone 7: a match that was interrupted is picked up where it left off.
+	# The screen is attached first, so the resume outcome is reported through the
+	# screen's own notice channel rather than to nobody. A save this build cannot
+	# restore is refused by `resume_match`, which explains why and leaves the
+	# record on disk; a fresh match then starts, so a bad save cannot strand the
+	# player.
+	if session_controller.resume_match():
+		return true
 	session_controller.start_new_match()
 	return true
 
@@ -123,3 +158,24 @@ func _replace_hosted_screens() -> void:
 	for child: Node in scene_host.get_children():
 		scene_host.remove_child(child)
 		child.free()
+
+
+## Holds the authored splash for a short fixed beat, then boots the match.
+##
+## The hold is branding rather than a loading wait (see `SPLASH_HOLD_SECONDS`).
+## It also hands over cleanly: the engine's own boot splash is set to the same
+## background colour (`application/boot_splash/bg_color`), so the engine splash,
+## this screen, and the first drawn frame of the match are one continuous colour
+## rather than a flash between them.
+##
+## A `Timer` child rather than an awaited coroutine, so a tree torn down mid-hold
+## - which the test harness does between cases - simply drops the timer instead
+## of resuming into a freed node.
+func _begin_splash_hold() -> void:
+	var timer: Timer = Timer.new()
+	timer.name = "SplashHold"
+	timer.one_shot = true
+	timer.wait_time = SPLASH_HOLD_SECONDS
+	add_child(timer)
+	timer.timeout.connect(boot_game_screen)
+	timer.start()

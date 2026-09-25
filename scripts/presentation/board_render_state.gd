@@ -69,6 +69,42 @@ var drop_cell: Vector2i = BoardMetrics.NO_CELL
 ## section 19); this state carries the verdict so a layer can draw it.
 var drag_legal: bool = false
 
+## Draw scale each cell pops to, keyed by cell. 1.0 is rest.
+##
+## Written only by `ScoreRevealLayer` while a scoring bounce runs and read by
+## `BoardTileLayer`, so a tile can grow toward the viewer without any game state
+## moving. The board is 2D, so the Z axis is expressed as scale about the cell's
+## centre: the tile reads as rising toward the player while staying in the cell it
+## belongs to, where a positional hop would read as sliding across the grid.
+##
+## Empty at rest, which is what ADR-008 section 9 requires of an animation that
+## can be interrupted.
+var cell_zoom: Dictionary = {}
+
+## One entry per connected same-colour edge cluster the board currently holds,
+## each `{color: int, cells: Array[Vector2i]}`, as `GameSessionController`
+## enumerated them with `EdgeClusterScorer`.
+##
+## Carried here rather than read from the board by a layer, because a component is
+## a rule and AGENTS.md section 19 keeps rules out of the UI. Empty is a valid
+## state: a board with no matching boundary holds no cluster.
+var edge_clusters: Array = []
+
+## Per-edge verdicts for the staged tile on `edge_match_cell`, in
+## `TileEnums.EdgePosition` order (top, right, bottom, left).
+##
+## Each entry is true when that side of the staged tile currently matches the
+## committed tile across it, as `GameSessionController` read it from
+## `EdgeMatchScorer`. This is a read-out of the adjacencies the board holds right
+## now, never a score prediction: the layer that draws it decides nothing, so the
+## hint cannot invent a rule the specification does not contain (AGENTS.md
+## section 2).
+var edge_matches: Array[bool] = []
+
+## The staged cell `edge_matches` describes, or `BoardMetrics.NO_CELL` when no
+## hint is being drawn.
+var edge_match_cell: Vector2i = BoardMetrics.NO_CELL
+
 
 ## Returns true when a dragged tile is being drawn at a real board cell.
 func has_drag() -> bool:
@@ -83,3 +119,29 @@ func has_pending() -> bool:
 ## Returns how many tiles the pending line holds (ADR-011 section 11).
 func pending_count() -> int:
 	return pending_line.size()
+
+
+## Returns the scale `cell` is currently drawn at, or 1.0 at rest.
+##
+## A scale of 1.0 or below is rest: the bounce only ever grows a tile, so a stray
+## value can never shrink a committed tile.
+func zoom_for(cell: Vector2i) -> float:
+	var value: Variant = cell_zoom.get(cell, null)
+	if value is float or value is int:
+		var scale: float = float(value)
+		if scale > 1.0:
+			return scale
+	return 1.0
+
+
+## Returns the four current edge verdicts for `cell`, or an empty array when no
+## hint describes that cell.
+##
+## Only one tile of the staged line can be hinted at a time - the last staged
+## tile, which is the one the rotate command acts on - so the cell is part of the
+## verdict: a layer that drew the marks without checking it would stamp one
+## tile's adjacencies onto another tile.
+func edge_matches_for(cell: Vector2i) -> Array[bool]:
+	if edge_match_cell == BoardMetrics.NO_CELL or cell != edge_match_cell:
+		return [] as Array[bool]
+	return edge_matches

@@ -25,6 +25,9 @@ var _state: BoardRenderState = BoardRenderState.new()
 @onready var tile_layer: BoardTileLayer = %TileLayer
 @onready var preview_layer: BoardPreviewLayer = %PreviewLayer
 @onready var highlight_layer: BoardHighlightLayer = %HighlightLayer
+@onready var cluster_layer: ClusterDisplayLayer = %ClusterDisplayLayer
+@onready var reveal_layer: ScoreRevealLayer = %ScoreRevealLayer
+@onready var debug_overlay: DebugOverlay = %DebugOverlay
 @onready var effect_layer: BoardEffectLayer = %EffectsLayer
 
 
@@ -57,6 +60,18 @@ func _ensure_layers() -> void:
 		preview_layer = get_node_or_null("%PreviewLayer") as BoardPreviewLayer
 	if highlight_layer == null:
 		highlight_layer = get_node_or_null("%HighlightLayer") as BoardHighlightLayer
+	if cluster_layer == null:
+		# Resolved by `%` first and by plain path second, like the layers above:
+		# the cluster node is added under the board with a unique name, but a
+		# board built without one must still bind rather than silently stop
+		# drawing its persistent outlines.
+		cluster_layer = get_node_or_null("%ClusterDisplayLayer") as ClusterDisplayLayer
+	if cluster_layer == null:
+		cluster_layer = get_node_or_null("ClusterDisplayLayer") as ClusterDisplayLayer
+	if reveal_layer == null:
+		reveal_layer = get_node_or_null("%ScoreRevealLayer") as ScoreRevealLayer
+	if debug_overlay == null:
+		debug_overlay = get_node_or_null("%DebugOverlay") as DebugOverlay
 	if effect_layer == null:
 		effect_layer = get_node_or_null("%EffectsLayer") as BoardEffectLayer
 	if tile_layer != null:
@@ -65,6 +80,18 @@ func _ensure_layers() -> void:
 		preview_layer.state = _state
 	if highlight_layer != null:
 		highlight_layer.state = _state
+	if cluster_layer != null:
+		cluster_layer.state = _state
+	if reveal_layer != null:
+		reveal_layer.state = _state
+		# The bounce moves tiles by writing a draw scale the tile layer reads, so the
+		# board has to repaint while it runs. The layer reports each frame rather
+		# than `BoardView` polling it, which keeps the animation owned by the
+		# layer that started it.
+		if not reveal_layer.redraw_requested.is_connected(_redraw_all):
+			reveal_layer.redraw_requested.connect(_redraw_all)
+	if debug_overlay != null:
+		debug_overlay.state = _state
 	if effect_layer != null:
 		effect_layer.state = _state
 
@@ -116,6 +143,13 @@ func show_line(snapshots: Array[TileSnapshot], valid: bool, reason: String) -> v
 	_state.pending = first
 	_state.pending_valid = valid
 	_state.pending_reason = reason
+	# A hint belongs to one exact line: it describes the adjacencies around the
+	# tile the rotate command was acting on. Once the line changes - a tile
+	# staged, unstaged, moved, or rotated - those verdicts are stale, so they are
+	# dropped here and the caller republishes them for the new line. Without this
+	# a rotation would leave the previous orientation's marks up.
+	_state.edge_match_cell = BoardMetrics.NO_CELL
+	_state.edge_matches = [] as Array[bool]
 	_redraw_all()
 
 
@@ -137,6 +171,9 @@ func clear_preview() -> void:
 	_state.pending = null
 	_state.pending_valid = false
 	_state.pending_reason = ""
+	# No staged line means no tile to hint at, so the marks go with it.
+	_state.edge_match_cell = BoardMetrics.NO_CELL
+	_state.edge_matches = [] as Array[bool]
 	_redraw_all()
 
 
@@ -225,6 +262,82 @@ func get_last_committed_cells() -> Array[Vector2i]:
 	return _state.last_committed_cells.duplicate()
 
 
+## Reveals what the given committed score events awarded: the matching edge
+## boundaries and the paying colour clusters (AGENTS.md section 8, Milestone 8).
+##
+## `events` is the same authoritative list the score popups read, so a mark and
+## the points beside it always describe one award. Nothing here decides what
+## scored - the events are already committed (ADR-008 section 4).
+func show_score_reveal(events: Array) -> void:
+	_ensure_layers()
+	if reveal_layer != null:
+		reveal_layer.reveal(events)
+
+
+## Drops the reveal immediately, leaving nothing drawn.
+func clear_score_reveal() -> void:
+	_ensure_layers()
+	if reveal_layer != null:
+		reveal_layer.clear_reveal()
+
+
+## Shows the same-colour edge regions the committed board currently holds
+## (AGENTS.md section 8, docs/sections/05-mobile-ux.md section 4).
+##
+## `clusters` arrives ready to draw: `GameSessionController.current_edge_clusters()`
+## enumerated the components with `EdgeClusterScorer`, so the board outlines the
+## regions the rules already recognise rather than deriving them itself (AGENTS.md
+## section 19). An empty list is a valid answer and clears the marks.
+##
+## The regions persist until this is called again, which is what separates them
+## from `show_score_reveal`: that mark answers "what did the move that just
+## committed score" and fades, while this one always describes the board as it
+## stands now.
+func show_clusters(clusters: Array) -> void:
+	_ensure_layers()
+	if cluster_layer == null:
+		return
+	cluster_layer.show_clusters(clusters)
+
+
+## Drops the persistent cluster outlines, leaving committed tiles untouched.
+func clear_clusters() -> void:
+	_ensure_layers()
+	if cluster_layer != null:
+		cluster_layer.clear_clusters()
+
+
+## Shows, for one staged cell, which of its four edges currently matches the
+## committed tile across it (top, right, bottom, left).
+##
+## The verdicts are a factual read-out of current adjacencies that
+## `GameSessionController.staged_edge_matches` derived from `EdgeMatchScorer`;
+## the board carries them and the preview layer draws them, but neither decides
+## them, so the hint cannot become a score prediction (AGENTS.md sections 2 and
+## 19).
+##
+## `BoardMetrics.NO_CELL` clears the hint, because a hint with no cell has
+## nothing to attach its marks to.
+func show_edge_matches(cell: Vector2i, matches: Array[bool]) -> void:
+	_ensure_layers()
+	if cell == BoardMetrics.NO_CELL:
+		clear_edge_matches()
+		return
+	_state.edge_match_cell = cell
+	_state.edge_matches = matches.duplicate()
+	_redraw_all()
+
+
+## Removes the rotation hint, leaving the staged line untouched.
+func clear_edge_matches() -> void:
+	_ensure_layers()
+	if _state.edge_match_cell == BoardMetrics.NO_CELL and _state.edge_matches.is_empty():
+		return
+	_state.edge_match_cell = BoardMetrics.NO_CELL
+	_state.edge_matches = [] as Array[bool]
+	_redraw_all()
+
+
 ## Rebuilds every layer from authoritative state.
 ##
 ## ADR-008 section 9 requires an interrupted or skipped animation to
@@ -232,6 +345,16 @@ func get_last_committed_cells() -> Array[Vector2i]:
 ## layers hold no state of their own to unwind.
 func resync() -> void:
 	_recompute_rect()
+	# Tearing the board down drops any reveal with it, so a mark cannot outlive
+	# the match it was drawn for. A rebuild during play keeps the reveal: it is
+	# driven by committed score events, which a redraw does not change.
+	if _state.board == null:
+		clear_score_reveal()
+		# A persistent outline is a statement about a board, so tearing the board
+		# down drops it and the hint with it: neither mark may outlive the match
+		# whose state it described.
+		clear_clusters()
+		clear_edge_matches()
 	_redraw_all()
 
 
@@ -295,5 +418,14 @@ func _redraw_all() -> void:
 		preview_layer.queue_redraw()
 	if highlight_layer != null:
 		highlight_layer.queue_redraw()
+	if cluster_layer != null:
+		# Repainted on every redraw rather than only when the clusters are
+		# republished: the marks resolve their geometry from the board rectangle,
+		# so a refit or a resize has to move them with the tiles they outline.
+		cluster_layer.queue_redraw()
+	if reveal_layer != null:
+		reveal_layer.queue_redraw()
+	if debug_overlay != null:
+		debug_overlay.queue_redraw()
 	if effect_layer != null:
 		effect_layer.queue_redraw()

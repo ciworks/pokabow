@@ -39,7 +39,10 @@ Planned / optional:
 - Challenges
 - Streaks
 
-**Status:** Future.
+**Status:** Started. Cluster visualization (persistent) and rotation hints have
+landed as presentation over existing state, documented in `05-mobile-ux.md`
+section 4; tile preview is the existing staged-line ghost. Challenges and streaks
+are not started.
 
 ---
 

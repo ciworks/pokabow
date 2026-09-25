@@ -7,8 +7,8 @@ extends Node
 ## This is the only place rules are invoked. It owns the `GameSessionState` and
 ## exposes the line-shaped commands ADR-011 sections 1, 6, and 11 imply:
 ## `select_deck_tile`, `stage_tile`, `unstage_tile`, `rotate_staged`,
-## `commit_line`, `cancel_staged`, and `request_swap`, plus read-only accessors
-## for the HUD. Screens submit intents and render the result; they never validate
+## `rotate_staged_at`, `rotate_selected_deck_tile`, `commit_line`,
+## `cancel_staged`, and `request_swap`, plus read-only accessors for the HUD. Screens submit intents and render the result; they never validate
 ## a line, never score, and never reach into the board themselves
 ## (ADR-008 section 4, AGENTS.md sections 6 and 19).
 ##
@@ -61,6 +61,18 @@ signal match_ended(result: MatchResult)
 ## A short player-facing notice, e.g. a save or resume outcome.
 signal notice(text: String)
 
+## A saved match could not be restored, carrying the plain-language reason
+## (Milestone 7, ADR-003 section 7).
+##
+## Deliberately separate from `notice`: a notice is transient status that any
+## ordinary action can replace, while this is a state the player has to resolve,
+## so the screen shows a panel and does not start a match until they choose to.
+##
+## No session is created and the unreadable save is left on disk, so the last
+## valid transaction is still recoverable by hand rather than destroyed by the
+## refusal, and the screen never has a half-restored match to render.
+signal recovery_failed(reason: String)
+
 ## The opponent started or finished analysing its move (ADR-005 section 9).
 ##
 ## Presentation drives the rival-turn message from this state instead of
@@ -73,6 +85,22 @@ const DEFAULT_AI_DIFFICULTY: int = AiEnums.DEFAULT_DIFFICULTY
 
 ## Where the single match save lives (ADR-008 section 11).
 const SAVE_PATH: String = "user://match_save.json"
+
+## Where an exported bug-report fixture is written (Milestone 7).
+##
+## Separate from the save so exporting for a report never disturbs the match the
+## player is actually resuming.
+const FIXTURE_PATH: String = "user://match_fixture.json"
+
+## The save location actually in use.
+##
+## Defaults to `SAVE_PATH`; a test points it at its own file, so exercising the
+## save path cannot overwrite the player's real in-progress match.
+var save_path: String = SAVE_PATH
+
+## The fixture location actually in use. Defaults to `FIXTURE_PATH`; a test points
+## it at its own file, for the same reason `save_path` is redirectable.
+var fixture_path: String = FIXTURE_PATH
 
 ## Tile source template, so a resumed match regenerates the identical bag.
 const TILE_RULES_RESOURCE: String = "res://resources/rules/tile_generation_rules.tres"
@@ -171,30 +199,27 @@ func resume_match() -> bool:
 	if not has_saved_match():
 		return false
 
-	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var file: FileAccess = FileAccess.open(save_path, FileAccess.READ)
 	if file == null:
-		push_error("GameSessionController: the save file could not be opened.")
-		return false
-	var payload: Variant = JSON.parse_string(file.get_as_text())
+		return _recovery_failed("your saved match could not be opened")
+	var text: String = file.get_as_text()
 	file.close()
+	var payload: Variant = JSON.parse_string(text)
 	if not (payload is Dictionary):
-		push_error("GameSessionController: the save file is not valid JSON.")
-		return false
+		return _recovery_failed("your saved match could not be read")
 
 	var raw_match: Variant = (payload as Dictionary).get("match", null)
 	if not (raw_match is Dictionary):
-		push_error("GameSessionController: the save file holds no match record.")
-		return false
+		return _recovery_failed("your saved match held no match record")
 
 	var dto: MatchSnapshotDto = MatchSnapshotDto.from_dictionary(raw_match)
 	var session: GameSessionState = GameSessionState.from_snapshot(
 		dto, ScoringRules.create_default(), _load_generation_rules()
 	)
 	if session == null:
-		push_error(
-			"GameSessionController: the saved match could not be restored under the current rules."
+		return _recovery_failed(
+			"your saved match was made under rules this build no longer accepts"
 		)
-		return false
 
 	_session = session
 	# ADR-003 section 9: a transient preview is never persisted, so resume with no
@@ -205,13 +230,14 @@ func resume_match() -> bool:
 	_clear_staged()
 	session_started.emit()
 	state_changed.emit()
+	notice.emit("Resumed your saved match")
 	_after_state_change()
 	return true
 
 
 ## Returns true when a resumable save exists.
 func has_saved_match() -> bool:
-	return FileAccess.file_exists(SAVE_PATH)
+	return FileAccess.file_exists(save_path)
 
 
 ## Writes the match to disk (ADR-008 section 11: save at stable boundaries).
@@ -229,7 +255,7 @@ func save_match() -> bool:
 		push_error("GameSessionController: the match could not be serialized.")
 		return false
 
-	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file: FileAccess = FileAccess.open(save_path, FileAccess.WRITE)
 	if file == null:
 		push_error("GameSessionController: the save file could not be written.")
 		return false
@@ -243,11 +269,112 @@ func save_match() -> bool:
 	return true
 
 
+## Writes the current match to a bug-report fixture and reports the outcome
+## (Milestone 7's replay/export deliverable).
+##
+## The fixture is the same versioned record the autosave writes - the complete
+## bag, both decks, the board, the ledger, and the ordered move history the replay
+## verifier consumes - wrapped with the context a report needs. It is the record
+## itself rather than a second summary of the match, so a fixture cannot describe
+## a position the rules could not produce, and loading it back exercises exactly
+## the restore path a saved match uses.
+##
+## Writing a fixture changes nothing: no board write, no move, no turn, and no
+## score, which is what makes it safe to bind to a key. A match in progress has
+## no resumable state once it is over, so a finished match is refused.
+##
+## Returns true when the fixture was written.
+func export_fixture() -> bool:
+	if _session == null:
+		notice.emit("Nothing to export yet")
+		return false
+	if _session.is_over():
+		notice.emit("That match is already over")
+		return false
+	var dto: MatchSnapshotDto = _session.to_snapshot()
+	if dto == null or not dto.is_valid():
+		push_error("GameSessionController.export_fixture: the match could not be serialized.")
+		notice.emit("That match could not be exported")
+		return false
+	var file: FileAccess = FileAccess.open(fixture_path, FileAccess.WRITE)
+	if file == null:
+		push_error("GameSessionController.export_fixture: the fixture file could not be written.")
+		notice.emit("The fixture file could not be written")
+		return false
+	file.store_string(
+		JSON.stringify(
+			{
+				"exported_at": Time.get_datetime_string_from_system(),
+				"engine_version": Engine.get_version_info().get("string", ""),
+				"ai_difficulty": ai_difficulty(),
+				"match": dto.to_dictionary(),
+			},
+			"\t"
+		)
+	)
+	file.close()
+	notice.emit("Exported match fixture")
+	return true
+
+
+## Returns the fixture location in use, for the screen's diagnostics.
+func fixture_file_path() -> String:
+	return fixture_path
+
+
 ## Deletes the save file, used when a match finishes.
 func clear_saved_match() -> void:
 	if not has_saved_match():
 		return
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(save_path))
+
+
+## Persists the match so a forced termination can be resumed (Milestone 7).
+##
+## Public because the suspend and shutdown paths save through it as well as the
+## commit boundary. A failed save is reported rather than silent, but it never
+## interrupts play: the match in memory is still the authoritative one, and the
+## next commit tries again.
+##
+## Returns true when a save was written.
+func autosave() -> bool:
+	if _session == null or _session.is_over():
+		return false
+	var saved: bool = save_match()
+	if not saved:
+		notice.emit("Could not save your progress")
+	return saved
+
+
+## Reports a restore that could not be completed, and refuses it (Milestone 7).
+##
+## The save is deliberately left on disk. The last committed move is the last
+## valid transaction, so a record this build cannot read is evidence rather than
+## something to discard silently. `recovery_failed` carries that to the screen,
+## which shows a recovery panel and leaves the choice of starting fresh to the
+## player; the notice beside it keeps the same words in the status line for a
+## caller that renders no panel.
+##
+## The session is deliberately left unset: a half-restored match would be worse
+## than none, and every accessor tolerates a null session, so the screen stays
+## renderable while the panel is up.
+func _recovery_failed(reason: String) -> bool:
+	push_error("GameSessionController: %s." % reason)
+	notice.emit("Could not resume: %s" % reason)
+	recovery_failed.emit(reason)
+	return false
+
+
+## Saves when the app is backgrounded or shutting down (Milestone 7).
+##
+## ADR-008 section 11 saves at stable transaction boundaries, and the commit
+## boundary is that point: this is a second safety net for a termination that
+## arrives between moves, not the primary save. A match that is already over has
+## no resumable state, so it is skipped rather than re-persisted.
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_WINDOW_FOCUS_OUT, NOTIFICATION_WM_CLOSE_REQUEST:
+			autosave()
 
 
 # --- Commands (presentation to application, ADR-008 section 7) -------------
@@ -278,6 +405,30 @@ func select_deck_tile(tile_id: StringName) -> bool:
 	return true
 
 
+## Turns the selected deck tile one quarter-turn before it is staged
+## (ADR-011 section 11).
+##
+## ADR-011 section 11 lets a player adjust a tile before it joins the pending line,
+## and rotation is real staged state rather than decoration: the staged snapshot
+## carries it, and the edge and scoring rules read the rotated edges. This turns the
+## tile the player has already selected, so the deck row can report a tap on the
+## tile it is already drawing as selected as a rotation instead of a re-selection.
+##
+## It deliberately does not call `select_deck_tile`, which resets the pending
+## rotation to the base orientation: rotating would then undo itself. It also never
+## touches the board, the deck, the ledger, or the turn, and returns -1 when the
+## human holds no armed tile.
+func rotate_selected_deck_tile() -> int:
+	if not is_human_turn():
+		return -1
+	var tile: TileDefinition = human_tile()
+	if tile == null:
+		return -1
+	_pending_rotation = (_pending_rotation + 1) % TileEnums.ROTATION_COUNT
+	preview_changed.emit()
+	return _pending_rotation
+
+
 ## Stages the selected deck tile at `cell` as one tile of the pending line
 ## (ADR-011 section 11).
 ##
@@ -303,11 +454,20 @@ func stage_tile(tile_id: StringName, cell: Vector2i, rotation: int = -1) -> bool
 		if staged.get_cell() == cell:
 			notice.emit("That cell is already in the line")
 			return false
+	# ADR-006 section 3: only an empty cell may receive a tile. Checked here as
+	# well as at commit so the tap path and `would_accept_stage` give the same
+	# answer. Without it a tap on a committed tile staged a deck tile onto that
+	# cell and the preview drew it over the committed tile until Confirm refused
+	# the whole line - a tile appearing to be placed on top of another one.
+	if _session.get_board() != null and not _session.get_board().is_empty_cell(cell):
+		notice.emit("That cell is already taken")
+		return false
 
 	var applied_rotation: int = _pending_rotation
 	if rotation >= 0 and rotation < TileEnums.ROTATION_COUNT:
 		applied_rotation = rotation
 	_staged.append(TileSnapshot.create(tile, cell, applied_rotation))
+	_select_next_unstaged_tile()
 	_pending_cell = cell
 	_pending_rotation = applied_rotation
 	_revalidate_line()
@@ -367,15 +527,32 @@ func unstage_tile(key: Variant) -> bool:
 		var staged: TileSnapshot = _staged[index]
 		if key is Vector2i and staged.get_cell() == key:
 			_staged.remove_at(index)
+			_select_next_unstaged_tile()
 			_revalidate_line()
 			preview_changed.emit()
 			return true
 		if key is StringName and staged.get_tile_id() == key:
 			_staged.remove_at(index)
+			_select_next_unstaged_tile()
 			_revalidate_line()
 			preview_changed.emit()
 			return true
 	return false
+
+
+## Arms the first tile still available for the next board tap.
+func _select_next_unstaged_tile() -> void:
+	if _session == null:
+		return
+	var available: Array[TileDefinition] = unstaged_human_deck()
+	var current_id: StringName = _session.armed_tile_id_for(TurnEnums.HUMAN_PLAYER_ID)
+	for tile: TileDefinition in available:
+		if tile.tile_id == current_id:
+			return
+	for tile: TileDefinition in available:
+		_session.set_active_tile(TurnEnums.HUMAN_PLAYER_ID, tile)
+		return
+	_session.clear_active_tile(TurnEnums.HUMAN_PLAYER_ID)
 
 
 ## Rotates the most recently staged tile one quarter-turn clockwise.
@@ -396,6 +573,120 @@ func rotate_staged() -> int:
 	_revalidate_line()
 	preview_changed.emit()
 	return rotation
+
+
+## Rotates the one staged tile already standing on `cell` one quarter-turn
+## clockwise (ADR-011 section 11).
+##
+## This is the board half of "tap the tile you already staged to turn it": a tap
+## names a cell rather than a deck tile, so the rotation is addressed by cell, which
+## is why it is a separate command from `rotate_staged` (that one turns the tile the
+## line last took, which is the Rotate button's meaning).
+##
+## `_staged` holds snapshots, and a `TileSnapshot` is immutable, so the tile is
+## replaced by a fresh snapshot of the same tile at the same cell and the new
+## rotation. Nothing but the pending line changes: no board write, no ledger entry,
+## no deck change, and no turn change, because a pending line only becomes a move on
+## an explicit confirm (ADR-011 section 5). The line is re-validated as a whole after
+## the turn, so `is_line_valid()` still describes the line as it now stands.
+##
+## A `cell` that holds no staged tile is refused: a committed board cell has no
+## snapshot in this line, which is what keeps a committed tile from ever rotating.
+## The rotation reaches `_pending_rotation` as well, so the next tap on the board
+## stages the next tile at the orientation the player last chose.
+##
+## Returns the tile's new rotation, or -1 when the cell holds no staged tile.
+func rotate_staged_at(cell: Vector2i) -> int:
+	if not is_human_turn():
+		return -1
+	for index: int in range(_staged.size()):
+		var staged: TileSnapshot = _staged[index]
+		if staged.get_cell() != cell:
+			continue
+		var rotation: int = (staged.get_rotation() + 1) % TileEnums.ROTATION_COUNT
+		_staged[index] = TileSnapshot.create(staged.get_tile(), cell, rotation)
+		_pending_rotation = rotation
+		_revalidate_line()
+		preview_changed.emit()
+		return rotation
+	return -1
+
+
+## Returns the staged snapshot standing on `cell`, or null when none is.
+##
+## The pending line is the only place an uncommitted tile lives, so a cell holding
+## no snapshot is either empty or already committed (ADR-011 section 5).
+func staged_snapshot_at(cell: Vector2i) -> TileSnapshot:
+	for staged: TileSnapshot in _staged:
+		if staged.get_cell() == cell:
+			return staged
+	return null
+
+
+## Returns whether dragging the staged tile on `from_cell` to `to_cell` would move
+## it, without moving anything.
+##
+## Presentation needs this for the drag treatment: AGENTS.md section 8 asks for a
+## live valid-placement highlight, and the verdict has to be the one the move
+## command itself reaches, or the highlight could promise a move the command then
+## refuses. This is read-only and mutates nothing: no board write, no deck change,
+## no line change, no turn change, and no notice.
+##
+## The guards are exactly the ones `move_staged_at` applies: the human's turn, two
+## different cells that are both on the board, the source holding a staged tile, and
+## the destination being free - not another staged tile, and not a committed one
+## (ADR-006 section 3: only an empty cell may receive a tile).
+func can_move_staged_at(from_cell: Vector2i, to_cell: Vector2i) -> bool:
+	if not is_human_turn() or _session == null:
+		return false
+	if from_cell == to_cell:
+		return false
+	if not BoardEnums.is_in_bounds(from_cell) or not BoardEnums.is_in_bounds(to_cell):
+		return false
+	if staged_snapshot_at(from_cell) == null:
+		return false
+	for staged: TileSnapshot in _staged:
+		if staged.get_cell() == to_cell:
+			return false
+	var board: BoardState = _session.get_board()
+	if board != null and not board.is_empty_cell(to_cell):
+		return false
+	return true
+
+
+## Moves the staged tile on `from_cell` to `to_cell`, keeping its tile and rotation
+## (ADR-011 section 11).
+##
+## This is the board half of "an unconfirmed tile can be repositioned": the pending
+## line is an uncommitted assembly, so where its tiles sit is the player's to adjust
+## until they confirm. The edit is one replacement in the line rather than an
+## un-stage followed by a stage, because the two-step form would drop the tile out of
+## the line if the destination were refused, and a refused move must change nothing
+## at all (ADR-011 section 5's atomicity rule).
+##
+## Nothing but the pending line changes: no board write, no ledger entry, no deck
+## change, and no turn change, because a pending line only becomes a move on an
+## explicit confirm (ADR-011 section 5). The line is re-validated as a whole after
+## the move, so `is_line_valid()` still describes the line as it now stands.
+##
+## The tile's rotation travels with it. `_pending_rotation` is deliberately left
+## alone: repositioning a tile already in the line says nothing about the orientation
+## the next deck tile should be staged at.
+##
+## Returns true when the tile moved.
+func move_staged_at(from_cell: Vector2i, to_cell: Vector2i) -> bool:
+	if not can_move_staged_at(from_cell, to_cell):
+		return false
+	for index: int in range(_staged.size()):
+		var staged: TileSnapshot = _staged[index]
+		if staged.get_cell() != from_cell:
+			continue
+		_staged[index] = TileSnapshot.create(staged.get_tile(), to_cell, staged.get_rotation())
+		_pending_cell = to_cell
+		_revalidate_line()
+		preview_changed.emit()
+		return true
+	return false
 
 
 ## Commits the assembled line as one atomic move (ADR-011 sections 5 and 7).
@@ -433,6 +724,7 @@ func cancel_staged() -> void:
 	if not is_human_turn():
 		return
 	_clear_staged()
+	_select_next_unstaged_tile()
 	preview_changed.emit()
 	notice.emit("Line cancelled")
 
@@ -626,6 +918,79 @@ func pending_rotation() -> int:
 	return _pending_rotation
 
 
+## Returns the committed board's colour clusters, one entry per connected
+## component per colour (AGENTS.md section 8, ADR-002 sections 2 to 5).
+##
+## Each entry is `{color: int, cells: Array[Vector2i]}`, which is what the board
+## needs to outline the same-colour regions that currently exist.
+##
+## The enumeration is delegated to `EdgeClusterScorer.components_for_color`, the
+## tested flood fill and vertex test the ledger itself is scored from, so the
+## regions a presentation layer outlines and the regions a move is paid for are
+## the same regions (AGENTS.md section 15: one source of truth per rule).
+##
+## It lives here rather than in a painter because a component is a rule, and
+## AGENTS.md section 19 keeps rules out of the UI: a layer that flooded the board
+## itself would be a second, untested implementation of cluster detection, free
+## to disagree with the scorer. This method only reads - it writes no board cell,
+## awards no points, and advances no turn, so asking the board for its clusters
+## can never change the match.
+func current_edge_clusters() -> Array:
+	var clusters: Array = []
+	var board: BoardState = get_board()
+	if board == null:
+		return clusters
+	for color: int in TileEnums.EdgeColor.values():
+		for component: Variant in EdgeClusterScorer.components_for_color(board, color):
+			var cells: Array[Vector2i] = component
+			# A component is two or more tiles by construction, because a vertex
+			# needs a matching neighbour, but the guard is kept so a degenerate
+			# entry can never reach the board as a one-tile "cluster".
+			if cells.size() < 2:
+				continue
+			clusters.append({"color": color, "cells": cells})
+	return clusters
+
+
+## Returns whether each side of the staged tile on `cell` currently matches the
+## committed tile across it, in `TileEnums.EdgePosition` order (top, right,
+## bottom, left).
+##
+## This is a factual read-out of the adjacencies the board holds right now, not a
+## score prediction: it says which sides already touch a matching committed edge,
+## so the player can see what rotating that tile would change. It deliberately
+## awards nothing, ranks no rotation, and recommends nothing, because AGENTS.md
+## section 2 forbids inventing a rule the specification does not contain.
+##
+## The verdict comes from `EdgeMatchScorer.matching_color` over the committed
+## board, so the hint and the +1 an edge match really awards can never disagree
+## (AGENTS.md section 15). It is read-only: no board write, no ledger entry, no
+## line change, no turn change, and no notice.
+##
+## Returns four `false` values when `cell` holds no staged tile, which is what a
+## caller that draws the hint expects for "nothing to show".
+func staged_edge_matches(cell: Vector2i) -> Array[bool]:
+	var matches: Array[bool] = []
+	for _position: int in range(TileEnums.EDGE_COUNT):
+		matches.append(false)
+	if _staged.is_empty():
+		return matches
+	var snapshot: TileSnapshot = staged_snapshot_at(cell)
+	if snapshot == null:
+		return matches
+	var board: BoardState = get_board()
+	if board == null:
+		return matches
+	# The four neighbour offsets are read in the rules layer's fixed order
+	# [up, right, down, left], which is `TileEnums.EdgePosition` order, so the
+	# verdict for a side is the boundary across that side of the staged tile.
+	var offsets: Array[Vector2i] = BoardEnums.neighbor_offsets()
+	for position: int in range(TileEnums.EDGE_COUNT):
+		var neighbor: Vector2i = cell + offsets[position]
+		matches[position] = EdgeMatchScorer.matching_color(board, cell, neighbor) >= 0
+	return matches
+
+
 ## Returns the human's uncommitted tile, or null when they hold none.
 ##
 ## ADR-010 section 4: a placement commits a tile the player holds, so this is the
@@ -647,6 +1012,21 @@ func human_deck() -> Array[TileDefinition]:
 	if _session == null:
 		return [] as Array[TileDefinition]
 	return _session.deck_for(TurnEnums.HUMAN_PLAYER_ID)
+
+
+## Tiles still available to stage, in the original deck order.
+## The match deck retains staged tiles until the atomic line commit.
+func unstaged_human_deck() -> Array[TileDefinition]:
+	var available: Array[TileDefinition] = []
+	for tile: TileDefinition in human_deck():
+		var staged_here: bool = false
+		for snapshot: TileSnapshot in _staged:
+			if snapshot.get_tile_id() == tile.tile_id:
+				staged_here = true
+				break
+		if not staged_here:
+			available.append(tile)
+	return available
 
 
 ## Returns how many tiles the human holds.
@@ -852,13 +1232,15 @@ func _line_reason_text(result: LineResult) -> String:
 		return "That move is not available"
 	match result.rejection:
 		PlacementEnums.PlacementRejection.LONE_TILE:
-			return "A line needs at least two tiles"
+			return "The opening hand needs at least two tiles"
 		PlacementEnums.PlacementRejection.MIXED_ORIENTATION:
 			return "A line goes in one row or one column"
 		PlacementEnums.PlacementRejection.LINE_GAP:
 			return "A line cannot have a gap"
 		PlacementEnums.PlacementRejection.NO_REPEATED_RANK:
-			return "The line must contain a pair"
+			return "Form a valid poker hand"
+		PlacementEnums.PlacementRejection.HAND_TOO_LONG:
+			return "A hand can have at most five tiles"
 		PlacementEnums.PlacementRejection.OUT_OF_BOUNDS:
 			return "Outside the board"
 		PlacementEnums.PlacementRejection.CELL_OCCUPIED:
@@ -902,6 +1284,13 @@ func _after_state_change() -> void:
 		clear_saved_match()
 		match_ended.emit(final_result())
 		return
+	# Milestone 7: automatic save after each committed move. This is the one
+	# choke point every committed change passes through - setup, a human line, a
+	# swap, and the opponent's own move - so no path can advance the match
+	# without its result becoming resumable. It runs before the opponent's turn
+	# is scheduled, so a termination during the rival's think still resumes from
+	# the human's last commit.
+	autosave()
 	if TurnManager.is_awaiting_ai_action(_session):
 		_schedule_ai_move()
 
@@ -921,7 +1310,7 @@ func _after_state_change() -> void:
 func _schedule_ai_move() -> void:
 	if _ai_scheduled:
 		return
-	if get_tree() == null:
+	if not is_inside_tree():
 		return
 	_ai_scheduled = true
 	var delay: float = 0.0
@@ -954,17 +1343,19 @@ func _on_ai_think_timeout() -> void:
 ## so there is one commit path for both players (ADR-005 section 11, ADR-007
 ## section 4, ADR-011 section 5).
 ##
-## ADR-011 section 12 retargets AI move generation to one line per candidate, and
-## that pass has not run yet. The existing generator still proposes one coordinate
-## and rotation, so `LineAssembler` completes that proposal into the shortest
-## legal line through the proposed cell: the proposal is kept exactly as the
-## coordinator revalidated it, and only the partner tile the proposal needs to be
-## a legal move is added (ADR-011 sections 1 and 3). Nothing here chooses the
-## line's shape or its score.
+## ADR-011 section 12 makes the proposal a whole LINE, so this stages the line the
+## coordinator decided and revalidated - the rival's held deck tiles at the cells
+## and rotations the shared `LineValidator` accepted - and commits it as one move.
+## Nothing here chooses the line's shape or its score; the strategy chose it and
+## the validator allowed it.
+##
+## ADR-011 section 6 makes the swap the other whole-turn move. When the analysis
+## finds no legal line it reports the swap, so this swaps the rival's hand instead
+## of stalling or playing an illegal tile.
 ##
 ## Because a turn is one move, this commits once and the turn closes. A rival who
-## cannot form a legal line and cannot swap (section 6) has its turn ended through
-## the domain boundary, so it never leaves the match waiting.
+## can neither line up its hand nor swap (the pot cannot cover it) has its turn
+## closed through the domain boundary, so it never leaves the match waiting.
 func _play_ai_move() -> void:
 	if _session == null or _session.is_over():
 		_set_ai_thinking(false)
@@ -982,68 +1373,91 @@ func _play_ai_move() -> void:
 		_finish_ai_turn()
 		return
 
-	# ADR-010 section 11: the candidate source is every tile in the rival's own
-	# deck, never a single tile and never the undrawn pot (ADR-004 section 7).
+	# ADR-011 section 12: the candidate source is the rival's whole held deck, from
+	# which whole lines are generated - never the undrawn pot (ADR-004 section 7).
 	_ai_cancellation = AiCancellationToken.new()
 	var decision: AiDecision = _ai.choose_move(_session, deck, _ai_cancellation)
 	_ai_cancellation = null
 	_set_ai_thinking(_ai.is_thinking())
 
-	if decision == null or not decision.has_move():
+	if decision != null and decision.is_swap_move():
+		# ADR-011 section 6: the rival holds tiles it cannot line up, so its whole
+		# turn is the swap. It places nothing and scores nothing.
+		notice.emit("Rival has no legal line and swaps")
+		_finish_ai_turn()
+		return
+
+	if decision == null or not decision.has_line():
 		_report_unplayable_decision(decision)
 		return
 
-	# ADR-010 sections 3 and 4: the tile the decision was made with is armed here,
-	# so the rival commits through exactly the same path as the human and a
-	# proposal decided for one deck tile can never be committed with another.
-	var decided: TileDefinition = _ai.decided_tile()
-	if decided == null or not _session.set_active_tile(TurnEnums.AI_PLAYER_ID, decided):
+	# ADR-010 sections 3 and 4: every tile the decision was made with is armed
+	# here, so the rival commits through exactly the same path as the human and a
+	# line decided from one hand can never be committed with another.
+	var line: Array[TileSnapshot] = decision.line
+	if not _arm_ai_line(line):
 		notice.emit("Rival could not play a move")
 		TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
 		_after_state_change()
 		return
 
-	# ADR-011 sections 1 to 4: complete the proposal into a legal line.
-	var staged: Array[TileSnapshot] = LineAssembler.shortest_line_from(
-		_session.get_board(), deck, decided, decision.cell, decision.rotation
-	)
-	if staged.is_empty():
-		# The proposal was legal under ADR-010 and is not a legal line under
-		# ADR-011 section 3. ADR-011 section 12 owns the generator that must stop
-		# proposing such a move, so until that pass runs the rival takes the
-		# section 6 escape hatch instead of committing an illegal move
-		# (ADR-005 section 2) or stalling the match.
-		_finish_ai_turn()
-		return
-
-	var result: LineResult = _commit_line(TurnEnums.AI_PLAYER_ID, staged)
+	var result: LineResult = _commit_line(TurnEnums.AI_PLAYER_ID, line)
 	if result != null and result.was_committed():
 		return
 
-	# ADR-005 section 11: the coordinator already revalidated the proposal and
-	# retried at most once against the current revision, so a refusal here is an
-	# AI implementation failure. It enters ADR-003's recoverable error state
-	# rather than substituting an illegal move or silently changing difficulty.
+	# ADR-005 section 11: the coordinator already revalidated the line against the
+	# current revision and retried at most once, so a refusal here is an AI
+	# implementation failure. It enters ADR-003's recoverable error state rather
+	# than substituting an illegal move or silently changing difficulty.
 	notice.emit("Rival could not play a move")
 	TurnManager.fail_recovery(_session, TurnEnums.EndReason.RULES_FAILURE)
 	_after_state_change()
+
+
+## Arms every tile of a decided line on the rival's deck. Returns false on a tile
+## the rival does not hold, which ADR-010 section 4 forbids committing.
+func _arm_ai_line(line: Array[TileSnapshot]) -> bool:
+	if line == null or line.is_empty():
+		return false
+	for snapshot: TileSnapshot in line:
+		if snapshot == null or not snapshot.is_valid():
+			return false
+		if not _session.holds_deck_tile(TurnEnums.AI_PLAYER_ID, snapshot.get_tile_id()):
+			return false
+		if not _session.set_active_tile(TurnEnums.AI_PLAYER_ID, snapshot.get_tile()):
+			return false
+	return true
 
 
 ## Ends the rival's turn when it has no move, swapping first when it can
 ## (ADR-011 sections 6, 7, and 9).
 ##
 ## ADR-011 section 9 keeps the match alive while the pot can still supply a swap,
-## so the rival swaps its whole deck (returning every tile and drawing the same
-## number) rather than passing, and only a pot that cannot cover the swap ends the
-## turn with nothing played. The turn boundary itself stays the domain's.
+## so the rival swaps rather than passing, and only a pot that cannot supply any
+## swap at all ends the turn with nothing played. The turn boundary itself stays
+## the domain's.
+##
+## ADR-011 section 6 lets a swap return any number of tiles, so the offer is
+## bounded by what the pot still holds: section 6 refuses a swap the pot cannot
+## cover completely, so offering the whole hand against a nearly empty pot would be
+## refused outright and would leave the rival holding a hand it cannot line up with
+## its turn still open.
 func _finish_ai_turn() -> void:
 	var deck: Array[TileDefinition] = _session.deck_for(TurnEnums.AI_PLAYER_ID)
 	var ids: Array[StringName] = []
 	for tile: TileDefinition in deck:
-		ids.append(tile.tile_id)
-	if not ids.is_empty() and _session.request_swap(TurnEnums.AI_PLAYER_ID, ids) > 0:
+		if tile != null:
+			ids.append(tile.tile_id)
+	var supply: int = _session.remaining_tile_count()
+	var offer: Array[StringName] = []
+	for index: int in range(mini(ids.size(), supply)):
+		offer.append(ids[index])
+	var swapped: int = 0
+	if not offer.is_empty():
+		swapped = _session.request_swap(TurnEnums.AI_PLAYER_ID, offer)
+	if swapped > 0:
 		_set_ai_thinking(false)
-		TurnManager.resolve_swap(_session, ids.size())
+		TurnManager.resolve_swap(_session, swapped)
 		_after_state_change()
 		return
 
@@ -1108,4 +1522,3 @@ func _cancel_ai_analysis() -> void:
 ## Releases the outstanding analysis with the controller (ADR-005 section 9).
 func _exit_tree() -> void:
 	_cancel_ai_analysis()
-

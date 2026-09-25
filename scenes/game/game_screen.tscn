@@ -6,10 +6,14 @@
 [ext_resource type="Script" uid="uid://d1p7xkfcyeexg" path="res://scripts/presentation/board_highlight_layer.gd" id="4_highlight"]
 [ext_resource type="Script" uid="uid://cpnlai624rs57" path="res://scripts/presentation/board_preview_layer.gd" id="5_preview"]
 [ext_resource type="Script" uid="uid://ceg7wsiwchl2s" path="res://scripts/presentation/board_effect_layer.gd" id="6_effects"]
+[ext_resource type="Script" uid="uid://b1a1i4tvypphk" path="res://scripts/presentation/score_reveal_layer.gd" id="6_qs4dp"]
+[ext_resource type="Script" uid="uid://dc0dt8jagx82v" path="res://scripts/presentation/tile_pile_view.gd" id="7_664sp"]
 [ext_resource type="Script" uid="uid://5058aup06e2b" path="res://scripts/presentation/board_input_controller.gd" id="7_input"]
-[ext_resource type="Script" uid="uid://n875e0v1g7xa" path="res://scripts/presentation/active_tile_view.gd" id="8_active_tile"]
+[ext_resource type="Script" uid="uid://h0mob0wjk3r7" path="res://scripts/presentation/debug_overlay.gd" id="8_dagq5"]
 [ext_resource type="Script" uid="uid://dlcrc0w3gg2qd" path="res://scripts/presentation/floating_scores.gd" id="9_scores"]
 [ext_resource type="Script" uid="uid://84qy7swejcdg" path="res://scripts/presentation/deck_view.gd" id="10_deck"]
+[ext_resource type="Script" uid="uid://cmkl7iu12kgld" path="res://scripts/presentation/deal_layer.gd" id="11_fvr6p"]
+[ext_resource type="Script" path="res://scripts/presentation/cluster_display_layer.gd" id="12_cluster"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
 content_margin_left = 14.0
@@ -66,6 +70,7 @@ mouse_filter = 2
 theme_override_constants/separation = 10
 
 [node name="HumanScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=1197741271]
+unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBox_panel")
@@ -87,6 +92,7 @@ theme_override_font_sizes/font_size = 28
 text = "0"
 
 [node name="AiScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=1787380804]
+unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBox_panel")
@@ -119,13 +125,20 @@ theme_override_font_sizes/font_size = 22
 text = "Your turn"
 horizontal_alignment = 1
 
-[node name="RemainingTilesLabel" type="Label" parent="Root/Column/Hud/TurnBox" unique_id=10207083]
-unique_name_in_owner = true
+[node name="DifficultyBox" type="VBoxContainer" parent="Root/Column/Hud" unique_id=1562603380]
+layout_mode = 2
+
+[node name="DifficultyTitle" type="Label" parent="Root/Column/Hud/DifficultyBox" unique_id=217831988]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.62, 0.7, 0.82, 1)
 theme_override_font_sizes/font_size = 15
-text = "Tiles left: 143"
-horizontal_alignment = 1
+text = "Rival skill"
+
+[node name="DifficultyPicker" type="OptionButton" parent="Root/Column/Hud/DifficultyBox" unique_id=1319112352]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 36)
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
 
 [node name="RestartButton" type="Button" parent="Root/Column/Hud" unique_id=15317273]
 unique_name_in_owner = true
@@ -188,6 +201,23 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("5_preview")
 
+[node name="ClusterDisplayLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("12_cluster")
+
+[node name="ScoreRevealLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1955324976]
+unique_name_in_owner = true
+anchors_preset = 0
+mouse_filter = 2
+script = ExtResource("6_qs4dp")
+
 [node name="EffectsLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1012152133]
 unique_name_in_owner = true
 layout_mode = 1
@@ -198,6 +228,12 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("6_effects")
+
+[node name="DebugOverlay" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1980842878]
+unique_name_in_owner = true
+anchors_preset = 0
+mouse_filter = 2
+script = ExtResource("8_dagq5")
 
 [node name="SidePanel" type="VBoxContainer" parent="Root/Column/Body" unique_id=750119698]
 custom_minimum_size = Vector2(228, 0)
@@ -215,21 +251,28 @@ layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="ActiveTileView" type="Control" parent="Root/Column/Body/SidePanel/ActiveTilePanel/ActiveTileBox" unique_id=1485737364]
+[node name="TilePileView" type="Control" parent="Root/Column/Body/SidePanel/ActiveTilePanel/ActiveTileBox" unique_id=800396672]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(196, 196)
+custom_minimum_size = Vector2(196, 118)
 layout_mode = 2
-mouse_filter = 2
-script = ExtResource("8_active_tile")
+script = ExtResource("7_664sp")
 
 [node name="StatusLabel" type="Label" parent="Root/Column/Body/SidePanel/ActiveTilePanel/ActiveTileBox" unique_id=2058669899]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
-text = "Tap tiles to build a line, or Swap"
+text = "Drag a tile from your hand to the board, or Swap"
 horizontal_alignment = 1
 autowrap_mode = 2
+
+[node name="AvailableTilesLabel" type="Label" parent="Root/Column/Body/SidePanel/ActiveTilePanel/ActiveTileBox" unique_id=2081748948]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(196, 96)
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "Tiles available: 143"
+horizontal_alignment = 1
 
 [node name="RotateButton" type="Button" parent="Root/Column/Body/SidePanel" unique_id=991041678]
 unique_name_in_owner = true
@@ -344,6 +387,11 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("9_scores")
 
+[node name="DealLayer" type="Control" parent="FeedbackLayer" unique_id=183395155]
+unique_name_in_owner = true
+anchors_preset = 0
+script = ExtResource("11_fvr6p")
+
 [node name="SummaryOverlay" type="Control" parent="FeedbackLayer" unique_id=1145975393]
 unique_name_in_owner = true
 visible = false
@@ -397,3 +445,62 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.78, 0.83, 0.9, 1)
 theme_override_font_sizes/font_size = 18
 horizontal_alignment = 1
+
+[node name="RecoveryOverlay" type="Control" parent="FeedbackLayer" unique_id=1418667211]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RecoveryDim" type="ColorRect" parent="FeedbackLayer/RecoveryOverlay" unique_id=140678821]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.039, 0.047, 0.067, 0.88)
+
+[node name="RecoveryCenter" type="CenterContainer" parent="FeedbackLayer/RecoveryOverlay" unique_id=2041363178]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="RecoveryPanel" type="PanelContainer" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter" unique_id=1826144121]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="RecoveryBox" type="VBoxContainer" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter/RecoveryPanel" unique_id=1952187740]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="RecoveryTitle" type="Label" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter/RecoveryPanel/RecoveryBox" unique_id=1955980043]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "Match could not be restored"
+horizontal_alignment = 1
+
+[node name="RecoveryBody" type="Label" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter/RecoveryPanel/RecoveryBox" unique_id=1732883992]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(520, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.83, 0.9, 1)
+theme_override_font_sizes/font_size = 17
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RecoveryRestartButton" type="Button" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter/RecoveryPanel/RecoveryBox" unique_id=1255144266]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 48)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 18
+text = "Start a fresh match"

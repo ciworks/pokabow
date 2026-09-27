@@ -1,0 +1,171 @@
+class_name TermsOfUseDialog
+extends Control
+## First-launch Terms of Use gate.
+##
+## The layout lives in terms_of_use_dialog.tscn so the copy and spacing can be
+## redesigned without touching the account flow. This script only wires the
+## close and accept actions, then asks the local auth API to provision or
+## restore the account.
+
+const TERMS_URL: String = "https://tiletopia.com/terms"
+const PRIVACY_URL: String = "https://tiletopia.com/privacy"
+const REGISTER_URL: String = "https://127.0.0.1:3000/auth/register"
+const LOGIN_URL: String = "http://127.0.0.1:3000/auth/login"
+
+const USERNAME_PREFIX: String = "Player_"
+const EMAIL_DOMAIN: String = "@tiletopia.com"
+const KEY_DIGITS: int = 9
+
+static func json_headers() -> PackedStringArray:
+	return PackedStringArray([
+		"Content-Type: application/json",
+		"Accept: application/json",
+	])
+
+signal accepted(record: Dictionary)
+signal failed(message: String)
+
+@onready var _close_button: Button = %CloseButton
+@onready var _accept_button: Button = %AcceptButton
+@onready var _status_label: Label = %StatusLabel
+@onready var _http: HTTPRequest = %AuthRequest
+
+var _users_path: String = UsersStateStore.DEFAULT_PATH
+var _pending_account: Dictionary = {}
+var _busy: bool = false
+
+
+func _ready() -> void:
+	_close_button.pressed.connect(_on_close_pressed)
+	_accept_button.pressed.connect(_on_accept_pressed)
+	_http.request_completed.connect(_on_request_completed)
+	_set_status("")
+
+
+## Tests point this at a temporary user:// file before the dialog is used.
+func set_users_path(path: String) -> void:
+	_users_path = path
+
+
+## Later launches skip the dialog when the state file already holds an accepted
+## account. The login itself is started by the shell, not by this scene.
+static func has_accepted_account(path: String = UsersStateStore.DEFAULT_PATH) -> bool:
+	return UsersStateStore.has_accepted_account(path)
+
+
+static func load_account(path: String = UsersStateStore.DEFAULT_PATH) -> Dictionary:
+	return UsersStateStore.load_record(path)
+
+
+## Posts the saved username and password. Emits `accepted` with the login body
+## on HTTP 2xx, otherwise `failed`.
+func login_saved_account() -> void:
+	var record: Dictionary = UsersStateStore.load_record(_users_path)
+	if not UsersStateStore.has_accepted_account(_users_path):
+		_fail("No accepted account is saved.")
+		return
+	_post(
+		LOGIN_URL,
+		{
+			"username": String(record.get(UsersStateStore.KEY_USERNAME, "")),
+			"password": String(record.get(UsersStateStore.KEY_PASSWORD, "")),
+		},
+		{}
+	)
+
+
+func _on_close_pressed() -> void:
+	get_tree().quit()
+
+
+func _on_accept_pressed() -> void:
+	if _busy:
+		return
+	var key: String = _unique_key()
+	var username: String = USERNAME_PREFIX + key
+	var email: String = username + EMAIL_DOMAIN
+	_pending_account = {
+		"username": username,
+		"password": username,
+		"email": email,
+	}
+	_set_status("Creating your account...")
+	_post(REGISTER_URL, _pending_account, _pending_account)
+
+
+func _post(url: String, body: Dictionary, pending: Dictionary) -> void:
+	_busy = true
+	_accept_button.disabled = true
+	_pending_account = pending
+	var error: Error = _http.request(
+		url,
+		json_headers(),
+		HTTPClient.METHOD_POST,
+		JSON.stringify(body)
+	)
+	if error != OK:
+		_fail("Could not reach the account service (%s)." % error_string(error))
+
+
+func _on_request_completed(
+	result: int,
+	response_code: int,
+	_headers: PackedStringArray,
+	body: PackedByteArray
+) -> void:
+	_busy = false
+	_accept_button.disabled = false
+	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
+		_fail(_failure_message(result, response_code, body))
+		return
+
+	var response: Dictionary = _parse_body(body)
+	if not _pending_account.is_empty():
+		var username: String = String(_pending_account.get("username", ""))
+		var password: String = String(_pending_account.get("password", ""))
+		var email: String = String(_pending_account.get("email", ""))
+		if not UsersStateStore.save_accepted_account(username, password, email, _users_path):
+			_fail("The account was created, but it could not be saved on this device.")
+			return
+		_pending_account = {}
+		accepted.emit(UsersStateStore.load_record(_users_path))
+		return
+
+	accepted.emit(response if not response.is_empty() else UsersStateStore.load_record(_users_path))
+
+
+func _failure_message(result: int, response_code: int, body: PackedByteArray) -> String:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		return "Could not reach the account service."
+	var parsed: Dictionary = _parse_body(body)
+	var detail: String = String(parsed.get("message", parsed.get("error", "")))
+	if detail.is_empty():
+		return "The account service refused the request (%d)." % response_code
+	return detail
+
+
+func _parse_body(body: PackedByteArray) -> Dictionary:
+	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(parsed) == TYPE_DICTIONARY:
+		return parsed as Dictionary
+	return {}
+
+
+func _fail(message: String) -> void:
+	_pending_account = {}
+	_set_status(message)
+	failed.emit(message)
+
+
+func _set_status(message: String) -> void:
+	if _status_label == null:
+		return
+	_status_label.text = message
+	_status_label.visible = not message.is_empty()
+
+
+func _unique_key() -> String:
+	var digits: String = ""
+	for _i: int in KEY_DIGITS:
+		digits += str(randi() % 10)
+	return digits

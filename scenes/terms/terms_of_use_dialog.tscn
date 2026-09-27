@@ -1,0 +1,153 @@
+[gd_scene format=3 uid="uid://dw6fct4vjinir"]
+
+[ext_resource type="Script" uid="uid://cwoskthr5s3a7" path="res://scripts/presentation/terms_of_use_dialog.gd" id="1_terms"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_scrim"]
+bg_color = Color(0.04, 0.05, 0.08, 0.72)
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+content_margin_left = 36.0
+content_margin_top = 28.0
+content_margin_right = 36.0
+content_margin_bottom = 28.0
+bg_color = Color(0.11, 0.13, 0.17, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.85, 0.68, 0.28, 1)
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+corner_radius_bottom_right = 18
+corner_radius_bottom_left = 18
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_close"]
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+bg_color = Color(0.18, 0.2, 0.25, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxEmpty" id="StyleBox_link"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_accept"]
+content_margin_left = 28.0
+content_margin_top = 14.0
+content_margin_right = 28.0
+content_margin_bottom = 14.0
+bg_color = Color(0.93, 0.76, 0.32, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+
+[node name="TermsOfUseDialog" type="Control" unique_id=551727294]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_terms")
+
+[node name="Scrim" type="Panel" parent="." unique_id=1943171562]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBox_scrim")
+
+[node name="Center" type="CenterContainer" parent="." unique_id=855243654]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Center" unique_id=385123189]
+custom_minimum_size = Vector2(640, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="Body" type="VBoxContainer" parent="Center/Panel" unique_id=567707662]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Header" type="HBoxContainer" parent="Center/Panel/Body" unique_id=21044894]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="Center/Panel/Body/Header" unique_id=1435397484]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.96, 0.93, 0.85, 1)
+theme_override_font_sizes/font_size = 28
+text = "Terms of Use"
+
+[node name="CloseButton" type="Button" parent="Center/Panel/Body/Header" unique_id=945970671]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(44, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.93, 0.85, 1)
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("StyleBox_close")
+theme_override_styles/pressed = SubResource("StyleBox_close")
+theme_override_styles/hover = SubResource("StyleBox_close")
+text = "[ x ]"
+
+[node name="Copy" type="Label" parent="Center/Panel/Body" unique_id=741540656]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.84, 0.88, 1)
+theme_override_font_sizes/font_size = 18
+text = "To continue playing, you need to confirm that you agree to our Terms of Use and have read our Privacy Policy."
+autowrap_mode = 3
+
+[node name="Links" type="VBoxContainer" parent="Center/Panel/Body" unique_id=2027861201]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TermsLink" type="LinkButton" parent="Center/Panel/Body/Links" unique_id=705573248]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.86, 0.42, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/focus = SubResource("StyleBox_link")
+text = "TERMS OF USE"
+uri = "https://tiletopia.com/terms"
+
+[node name="PrivacyLink" type="LinkButton" parent="Center/Panel/Body/Links" unique_id=2102114375]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.98, 0.86, 0.42, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/focus = SubResource("StyleBox_link")
+text = "PRIVACY POLICY"
+uri = "https://tiletopia.com/privacy"
+
+[node name="AcceptButton" type="Button" parent="Center/Panel/Body" unique_id=905644911]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.12, 0.09, 0.04, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBox_accept")
+theme_override_styles/pressed = SubResource("StyleBox_accept")
+theme_override_styles/hover = SubResource("StyleBox_accept")
+theme_override_styles/disabled = SubResource("StyleBox_accept")
+text = "ACCEPT"
+
+[node name="StatusLabel" type="Label" parent="Center/Panel/Body" unique_id=455605311]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.55, 0.42, 1)
+theme_override_font_sizes/font_size = 15
+autowrap_mode = 3
+
+[node name="AuthRequest" type="HTTPRequest" parent="." unique_id=1947684074]
+unique_name_in_owner = true
+timeout = 12.0

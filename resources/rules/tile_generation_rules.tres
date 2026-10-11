@@ -4,8 +4,10 @@
 
 [resource]
 script = ExtResource("1_rules")
-schema_version = 1
-bag_size = 144
-rank_weights = Array[float]([1.0, 1.0, 1.0, 1.0])
+schema_version = 4
+bag_size = 52
+max_jokers = 4
+rank_weights = Array[float]([1.0, 1.0, 1.0, 1.0, 1.0])
 face_color_weights = Array[float]([1.0, 1.0])
+suit_weights = Array[float]([1.0, 1.0, 1.0, 1.0])
 edge_color_weights = Array[float]([1.0, 1.0, 1.0, 1.0])

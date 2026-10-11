@@ -33,9 +33,9 @@ The Phase 1 match progresses through these states:
 
 ```text
 SPLASH -> MATCH_SETUP -> TURN_START -> AWAIT_ACTION -> RESOLVE_MOVE
-                                      ^                    |
-                                      |                    v
-                                      +----- TURN_END <----+
+									  ^                    |
+									  |                    v
+									  +----- TURN_END <----+
 
 TURN_END -> GAME_OVER when an end condition is met
 ```
@@ -107,7 +107,8 @@ Two consecutive automatic skips caused by an exhausted tile source end the game.
 - If the retry fails because of an implementation error, do not silently skip; stop the match in a recoverable error state and preserve diagnostic information.
 - Visual placement and score effects play from the committed result and cannot alter turn state.
 
-Phase 1 has no chess clock or AI time forfeit. A development watchdog may report a stuck AI without changing game rules.
+Superseded by [ADR-017](ADR-017-turn-timer.md): both players now have a 60-second
+action deadline. Expiry gives up the current turn without placing or scoring.
 
 ### 7. End conditions
 
@@ -124,6 +125,8 @@ Phase 1 does not end early because of score difference, a player reaching a targ
 - Each player's final score is the sum of committed score events attributed to that player.
 - The player with the greater final score wins.
 - Equal scores produce a draw.
+- Resignation is an explicit exception: under [ADR-018](ADR-018-resignation.md),
+  the opponent wins regardless of score.
 - There is no endgame bonus, remaining-tile penalty, multiplier, or tie-breaker in Phase 1.
 - The results screen displays total score and a breakdown by poker, edge-match, and edge-cluster points.
 - Final scores are recalculated from committed match history in debug/test builds and checked against incremental totals.
@@ -153,13 +156,13 @@ A rules-focused turn manager may expose state similar to:
 
 ```gdscript
 enum MatchPhase {
-    MATCH_SETUP,
-    TURN_START,
-    AWAIT_ACTION,
-    RESOLVE_MOVE,
-    TURN_END,
-    GAME_OVER,
-    RECOVERY_ERROR,
+	MATCH_SETUP,
+	TURN_START,
+	AWAIT_ACTION,
+	RESOLVE_MOVE,
+	TURN_END,
+	GAME_OVER,
+	RECOVERY_ERROR,
 }
 
 class_name TurnState
@@ -279,3 +282,6 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 
 - 2026-09-21: The initial proposal was accepted without changes.
 - 2026-09-22: Superseded in part by ADR-010 (Deck of Six and Multi-Placement Turns). Sections 3 (turn structure), 4 (active tile ownership), 5 (passing and invalid actions), 7 (end conditions) and the active-tile fields of 9 (save) are replaced there: a player now holds a deck of six tiles and may place one or more of them in a single turn, ending the turn explicitly. Implement ADR-010 for those areas; the rest of this ADR stands.
+- 2026-09-22: ADR-011's later owner correction caps connected runs at five and
+  ends a match when neither current deck has a legal placement. See ADR-011
+  sections 3 and 9 for the current hand and ending rules.

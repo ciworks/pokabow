@@ -4,5 +4,5 @@
 
 [resource]
 script = ExtResource("1_poker")
-schema_version = 1
-points_by_category = Array[int]([0, 2, 4, 6, 10, 12, 16])
+schema_version = 2
+points_by_category = Array[int]([0, 2, 4, 5, 6, 9, 10, 12])

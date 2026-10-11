@@ -1,64 +1,88 @@
 class_name AiHardStrategy
 extends AiStrategy
 
-## Hard difficulty (ADR-005 sections 6, 7, 8, and 10).
+## Hard difficulty (ADR-005 sections 6, 7, 8, and 10, retargeted by ADR-011
+## section 12).
 ##
 ## ADR-005 section 6 makes Hard a two-ply search over public information:
 ##
 ##  1. rank the legal candidates by the section 5 immediate tuple;
 ##  2. keep the section 8 candidate beam;
-##  3. for each kept candidate, score the immediate placement, then estimate the
-##     opponent's best reply averaged over the versioned 16-tile representative
-##     sample of `AiRepresentativeSample`, one ply deep;
+##  3. for each kept candidate, score the immediate line, then estimate the
+##     opponent's best reply averaged over the versioned representative sample
+##     of `AiRepresentativeSample`, one ply deep;
 ##  4. combine the terms with the configured utility coefficients.
 ##
+## ADR-011 section 12 changes the ply from one tile to one line on both sides of
+## the search: the AI's candidates are lines (`LegalMoveGenerator`), and the
+## opponent's replies are lines too, generated on the post-move board from the
+## hand the opponent holds (public in Phase 1) plus one representative sample
+## tile, which is what stands in for the refill ADR-011 section 8 draws from the
+## hidden pot (ADR-004 section 7).
+##
 ## The search is bounded by deterministic work budgets, never by wall-clock time
-## (ADR-005 section 8): 24 candidate beam, 16 reply beam per sample tile, and a
-## maximum of 6144 deep response evaluations per decision. Cancellation is polled
-## between batches (ADR-005 section 9) and no partial result is ever returned.
+## (ADR-005 section 8): 24 candidate beam, 16 reply beam per sample hand, and a
+## maximum of 6144 deep response evaluations per decision. A reply search is a
+## line search, so it is additionally bounded by a short reply length and a small
+## reply candidate limit, both of which are documented data rather than literals
+## inside the loop. Cancellation is polled between batches (ADR-005 section 9) and
+## no partial result is ever returned.
 ##
 ## The hidden future tile is represented by the sample, because ADR-004 section 7
 ## forbids reading the undrawn bag from the AI decision interface; nothing here
 ## calls `debug_bag_snapshot()`.
 ##
-## Two phrasings in ADR-005 are read in the way the ADR's own tests require.
-## The expected human reply is the mean over the sample of each sample tile's
-## best opponent score, exactly as section 6 words it ("expected best immediate
-## score ... averaged over the representative sample"); the mean is what makes a
-## threat reliably visible instead of only half the time. And the candidate beam
-## is ordered by the section 5 tuple, because that is the ranking the ADR defines
-## for ordering after a shallow evaluation.
+## Two phrasings in ADR-005 are read the way the ADR's own tests require. The
+## expected human reply is the mean over the sample of each sample hand's best
+## reply score, exactly as section 6 words it ("expected best immediate score ...
+## averaged over the representative sample"); the mean is what makes a threat
+## reliably visible instead of only half the time. And the candidate beam is
+## ordered by the section 5 tuple, because that is the ranking the ADR defines for
+## ordering after a shallow evaluation.
 
 ## Candidates scored between cancellation polls (ADR-005 section 9).
 const SHALLOW_SCORE_BATCH: int = 8
 
-## Sample tiles replied to between cancellation polls (ADR-005 section 9).
-const DEEP_EVALUATION_BATCH: int = 16
+## Longest reply line the second ply enumerates.
+##
+## ADR-005 section 8 bounds the search by work, and a line search costs more per
+## reply than a single placement did, so the ply is limited to the shortest legal
+## line lengths. A two- or three-tile reply is what an opponent actually takes
+## when a threat is standing, and section 6 asks only for the best immediate
+## reply, not for the best reply of every length.
+const REPLY_MAX_LENGTH: int = 3
+
+## Reply candidates generated per sample hand before scoring the reply beam.
+##
+## `LegalMoveGenerator` stops as soon as it has this many legal lines, so the ply
+## never enumerates a whole board to answer "what is the best immediate reply".
+const REPLY_CANDIDATE_LIMIT: int = 8
 
 
-## Returns the best legal candidate under the ADR-005 section 6 utility.
+## Returns the best legal line under the ADR-005 section 6 utility, or a swap.
 func choose_move(
 	snapshot: AiGameSnapshot,
-	active_tile: TileDefinition,
+	deck: Array[TileDefinition],
 	config: AiDifficultyConfig,
 	decision_seed: int,
 	cancellation: AiCancellationToken
 ) -> AiDecision:
 	var report: Dictionary = {
-		"policy": "two-ply-representative-sample",
+		"policy": "two-ply-line-representative-sample",
 		"decision_seed": decision_seed,
 	}
-	if snapshot == null or active_tile == null or config == null:
+	if snapshot == null or config == null:
 		return invalid_decision(snapshot, config, "missing input")
 
 	if is_cancelled(cancellation):
 		return cancelled_decision(snapshot, config, "cancelled before generation")
 
 	var candidates: Array[AiMoveCandidate] = prepare_candidates(
-		snapshot, active_tile, decision_seed, report
+		snapshot, deck, decision_seed, report
 	)
 	if candidates.is_empty():
-		return no_legal_move_decision(snapshot, config, report)
+		# ADR-011 section 6: no legal line means the rival swaps its hand.
+		return swap_decision(snapshot, config, report)
 
 	var rules: ScoringRules = snapshot.get_rules()
 	for index: int in range(candidates.size()):
@@ -101,18 +125,22 @@ func choose_move(
 	report["evaluation_budget"] = budget
 	report["budget_exhausted"] = used >= budget
 	report["sample_version"] = config.sample_version()
+	report["reply_sample_size"] = config.hard_reply_sample_size
 
 	var utility_of: Callable = func(candidate: AiMoveCandidate) -> Array:
 		return [candidate.utility]
 	var best: AiMoveCandidate = best_by_rank(ordered, utility_of)
 	if best == null:
-		return no_legal_move_decision(snapshot, config, report)
+		return swap_decision(snapshot, config, report)
 
+	report["policy_outcome"] = "line"
 	report["utility"] = best.utility
 	report["expected_reply_points"] = best.expected_reply_points
 	report["ai_open_opportunity"] = best.ai_open_opportunity
 	report["human_open_threat"] = best.human_open_threat
 	report["matched_edge_count"] = best.matched_edge_count
+	report["line_length"] = best.length()
+	report["line_cells"] = best.cells_label()
 	report["occupies_high_value_cell"] = AiFeatures.occupies_high_value_completion_cell(
 		snapshot, best, rules
 	)
@@ -121,9 +149,8 @@ func choose_move(
 	report["tie_break_value"] = best.tie_break_value
 	report["tied_candidates"] = tied_keys(ordered, utility_of, best)
 
-	return AiDecision.create_move(
-		best.cell,
-		best.rotation,
+	return AiDecision.create_line(
+		best.snapshots,
 		snapshot.board_revision(),
 		best.move_key,
 		build_diagnostics(config, snapshot, report)
@@ -141,7 +168,7 @@ func evaluate_at_one_ply(
 	config: AiDifficultyConfig,
 	rules: ScoringRules
 ) -> void:
-	if snapshot == null or candidate == null or candidate.snapshot == null:
+	if snapshot == null or candidate == null or candidate.snapshots.is_empty():
 		return
 	candidate.expected_reply_points = 0.0
 	candidate.ai_open_opportunity = AiFeatures.open_opportunity(snapshot, candidate, rules, null)
@@ -176,8 +203,12 @@ func utility_value(config: AiDifficultyConfig, candidate: AiMoveCandidate) -> fl
 
 ## Scores one candidate's two-ply utility and returns the evaluations spent.
 ##
-## Never spends more than `remaining_budget` evaluations, so the ADR-005 section 8
-## budget holds even when the sample is larger than the remaining allowance.
+## The second ply is the opponent's best LINE on the board this candidate would
+## leave behind, averaged over the representative sample hands: the opponent's own
+## held deck plus one sample tile, which stands in for the refill of ADR-011
+## section 8 that the AI may not read (ADR-004 section 7). The sample hands are
+## capped by `config.hard_reply_sample_size`, so the ply stays inside the section
+## 8 budget, and never more than `remaining_budget` replies are spent.
 func deep_evaluate(
 	snapshot: AiGameSnapshot,
 	candidate: AiMoveCandidate,
@@ -185,21 +216,29 @@ func deep_evaluate(
 	remaining_budget: int,
 	rules: ScoringRules
 ) -> int:
-	if candidate == null or candidate.snapshot == null or remaining_budget <= 0:
+	if candidate == null or candidate.snapshots.is_empty() or remaining_budget <= 0:
 		return 0
 	var sample: AiRepresentativeSample = config.sample
 	if sample == null:
 		return 0
 
 	var board: BoardState = snapshot.get_board()
-	var ai_after: BoardState = board.with_tile(candidate.snapshot)
-	var tiles: Array[TileDefinition] = sample.tiles()
+	var ai_after: BoardState = board.with_tiles(candidate.snapshots)
+	var held: Array[TileDefinition] = snapshot.human_deck()
+	var sample_tiles: Array[TileDefinition] = sample.tiles()
+	var hands: Array = reply_hands(held, sample_tiles, config.hard_reply_sample_size)
+	if hands.is_empty():
+		return 0
+
 	var evaluated: int = 0
 	var reply_total: float = 0.0
-	for tile: TileDefinition in tiles:
+	for raw_hand: Variant in hands:
 		if evaluated >= remaining_budget:
 			break
-		reply_total += float(_best_reply_points(ai_after, tile, snapshot, rules, config.hard_reply_beam))
+		var hand: Array[TileDefinition] = raw_hand
+		reply_total += float(
+			_best_reply_points(ai_after, hand, snapshot, rules, config.hard_reply_beam)
+		)
 		evaluated += 1
 	if evaluated > 0:
 		candidate.expected_reply_points = reply_total / float(evaluated)
@@ -212,26 +251,68 @@ func deep_evaluate(
 	return evaluated
 
 
-## Returns the strongest immediate score the opponent could take with one tile.
+## Returns the sample hands the second ply evaluates, in a fixed order.
 ##
-## The reply is a one-ply preview of the human's turn on the board the candidate
-## would leave behind. Candidates arrive in the deterministic generation order of
-## ADR-005 section 2, the section 8 reply beam bounds how many of them are
-## scored, and the strongest of those is reported. The beam is what keeps the
-## work bounded: scoring every reply on a developed board would defeat the
-## deterministic budget of section 8.
+## The first hand is the opponent's own deck, so a reply the opponent can already
+## make is never missed. Each further hand is the held deck plus one sample tile,
+## which is the refill of ADR-011 section 8 the AI cannot see; the cap is what
+## keeps the ply inside the ADR-005 section 8 budget.
+func reply_hands(
+	held: Array[TileDefinition],
+	sample_tiles: Array[TileDefinition],
+	hand_cap: int
+) -> Array:
+	var hands: Array = []
+	if not held.is_empty():
+		hands.append(held.duplicate())
+	if sample_tiles.is_empty():
+		return hands
+	var cap: int = hand_cap
+	if cap < 1:
+		cap = 1
+	for sampled: TileDefinition in sample_tiles:
+		if hands.size() >= cap:
+			break
+		if sampled == null or not sampled.is_valid():
+			continue
+		var hand: Array[TileDefinition] = held.duplicate()
+		if not hand.any(
+			func(tile: TileDefinition) -> bool:
+				return tile != null and tile.tile_id == sampled.tile_id
+		):
+			hand.append(sampled)
+		if not hand.is_empty():
+			hands.append(hand)
+	return hands
+
+
+## Returns the strongest immediate score the opponent could take with one line.
+##
+## ADR-011 section 12 makes the reply a line, so the reply is a one-ply line
+## preview on the board the candidate would leave behind. The reply candidates
+## come from `LegalMoveGenerator`, which validates every line through the shared
+## `LineValidator`, so the threat the AI prices is a threat the rules would really
+## allow. Candidates arrive in the generator's deterministic order, the section 8
+## reply beam bounds how many are scored, and the strongest of those is reported.
 ##
 ## Returns 0 when the opponent has no legal reply at all, which is a total answer
 ## rather than a missing one.
 func _best_reply_points(
 	ai_after: BoardState,
-	reply_tile: TileDefinition,
+	hand: Array[TileDefinition],
 	snapshot: AiGameSnapshot,
 	rules: ScoringRules,
 	reply_beam: int
 ) -> int:
-	var replies: Array[AiMoveCandidate] = LegalMoveGenerator.generate(
-		ai_after, reply_tile, snapshot.human_player_id()
+	if ai_after == null or hand == null or hand.is_empty():
+		return 0
+	var report: Dictionary = {}
+	var replies: Array[AiMoveCandidate] = LegalMoveGenerator.generate_with_report(
+		ai_after,
+		hand,
+		report,
+		REPLY_CANDIDATE_LIMIT,
+		REPLY_MAX_LENGTH
 	)
 	if replies.is_empty():
 		return 0
@@ -239,15 +320,23 @@ func _best_reply_points(
 	var best: int = 0
 	for index: int in range(limit):
 		var candidate: AiMoveCandidate = replies[index]
-		candidate.apply_breakdown(
-			ScoringCoordinator.breakdown(ai_after, candidate.snapshot, rules, null)
+		best = maxi(
+			best,
+			line_points_for(
+				ai_after,
+				candidate.snapshots,
+				snapshot.human_player_id(),
+				rules,
+				null
+			)
 		)
-		best = maxi(best, candidate.immediate_score)
 	return best
 
 
 ## Returns true when `a` precedes `b` in strongest-first order.
 func _comes_first(a: AiMoveCandidate, b: AiMoveCandidate) -> bool:
+	if a == null or b == null:
+		return a != null
 	if a.immediate_score != b.immediate_score:
 		return a.immediate_score > b.immediate_score
 	if a.poker_points != b.poker_points:

@@ -1,17 +1,11 @@
 class_name ScoreRevealLayer
 extends Control
 
-## Shows which tiles a committed move actually scored with (AGENTS.md section 8,
+## Briefly shows committed poker-hand and edge-cluster awards (AGENTS.md section 8,
 ## GAME_SPEC section 7.3, docs/sections/05-mobile-ux.md section 4).
 ##
-## A move can award three things - a poker hand, matching edge boundaries, and
-## colour clusters - and the question the player asks of all three is the same:
-## *which tiles*. Every scored group is therefore drawn the same way: each of its
-## tiles is outlined in one high-contrast colour, so a group reads as a set of
-## specific tiles rather than as a tint spread over the board.
-##
-## The tiles of a poker hand additionally bounce in sequence, one after another,
-## so the eye is walked along the hand in the order it reads.
+## The layer outlines the scored hands and paying edge clusters for the latest
+## move. Poker hands also bounce; floating score popups report their points.
 ##
 ## ADR-008 section 4 keeps presentation out of the rules, so this layer is handed
 ## finished `ScoreEvent`s and reads only what they already carry: `cells` and the
@@ -24,14 +18,11 @@ extends Control
 ## written into the shared render state, which `BoardTileLayer` reads, and is
 ## cleared when the animation ends or the reveal is dropped.
 
-## How long the marks stay at full strength before fading, in seconds.
-const HOLD: float = 1.5
+## Total lifetime: fade from full visibility to hidden over three seconds.
+const FADE: float = 3.0
 
-## How long the fade takes, in seconds.
-const FADE: float = 0.55
-
-## Outline thickness, as a fraction of one cell.
-const OUTLINE_RATIO: float = 0.11
+## Perimeter stroke thickness, half the former hand-tile border width.
+const OUTLINE_RATIO: float = 0.055
 
 ## How much bigger a bouncing tile grows at the peak, as a fraction of its size.
 ##
@@ -46,13 +37,8 @@ const BOUNCE_DURATION: float = 0.34
 ## Gap between one tile starting its bounce and the next, in seconds.
 const BOUNCE_STAGGER: float = 0.13
 
-## The outline colour of everything that scored.
-##
-## Deliberately not one of the four edge colours, and not the gold the selected
-## deck tile and the score popups use: this mark answers "which tiles", and a
-## colour that already means something else on the board would answer a
-## different question instead.
-const REVEAL_COLOR: Color = Color(0.35, 1.0, 1.0, 1.0)
+## Green perimeter around the tiles that scored.
+const REVEAL_COLOR: Color = Color(0.25, 0.92, 0.42, 1.0)
 
 ## Emitted every frame while the bounce runs, so `BoardView` repaints the tile
 ## layer whose tiles the scale has grown.
@@ -82,23 +68,23 @@ func _ready() -> void:
 	set_process(false)
 
 
-## Reveals which tiles every scored group in `events` used, replacing any reveal
-## already showing.
-##
-## A move that scored nothing leaves this layer empty, so the previous move's
-## marks can never stay up behind it.
+## Reveals only the hands and edge clusters in this move's committed events.
+## Replacing a reveal cancels its timer, even when the new move scored nothing.
 func reveal(events: Array) -> void:
-	_clear_marks()
+	clear_reveal()
 	for raw: Variant in events:
 		if not (raw is ScoreEvent):
 			continue
 		var event: ScoreEvent = raw
 		if event.cells.is_empty():
 			continue
-		_groups.append({"cells": event.cells.duplicate()})
 		if event.category == ScoringEnums.ScoreCategory.POKER_HAND:
-			_wave_cells = event.cells.duplicate()
-	if _groups.is_empty():
+			_wave_cells.append_array(event.cells)
+		elif event.category != ScoringEnums.ScoreCategory.EDGE_CLUSTER:
+			# Individual edge-match points do not outline a tile group.
+			continue
+		_groups.append({"cells": event.cells.duplicate()})
+	if _groups.is_empty() and _wave_cells.is_empty():
 		return
 	if AccessibilitySettings.reduced_motion():
 		# Reduced motion: the marks still appear. Which tiles scored is
@@ -107,7 +93,8 @@ func reveal(events: Array) -> void:
 		# fade, which are the two animations the player asked to be spared.
 		_start_hold_only()
 		return
-	_start_bounce()
+	if not _wave_cells.is_empty():
+		_start_bounce()
 	_restart_fade()
 
 
@@ -197,19 +184,17 @@ func _start_hold_only() -> void:
 	set_process(false)
 	queue_redraw()
 	_fade = create_tween()
-	_fade.tween_interval(HOLD)
+	_fade.tween_interval(FADE)
 	_fade.tween_callback(_clear_marks)
 
 
-## Restarts the hold-then-fade, so a second award does not cut the first short
-## and leave a half-faded mark behind.
+## Each new move starts fully visible and fades once, without a hold or loop.
 func _restart_fade() -> void:
 	if _fade != null and _fade.is_valid():
 		_fade.kill()
 	modulate.a = 1.0
 	queue_redraw()
 	_fade = create_tween()
-	_fade.tween_interval(HOLD)
 	_fade.tween_property(self, "modulate:a", 0.0, FADE)
 	_fade.tween_callback(_clear_marks)
 
@@ -229,30 +214,42 @@ func _draw() -> void:
 	if state == null or not state.board_rect.has_area():
 		return
 	var line: float = maxf(
-		2.0, BoardMetrics.cell_size(state.board_rect, state.grid) * OUTLINE_RATIO
+		1.0, BoardMetrics.cell_size(state.board_rect, state.grid) * OUTLINE_RATIO
 	)
 	for group: Dictionary in _groups:
 		_outline_group(group["cells"], line)
 
 
-## Outlines every tile of one scored group.
+## Draws the outside perimeter of one scored group.
 ##
-## Each tile is outlined individually rather than the group being drawn as one
-## merged shape, because the question being answered is which *tiles* scored: a
-## merged hull would hide the internal boundaries and could not show one tile
-## rising clear of the others.
+## Shared sides between tiles in the same group are omitted, so joined hands read
+## as one shape instead of showing borders on their touching edges.
 func _outline_group(cells: Array, line: float) -> void:
+	var members: Dictionary = {}
 	for raw: Variant in cells:
+		var candidate: Vector2i = raw
+		if BoardMetrics.is_valid_cell(candidate, state.grid):
+			members[candidate] = true
+	if members.is_empty():
+		return
+	var offsets: Array[Vector2i] = BoardEnums.neighbor_offsets()
+	for raw: Variant in members.keys():
 		var cell: Vector2i = raw
-		if not BoardMetrics.is_valid_cell(cell, state.grid):
-			continue
 		var rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, state.grid)
-		# The outline follows the tile's Z scale, so a rising tile never escapes
-		# the mark that says it scored.
 		var scale: float = state.zoom_for(cell)
 		if scale > 1.0:
 			var grown: Vector2 = rect.size * scale
 			rect = Rect2(rect.get_center() - grown * 0.5, grown)
-		# Inset by half the line width so the outline sits inside the tile it
-		# marks and cannot be read as a neighbouring cell's edge.
-		draw_rect(rect.grow(-line * 0.5), REVEAL_COLOR, false, line)
+		var inner: Rect2 = rect.grow(-line * 0.5)
+		var top_left: Vector2 = inner.position
+		var top_right: Vector2 = Vector2(inner.end.x, inner.position.y)
+		var bottom_left: Vector2 = Vector2(inner.position.x, inner.end.y)
+		var bottom_right: Vector2 = inner.end
+		if not members.has(cell + offsets[TileEnums.EdgePosition.TOP]):
+			draw_line(top_left, top_right, REVEAL_COLOR, line)
+		if not members.has(cell + offsets[TileEnums.EdgePosition.RIGHT]):
+			draw_line(top_right, bottom_right, REVEAL_COLOR, line)
+		if not members.has(cell + offsets[TileEnums.EdgePosition.BOTTOM]):
+			draw_line(bottom_left, bottom_right, REVEAL_COLOR, line)
+		if not members.has(cell + offsets[TileEnums.EdgePosition.LEFT]):
+			draw_line(top_left, bottom_left, REVEAL_COLOR, line)

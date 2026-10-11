@@ -1,0 +1,44 @@
+Welcome to Summer Engine (c) built on the awesome work by Godot 2007-present Juan Linietsky, Ariel Manzur & Godot Contributors.
+
+[SE] AuthManager: CLI credential found; desktop session exchange required
+WARNING: res://scenes/game/game_screen.tscn:28 - ext_resource, invalid UID: uid://ijpnl08dhhip - using text path instead: res://assets/ui/disabled_icon.gdshader
+   at: ResourceLoaderText::load (scene\resources\resource_format_text.cpp:516)
+   GDScript backtrace (most recent call first):
+       [0] _instantiate (res://tests/integration/test_game_screen.gd:2274)
+       [1] test_game_screen_provides_the_adr_008_hierarchy (res://tests/integration/test_game_screen.gd:191)
+       [2] _run (res://tools/check_game_layout.gd:16)
+test_game_screen_provides_the_adr_008_hierarchy: assertions=46
+[AppRoot] bootstrap ready (screens hosted: 1)
+WARNING: res://scenes/game/game_screen.tscn:28 - ext_resource, invalid UID: uid://ijpnl08dhhip - using text path instead: res://assets/ui/disabled_icon.gdshader
+   at: ResourceLoaderText::load (scene\resources\resource_format_text.cpp:516)
+   GDScript backtrace (most recent call first):
+       [0] _boot_match (res://scripts/presentation/app_root.gd:472)
+       [1] boot_game_screen (res://scripts/presentation/app_root.gd:453)
+       [2] test_player_panel_always_shows_you (res://tests/integration/test_game_screen.gd:365)
+       [3] _run (res://tools/check_game_layout.gd:16)
+test_player_panel_always_shows_you: assertions=4
+WARNING: res://scenes/game/game_screen.tscn:28 - ext_resource, invalid UID: uid://ijpnl08dhhip - using text path instead: res://assets/ui/disabled_icon.gdshader
+   at: ResourceLoaderText::load (scene\resources\resource_format_text.cpp:516)
+   GDScript backtrace (most recent call first):
+       [0] _instantiate (res://tests/integration/test_game_screen.gd:2274)
+       [1] _host_screen (res://tests/integration/test_game_screen.gd:2253)
+       [2] test_human_input_is_gated_to_the_human_action_phase (res://tests/integration/test_game_screen.gd:375)
+       [3] _run (res://tools/check_game_layout.gd:16)
+test_human_input_is_gated_to_the_human_action_phase: assertions=18
+WARNING: res://scenes/game/game_screen.tscn:28 - ext_resource, invalid UID: uid://ijpnl08dhhip - using text path instead: res://assets/ui/disabled_icon.gdshader
+   at: ResourceLoaderText::load (scene\resources\resource_format_text.cpp:516)
+   GDScript backtrace (most recent call first):
+       [0] _instantiate (res://tests/integration/test_game_screen.gd:2274)
+       [1] _host_screen (res://tests/integration/test_game_screen.gd:2253)
+       [2] test_command_drawer_opens_closes_and_returns_to_rack_for_swap (res://tests/integration/test_game_screen.gd:2211)
+       [3] _run (res://tools/check_game_layout.gd:16)
+test_command_drawer_opens_closes_and_returns_to_rack_for_swap: assertions=8
+WARNING: res://scenes/game/game_screen.tscn:28 - ext_resource, invalid UID: uid://ijpnl08dhhip - using text path instead: res://assets/ui/disabled_icon.gdshader
+   at: ResourceLoaderText::load (scene\resources\resource_format_text.cpp:516)
+   GDScript backtrace (most recent call first):
+       [0] _instantiate (res://tests/integration/test_game_screen.gd:2274)
+       [1] _host_screen (res://tests/integration/test_game_screen.gd:2253)
+       [2] test_command_preview_matches_commit_without_mutating_board (res://tests/integration/test_game_screen.gd:2230)
+       [3] _run (res://tools/check_game_layout.gd:16)
+test_command_preview_matches_commit_without_mutating_board: assertions=7
+LAYOUT CHECK: 83 assertions, 0 failures

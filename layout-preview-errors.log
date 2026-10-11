@@ -1,0 +1,19 @@
+WARNING: Orientation not supported by this display server.
+   at: DisplayServer::screen_set_orientation (servers\display\display_server.cpp:597)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://scripts/presentation/game_screen.gd:147)
+       [1] _run (res://tools/preview_game_layout.gd:11)
+ERROR: Node not found: "%OpenMenuButton" (relative to "/root/GameScreen").
+   at: Node::get_node (scene\main\node.cpp:1976)
+   GDScript backtrace (most recent call first):
+       [0] _fit_layout (res://scripts/presentation/game_screen.gd:185)
+       [1] _exit_tree (res://scripts/presentation/game_screen.gd:172)
+SCRIPT ERROR: Cannot call method 'get_parent' on a null value.
+   at: GameScreen._fit_layout (res://scripts/presentation/game_screen.gd:187)
+   GDScript backtrace (most recent call first):
+       [0] _fit_layout (res://scripts/presentation/game_screen.gd:187)
+       [1] _exit_tree (res://scripts/presentation/game_screen.gd:172)
+WARNING: Orientation not supported by this display server.
+   at: DisplayServer::screen_set_orientation (servers\display\display_server.cpp:597)
+   GDScript backtrace (most recent call first):
+       [0] _exit_tree (res://scripts/presentation/game_screen.gd:173)

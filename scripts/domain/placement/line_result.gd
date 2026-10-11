@@ -56,9 +56,8 @@ var move_id: StringName = &""
 var score_events: Array[ScoreEvent] = []
 
 ## The merged line's poker category as `ScoringEnums.PokerHandCategory`, or
-## `NONE` when the merged line is not five cells long. ADR-001 section 2 defines
-## the categories only for a five-cell window, so a shorter line reports its
-## legality (a repeated rank) rather than a category this type invents.
+## `NONE` when the merged line has no valid poker category. Accepted lines
+## contain two to five tiles and have a ranked category.
 var hand_category: int = ScoringEnums.PokerHandCategory.NONE
 
 

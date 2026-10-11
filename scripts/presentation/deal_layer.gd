@@ -5,7 +5,7 @@ extends Control
 ## then turns each one over to show its face (AGENTS.md section 8).
 ##
 ## This layer draws an animation and nothing else: it holds no deck, no rule, and
-## no count. The screen owns the trigger and measures both ends of the flight, so
+## no count. The screen owns the trigger and supplies live endpoint geometry, so
 ## the layer can never disagree with what the row or the pile is showing.
 ##
 ## One tile's animation has three phases, and the row draws none of them:
@@ -58,6 +58,8 @@ var _from: Vector2 = Vector2.ZERO
 var _elapsed: float = 0.0
 var _revealed: int = 0
 var _playing: bool = false
+var _origin_provider: Callable
+var _destination_providers: Array[Callable] = []
 
 
 func _ready() -> void:
@@ -80,18 +82,16 @@ func revealed_count() -> int:
 
 ## Starts a deal.
 ##
-## `origin` and `destinations` are in GLOBAL coordinates, so the screen can
-## measure the pile and the row without knowing this layer's own rectangle; they
-## are converted to local space here. Does nothing when the two lists disagree in
-## length, because a tile with no destination has nowhere to land.
+## Providers return GLOBAL coordinates, converted to this layer's local space
+## each frame. Containers may move the rack after the first nonzero size, so
+## retaining initial pixel coordinates would make tiles land below their slots.
 func deal(
-	tiles: Array[TileDefinition], origin: Vector2, destinations: Array[Rect2]
+	tiles: Array[TileDefinition], origin: Callable, destinations: Array[Callable]
 ) -> void:
 	_tiles = tiles.duplicate()
-	_from = _to_local(origin)
-	_to = [] as Array[Rect2]
-	for rect: Rect2 in destinations:
-		_to.append(Rect2(_to_local(rect.position), rect.size))
+	_origin_provider = origin
+	_destination_providers = destinations.duplicate()
+	_refresh_geometry()
 	_elapsed = 0.0
 	_revealed = 0
 	_playing = not _tiles.is_empty() and _tiles.size() == _to.size()
@@ -119,6 +119,8 @@ func cancel() -> void:
 	_playing = false
 	_tiles = [] as Array[TileDefinition]
 	_to = [] as Array[Rect2]
+	_origin_provider = Callable()
+	_destination_providers.clear()
 	_revealed = 0
 	_elapsed = 0.0
 	set_process(false)
@@ -163,8 +165,14 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if not _playing:
 		return
+	_refresh_geometry()
+	if _to.size() != _tiles.size():
+		cancel()
+		return
 	for index: int in range(_tiles.size()):
 		var target: Rect2 = _to[index]
+		if not target.has_area():
+			continue
 		var start: float = float(index) * STAGGER
 		if _elapsed <= start:
 			# Not this tile's turn to leave the pile yet.
@@ -183,6 +191,22 @@ func _draw() -> void:
 			# Turned over: the row draws its face from here on.
 			continue
 		_draw_turn(index, target, turn_progress)
+
+
+## Measure after layout and transform changes, including throughout hold/flip.
+func _refresh_geometry() -> void:
+	var to_local: Transform2D = get_global_transform().affine_inverse()
+	_to.clear()
+	if not _origin_provider.is_valid():
+		return
+	var origin: Vector2 = _origin_provider.call()
+	_from = to_local * origin
+	for destination: Callable in _destination_providers:
+		if not destination.is_valid():
+			_to.clear()
+			return
+		var global_rect: Rect2 = destination.call()
+		_to.append(to_local * global_rect)
 
 
 ## Draws a tile on its way from the pile to its place, still face down.
@@ -237,13 +261,3 @@ func _total_duration() -> float:
 static func _ease_out(value: float) -> float:
 	var clamped: float = clampf(value, 0.0, 1.0)
 	return 1.0 - pow(1.0 - clamped, 3.0)
-
-
-## Converts a GLOBAL point into this control's local drawing space.
-##
-## `Control` has no `to_local` (that belongs to Node2D and Node3D), and every
-## drawing primitive works in local coordinates, so the inverse of this item's
-## canvas transform is what turns the screen's global measurements into points
-## `_draw` can use.
-func _to_local(global_point: Vector2) -> Vector2:
-	return get_global_transform().affine_inverse() * global_point

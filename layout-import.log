@@ -1,0 +1,33 @@
+Welcome to Summer Engine (c) built on the awesome work by Godot 2007-present Juan Linietsky, Ariel Manzur & Godot Contributors.
+
+[SE] AuthManager: CLI credential found; desktop session exchange required
+[SE] LocalApiServer: batch-mode instance, not publishing ~/.summer discovery files
+[SE] LocalApiServer: ToolNetThread listening on http://127.0.0.1:6551 (Block E)
+[WebView2] set_cookie: webview not ready, skipping
+[WebView2] set_cookie: webview not ready, skipping
+[SE] No update available.
+[WebView2] Failed to get parent window
+[WebView2] Failed to get parent window
+[   0% ] [90m[1mfirst_scan_filesystem[22m | Started Project initialization (5 steps)[39m[0m
+[   0% ] [90m[1mfirst_scan_filesystem[22m | Scanning file structure...[39m[0m
+[  16% ] [90m[1mfirst_scan_filesystem[22m | Loading global class names...[39m[0m
+[  33% ] [90m[1mfirst_scan_filesystem[22m | Verifying GDExtensions...[39m[0m
+[  50% ] [90m[1mfirst_scan_filesystem[22m | Creating autoload scripts...[39m[0m
+[  66% ] [90m[1mfirst_scan_filesystem[22m | Initializing plugins...[39m[0m
+[  83% ] [90m[1mfirst_scan_filesystem[22m | Starting file scan...[39m[0m
+[92m[ DONE ][39m [1mfirst_scan_filesystem[22m
+[0m
+[   0% ] [90m[1mloading_editor_layout[22m | Started Loading editor (5 steps)[39m[0m
+[   0% ] [90m[1mloading_editor_layout[22m | Loading editor layout...[39m[0m
+[  16% ] [90m[1mloading_editor_layout[22m | Loading docks...[39m[0m
+[  33% ] [90m[1mloading_editor_layout[22m | Reopening scenes...[39m[0m
+[  50% ] [90m[1mloading_editor_layout[22m | Loading central editor layout...[39m[0m
+[  66% ] [90m[1mloading_editor_layout[22m | Loading plugin window layout...[39m[0m
+[  83% ] [90m[1mloading_editor_layout[22m | Editor layout ready.[39m[0m
+[WebView2] set_cookie: webview not ready, skipping
+[92m[ DONE ][39m [1mloading_editor_layout[22m
+[0m
+[WebView2] Failed to get parent window
+[WebView2] Failed to get parent window
+[WebView2] Failed to get parent window
+[SE] LocalApiServer: Stopped

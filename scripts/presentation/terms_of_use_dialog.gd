@@ -9,9 +9,6 @@ extends Control
 
 const TERMS_URL: String = "https://tiletopia.com/terms"
 const PRIVACY_URL: String = "https://tiletopia.com/privacy"
-const REGISTER_URL: String = "https://127.0.0.1:3000/auth/register"
-const LOGIN_URL: String = "http://127.0.0.1:3000/auth/login"
-
 const USERNAME_PREFIX: String = "Player_"
 const EMAIL_DOMAIN: String = "@tiletopia.com"
 const KEY_DIGITS: int = 9
@@ -57,17 +54,17 @@ static func load_account(path: String = UsersStateStore.DEFAULT_PATH) -> Diction
 	return UsersStateStore.load_record(path)
 
 
-## Posts the saved username and password. Emits `accepted` with the login body
-## on HTTP 2xx, otherwise `failed`.
+## Posts saved credentials and emits `accepted` only after a token is stored.
 func login_saved_account() -> void:
 	var record: Dictionary = UsersStateStore.load_record(_users_path)
 	if not UsersStateStore.has_accepted_account(_users_path):
 		_fail("No accepted account is saved.")
 		return
 	_post(
-		LOGIN_URL,
+		ApiConfiguration.login_url(),
 		{
 			"username": String(record.get(UsersStateStore.KEY_USERNAME, "")),
+			"email": String(record.get(UsersStateStore.KEY_EMAIL, "")),
 			"password": String(record.get(UsersStateStore.KEY_PASSWORD, "")),
 		},
 		{}
@@ -85,12 +82,12 @@ func _on_accept_pressed() -> void:
 	var username: String = USERNAME_PREFIX + key
 	var email: String = username + EMAIL_DOMAIN
 	_pending_account = {
-		"username": username,
+		"displayName": username,
 		"password": username,
 		"email": email,
 	}
 	_set_status("Creating your account...")
-	_post(REGISTER_URL, _pending_account, _pending_account)
+	_post(ApiConfiguration.register_url(), _pending_account, _pending_account)
 
 
 func _post(url: String, body: Dictionary, pending: Dictionary) -> void:
@@ -121,17 +118,24 @@ func _on_request_completed(
 
 	var response: Dictionary = _parse_body(body)
 	if not _pending_account.is_empty():
-		var username: String = String(_pending_account.get("username", ""))
+		var username: String = String(_pending_account.get("displayName", ""))
 		var password: String = String(_pending_account.get("password", ""))
 		var email: String = String(_pending_account.get("email", ""))
 		if not UsersStateStore.save_accepted_account(username, password, email, _users_path):
 			_fail("The account was created, but it could not be saved on this device.")
 			return
 		_pending_account = {}
-		accepted.emit(UsersStateStore.load_record(_users_path))
+		_set_status("Signing in...")
+		login_saved_account()
 		return
 
-	accepted.emit(response if not response.is_empty() else UsersStateStore.load_record(_users_path))
+	if response_code != 200 or UsersStateStore.user_state_from_response(response).is_empty():
+		_fail("The account service did not return a login token.")
+		return
+	if not UsersStateStore.save_user_state(response, _users_path):
+		_fail("Signed in, but the user state could not be saved on this device.")
+		return
+	accepted.emit(UsersStateStore.load_user_state(_users_path))
 
 
 func _failure_message(result: int, response_code: int, body: PackedByteArray) -> String:

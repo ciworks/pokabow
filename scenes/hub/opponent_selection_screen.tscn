@@ -1,0 +1,180 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/presentation/opponent_selection_screen.gd" id="1_screen"]
+[ext_resource type="Texture2D" path="res://assets/board/characters/avatar_default.png" id="2_human"]
+[ext_resource type="Texture2D" path="res://assets/ui/default_background.png" id="3_background"]
+
+[sub_resource type="StyleBoxFlat" id="ParticipantCard"]
+bg_color = Color(0.035, 0.065, 0.09, 0.9)
+border_color = Color(0.73, 0.59, 0.3, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+corner_radius_bottom_right = 18
+corner_radius_bottom_left = 18
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+
+[node name="OpponentSelectionScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_screen")
+
+[node name="Background" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_background")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="ScreenMargin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = 30.0
+offset_right = -18.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Center" type="CenterContainer" parent="ScreenMargin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Content" type="VBoxContainer" parent="ScreenMargin/Center"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 24
+
+[node name="Heading" type="Label" parent="ScreenMargin/Center/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_colors/font_shadow_color = Color(0.015, 0.035, 0.09, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 3
+theme_override_font_sizes/font_size = 30
+text = "CHOOSE YOUR RIVAL"
+horizontal_alignment = 1
+
+[node name="DifficultyRow" type="HBoxContainer" parent="ScreenMargin/Center/Content"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="DifficultyLabel" type="Label" parent="ScreenMargin/Center/Content/DifficultyRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 18
+text = "Difficulty"
+vertical_alignment = 1
+
+[node name="DifficultyPicker" type="OptionButton" parent="ScreenMargin/Center/Content/DifficultyRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(190, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+
+[node name="MatchupRow" type="HBoxContainer" parent="ScreenMargin/Center/Content"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="YouCard" type="PanelContainer" parent="ScreenMargin/Center/Content/MatchupRow"]
+custom_minimum_size = Vector2(174, 240)
+layout_mode = 2
+theme_override_styles/panel = SubResource("ParticipantCard")
+
+[node name="Column" type="VBoxContainer" parent="ScreenMargin/Center/Content/MatchupRow/YouCard"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Name" type="Label" parent="ScreenMargin/Center/Content/MatchupRow/YouCard/Column"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 18
+text = "YOU"
+horizontal_alignment = 1
+
+[node name="HumanPortrait" type="TextureRect" parent="ScreenMargin/Center/Content/MatchupRow/YouCard/Column"]
+custom_minimum_size = Vector2(150, 180)
+layout_mode = 2
+size_flags_horizontal = 4
+mouse_filter = 2
+texture = ExtResource("2_human")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Vs" type="Label" parent="ScreenMargin/Center/Content/MatchupRow"]
+custom_minimum_size = Vector2(58, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.015, 0.035, 0.09, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 3
+theme_override_font_sizes/font_size = 57
+text = "vs"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="RivalCard" type="PanelContainer" parent="ScreenMargin/Center/Content/MatchupRow"]
+custom_minimum_size = Vector2(174, 240)
+layout_mode = 2
+theme_override_styles/panel = SubResource("ParticipantCard")
+
+[node name="Column" type="VBoxContainer" parent="ScreenMargin/Center/Content/MatchupRow/RivalCard"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RivalName" type="Label" parent="ScreenMargin/Center/Content/MatchupRow/RivalCard/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 18
+text = "EASY AI"
+horizontal_alignment = 1
+
+[node name="RivalPortrait" type="TextureRect" parent="ScreenMargin/Center/Content/MatchupRow/RivalCard/Column"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 180)
+layout_mode = 2
+size_flags_horizontal = 4
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="StatusLabel" type="Label" parent="ScreenMargin/Center/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.88, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.015, 0.035, 0.09, 0.9)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 20
+text = "Choose a difficulty, then select your rival."
+horizontal_alignment = 1
+
+[node name="StartButton" type="Button" parent="ScreenMargin/Center/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(230, 54)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 20
+text = "Choose rival"

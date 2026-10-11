@@ -253,10 +253,18 @@ func test_rejected_commit_reports_a_structured_reason_for_the_active_player() ->
 	)
 
 
+## Builds a deterministic source holding exactly one tile per board cell.
+##
+## This fixture pins its own 144-tile bag on purpose, so the walks below can fill
+## the board. The live rules hold 52 tiles (ADR-004 section 1, amended
+## 2026-09-23) and could never fill 144 cells. ADR-004 section 8 makes bag_size
+## data, so a fixture may size its own bag without touching a rule.
 func _seeded_source() -> TileSource:
 	var source: TileSource = TileSource.new()
+	var rules: TileGenerationRules = TileGenerationRules.create_default()
+	rules.bag_size = BoardEnums.CELL_COUNT
 	check(
-		source.initialize(MATCH_ID, MATCH_SEED, TileGenerationRules.create_default()),
+		source.initialize(MATCH_ID, MATCH_SEED, rules),
 		"the seeded tile source must initialize"
 	)
 	return source

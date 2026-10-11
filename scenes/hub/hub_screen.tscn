@@ -1,0 +1,436 @@
+[gd_scene format=3 uid="uid://yys1jmd8mal5"]
+
+[ext_resource type="Script" uid="uid://bnut4syiax6sh" path="res://scripts/presentation/hub_screen.gd" id="1_hub"]
+[ext_resource type="Texture2D" uid="uid://dxqptka51dj4l" path="res://assets/hub/hub_background.png" id="2_hmeeb"]
+[ext_resource type="Texture2D" uid="uid://dq0uwn4sl7qbd" path="res://assets/hub/settings_icon.png" id="3_hmeeb"]
+[ext_resource type="Texture2D" uid="uid://8haegdmfx4lx" path="res://assets/hub/sound_icon.png" id="4_x5h0m"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_icon"]
+content_margin_left = 12.0
+content_margin_top = 10.0
+content_margin_right = 12.0
+content_margin_bottom = 10.0
+bg_color = Color(0.11, 0.07, 0.18, 0.82)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.85, 0.68, 0.28, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_play"]
+content_margin_left = 20.0
+content_margin_top = 12.0
+content_margin_right = 20.0
+content_margin_bottom = 12.0
+bg_color = Color(0.93, 0.76, 0.32, 1)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.45, 0.3, 0.07, 1)
+corner_radius_top_left = 22
+corner_radius_top_right = 22
+corner_radius_bottom_right = 22
+corner_radius_bottom_left = 22
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_gem_blue"]
+content_margin_left = 8.0
+content_margin_top = 10.0
+content_margin_right = 8.0
+content_margin_bottom = 10.0
+bg_color = Color(0.13, 0.58, 0.85, 0.95)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.88, 0.72, 0.31, 1)
+corner_radius_top_left = 22
+corner_radius_top_right = 22
+corner_radius_bottom_right = 22
+corner_radius_bottom_left = 22
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_gem_red"]
+content_margin_left = 8.0
+content_margin_top = 10.0
+content_margin_right = 8.0
+content_margin_bottom = 10.0
+bg_color = Color(0.86, 0.23, 0.26, 0.95)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.88, 0.72, 0.31, 1)
+corner_radius_top_left = 22
+corner_radius_top_right = 22
+corner_radius_bottom_right = 22
+corner_radius_bottom_left = 22
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_gem_green"]
+content_margin_left = 8.0
+content_margin_top = 10.0
+content_margin_right = 8.0
+content_margin_bottom = 10.0
+bg_color = Color(0.16, 0.66, 0.34, 0.95)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.88, 0.72, 0.31, 1)
+corner_radius_top_left = 22
+corner_radius_top_right = 22
+corner_radius_bottom_right = 22
+corner_radius_bottom_left = 22
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 14.0
+bg_color = Color(0.09, 0.06, 0.14, 0.94)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.72, 0.57, 0.24, 0.9)
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+corner_radius_bottom_right = 18
+corner_radius_bottom_left = 18
+
+[node name="HubScreen" type="Control" unique_id=1393487898]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_hub")
+
+[node name="Backdrop" type="ColorRect" parent="." unique_id=78037031]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.16, 0.09, 0.26, 1)
+
+[node name="Background" type="TextureRect" parent="." unique_id=1750710191]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("2_hmeeb")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Title" type="Label" parent="." unique_id=865962018]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 100.0
+offset_right = 320.0
+offset_bottom = 164.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_colors/font_outline_color = Color(0.1, 0.05, 0.16, 0.9)
+theme_override_constants/outline_size = 8
+theme_override_font_sizes/font_size = 54
+text = "Polkabow"
+horizontal_alignment = 1
+
+[node name="Accent" type="ColorRect" parent="." unique_id=1271365652]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -90.0
+offset_top = 172.0
+offset_right = 90.0
+offset_bottom = 176.0
+grow_horizontal = 2
+mouse_filter = 2
+color = Color(0.93, 0.76, 0.32, 0.9)
+
+[node name="SettingsButton" type="Button" parent="." unique_id=648332728]
+unique_name_in_owner = true
+layout_mode = 1
+offset_left = 20.0
+offset_top = 18.0
+offset_right = 96.0
+offset_bottom = 94.0
+tooltip_text = "Settings"
+theme_override_styles/normal = SubResource("StyleBox_icon")
+theme_override_styles/pressed = SubResource("StyleBox_icon")
+theme_override_styles/hover = SubResource("StyleBox_icon")
+icon = ExtResource("3_hmeeb")
+expand_icon = true
+
+[node name="SoundButton" type="Button" parent="." unique_id=1251057801]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -96.0
+offset_top = 18.0
+offset_right = -20.0
+offset_bottom = 94.0
+grow_horizontal = 0
+tooltip_text = "Sound"
+theme_override_styles/normal = SubResource("StyleBox_icon")
+theme_override_styles/pressed = SubResource("StyleBox_icon")
+theme_override_styles/hover = SubResource("StyleBox_icon")
+icon = ExtResource("4_x5h0m")
+expand_icon = true
+
+[node name="PlayButton" type="Button" parent="." unique_id=1369217520]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -180.0
+offset_top = 104.0
+offset_right = 180.0
+offset_bottom = 196.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.16, 0.1, 0.03, 1)
+theme_override_font_sizes/font_size = 34
+theme_override_styles/normal = SubResource("StyleBox_play")
+theme_override_styles/pressed = SubResource("StyleBox_play")
+theme_override_styles/hover = SubResource("StyleBox_play")
+text = "New Game"
+
+[node name="DestinationRow" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -80.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 8
+
+[node name="AchievementsButton" type="Button" parent="DestinationRow" unique_id=2098482746]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.98, 0.97, 0.94, 1)
+theme_override_colors/font_outline_color = Color(0.05, 0.09, 0.14, 0.85)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("StyleBox_gem_blue")
+theme_override_styles/pressed = SubResource("StyleBox_gem_blue")
+theme_override_styles/hover = SubResource("StyleBox_gem_blue")
+text = "Achievements"
+
+[node name="ProfileButton" type="Button" parent="DestinationRow" unique_id=752606484]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.98, 0.97, 0.94, 1)
+theme_override_colors/font_outline_color = Color(0.12, 0.03, 0.04, 0.85)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("StyleBox_gem_red")
+theme_override_styles/pressed = SubResource("StyleBox_gem_red")
+theme_override_styles/hover = SubResource("StyleBox_gem_red")
+text = "My Profile"
+
+[node name="ShopButton" type="Button" parent="DestinationRow" unique_id=262017388]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.98, 0.97, 0.94, 1)
+theme_override_colors/font_outline_color = Color(0.03, 0.12, 0.06, 0.85)
+theme_override_constants/outline_size = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("StyleBox_gem_green")
+theme_override_styles/pressed = SubResource("StyleBox_gem_green")
+theme_override_styles/hover = SubResource("StyleBox_gem_green")
+text = "Shop"
+
+[node name="Notice" type="PanelContainer" parent="." unique_id=805481147]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -164.0
+offset_right = 300.0
+offset_bottom = -108.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="NoticeLabel" type="Label" parent="Notice" unique_id=886090455]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 20
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="NoticeTimer" type="Timer" parent="." unique_id=63837713]
+unique_name_in_owner = true
+wait_time = 2.0
+one_shot = true
+
+[node name="SettingsLayer" type="Control" parent="." unique_id=5557302]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SettingsDim" type="ColorRect" parent="SettingsLayer" unique_id=687053142]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.04, 0.02, 0.07, 0.74)
+
+[node name="SettingsPanel" type="PanelContainer" parent="SettingsLayer" unique_id=1291840895]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -284.0
+offset_right = 300.0
+offset_bottom = 284.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="SettingsBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel" unique_id=455430076]
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="SettingsTitle" type="Label" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=1988900271]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 30
+text = "Settings"
+horizontal_alignment = 1
+
+[node name="ApiIpLabel" type="Label" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=2003114551]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 18
+text = "API server IP address"
+horizontal_alignment = 1
+
+[node name="ApiIpRow" type="HBoxContainer" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=2003114552]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ApiIpInput" type="LineEdit" parent="SettingsLayer/SettingsPanel/SettingsBox/ApiIpRow" unique_id=2003114553]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "192.168.0.1"
+clear_button_enabled = true
+
+[node name="ApiIpSaveButton" type="Button" parent="SettingsLayer/SettingsPanel/SettingsBox/ApiIpRow" unique_id=2003114554]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 48)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_styles/normal = SubResource("StyleBox_icon")
+theme_override_styles/pressed = SubResource("StyleBox_icon")
+theme_override_styles/hover = SubResource("StyleBox_icon")
+text = "Save IP"
+
+[node name="ApiIpStatus" type="Label" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=2003114555]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 20)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.83, 0.9, 1)
+theme_override_font_sizes/font_size = 14
+horizontal_alignment = 1
+
+[node name="ReducedMotionToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=1940866735]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 20
+text = "Reduced motion"
+
+[node name="HapticsToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=2104970130]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 20
+text = "Vibration"
+
+[node name="SoundToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=988798754]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 20
+text = "Sound"
+
+[node name="ClearGameCacheButton" type="Button" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=1218273019]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 52)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("StyleBox_icon")
+theme_override_styles/pressed = SubResource("StyleBox_icon")
+theme_override_styles/hover = SubResource("StyleBox_icon")
+text = "Clear game cache"
+
+[node name="SettingsCloseButton" type="Button" parent="SettingsLayer/SettingsPanel/SettingsBox" unique_id=1328783530]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 52)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("StyleBox_icon")
+theme_override_styles/pressed = SubResource("StyleBox_icon")
+theme_override_styles/hover = SubResource("StyleBox_icon")
+text = "Close"

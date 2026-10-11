@@ -43,6 +43,17 @@ const DEFAULT_HARD_CANDIDATE_BEAM: int = 24
 const DEFAULT_HARD_REPLY_BEAM: int = 16
 const DEFAULT_DEEP_EVALUATION_BUDGET: int = 6144
 
+## Phase 1 reply-hand count for Hard's second ply.
+##
+## ADR-005 section 6 averages the expected reply over the 16-tile representative
+## sample, which stands in for the one hidden future tile the old per-tile move
+## model drew. ADR-011 section 12 makes a move a whole line drawn from a held
+## hand, so the hidden quantity is the refilled hand and one sample tile is added
+## to the opponent's held deck per reply hand. Averaging over four such hands
+## covers every rank of the sample while keeping the ply, which is now a line
+## search, inside the section 8 budget.
+const DEFAULT_HARD_REPLY_SAMPLE_SIZE: int = 4
+
 ## Presentation-delay range used while the rival is thinking.
 ##
 ## The application layer needs a human-readable pause; the domain needs no
@@ -83,6 +94,10 @@ const DEFAULT_PRESENTATION_DELAY_MAX_SECONDS: float = 0.9
 
 ## Maximum deep response evaluations per decision (ADR-005 section 8).
 @export var deep_evaluation_budget: int = DEFAULT_DEEP_EVALUATION_BUDGET
+
+## Reply hands Hard's second ply averages over (ADR-005 section 6, ADR-011
+## section 12).
+@export var hard_reply_sample_size: int = DEFAULT_HARD_REPLY_SAMPLE_SIZE
 
 ## Shortest presentation delay for a thinking state, in seconds.
 @export var presentation_delay_min_seconds: float = DEFAULT_PRESENTATION_DELAY_MIN_SECONDS
@@ -168,6 +183,15 @@ func validate() -> PackedStringArray:
 	if deep_evaluation_budget < 0:
 		problems.append(
 			"deep_evaluation_budget must not be negative, got %d" % deep_evaluation_budget
+		)
+	if hard_reply_sample_size < 1:
+		problems.append(
+			"hard_reply_sample_size must be positive, got %d" % hard_reply_sample_size
+		)
+	if hard_reply_sample_size > AiRepresentativeSample.SAMPLE_SIZE:
+		problems.append(
+			"hard_reply_sample_size (%d) must not exceed the representative sample size (%d)"
+			% [hard_reply_sample_size, AiRepresentativeSample.SAMPLE_SIZE]
 		)
 	if presentation_delay_min_seconds < 0.0:
 		problems.append(

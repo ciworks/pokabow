@@ -18,6 +18,10 @@ extends RefCounted
 ## True once `cancel()` has been called.
 var _cancelled: bool = false
 
+## The turn deadline may cancel analysis, independently of its node budget.
+## Zero keeps non-timed analysis and deterministic strategy tests unchanged.
+var deadline_msec: int = 0
+
 
 ## Cancels the analysis. Calling it twice changes nothing.
 func cancel() -> void:
@@ -26,7 +30,7 @@ func cancel() -> void:
 
 ## Returns true when the owner has cancelled this analysis.
 func is_cancelled() -> bool:
-	return _cancelled
+	return _cancelled or (deadline_msec > 0 and Time.get_ticks_msec() >= deadline_msec)
 
 
 ## Clears the cancellation so one token may serve a later decision.
@@ -35,3 +39,4 @@ func is_cancelled() -> bool:
 ## reuses a token must reset it explicitly rather than rely on a default.
 func reset() -> void:
 	_cancelled = false
+	deadline_msec = 0

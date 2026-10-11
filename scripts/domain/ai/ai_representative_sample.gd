@@ -6,20 +6,19 @@ extends Resource
 ## ADR-005 section 6 makes the second ply a guaranteed average rather than a
 ## guess: the hidden future tile is represented by a small deterministic sample,
 ## built once, and never read from the undrawn bag (ADR-004 section 7). The
-## initial Phase 1 sample holds 16 tiles with equal weights.
+## current sample holds 20 tiles with equal weights.
 ##
-## The sample is generated, not hand-written, so it can never drift from the
-## documented balance. It is 4 face ranks x 4 rotations of a four-colour edge
-## pattern, which gives:
+## The sample is generated, not hand-written. It is five ranks x four
+## rotations, with each tile using the four allowed edge colors:
 ##
-##     ranks            all four ranks appear (4 tiles each)
-##     face colours     both face colours appear across the sample
-##     edge colours     each of the four colours occurs exactly 16 times
-##                      across the 64 edge slots (one of each colour per tile)
+##     ranks            all five ranks appear (4 tiles each)
+##     face colours     red, black, and Joker's none appear
+##     edge colours     each of the four colours occurs exactly 20 times
+##                      across the 80 edge slots
 ##
-## Face colour carries no Phase 1 scoring role (ADR-001 section 3), so it is
-## assigned deterministically from the rank; the edge pattern is what the second
-## ply actually consults.
+## Face colour and suit affect card multipliers. This compact sample assigns a
+## turn through the four ordinary suits for each rank and no suit for Joker; it is a deterministic
+## approximation of hidden tiles, not a copy of the undrawn bag.
 ##
 ## Tile identifiers are synthetic and prefixed `ai-sample:`. Real bag identities
 ## are `<match-id>:tile:<index>` (ADR-004 section 5), so a sample tile can never
@@ -29,10 +28,10 @@ extends Resource
 ## why this type extends `Resource` rather than `RefCounted`.
 
 ## Sample/schema version, persisted with saves so a rebalance can be detected.
-const SCHEMA_VERSION: int = 1
+const SCHEMA_VERSION: int = 2
 
 ## Number of representative tiles in the Phase 1 sample (ADR-005 section 6).
-const SAMPLE_SIZE: int = 16
+const SAMPLE_SIZE: int = 20
 
 ## Rotations generated per rank, so every rank appears in every orientation.
 const ROTATIONS_PER_RANK: int = 4
@@ -46,10 +45,8 @@ const SAMPLE_RANKS: Array = [
 	TileEnums.TileRank.KING,
 	TileEnums.TileRank.QUEEN,
 	TileEnums.TileRank.JACK,
+	TileEnums.TileRank.JOKER,
 ]
-
-## Ranks that carry the red face; the rest are black, so both appear.
-const RED_RANKS: Array = [TileEnums.TileRank.ACE, TileEnums.TileRank.KING]
 
 ## Sample/schema version recorded alongside saved matches.
 @export var schema_version: int = SCHEMA_VERSION
@@ -192,12 +189,12 @@ func _ensure_tiles() -> void:
 	_tiles = _build_tiles()
 
 
-## Returns 4 ranks x 4 rotations of the four-colour edge pattern.
+## Returns 5 ranks x 4 rotations of four-edge patterns using the four edge colors.
 ##
 ## Rotated variants are produced with `TileDefinition.get_rotated_edges()`, so
 ## the sample can never disagree with the rotation rule the board uses.
 func _build_tiles() -> Array[TileDefinition]:
-	var pattern: Array[TileEnums.EdgeColor] = [
+	var colors: Array[TileEnums.EdgeColor] = [
 		TileEnums.EdgeColor.BLUE,
 		TileEnums.EdgeColor.RED,
 		TileEnums.EdgeColor.GREEN,
@@ -205,25 +202,26 @@ func _build_tiles() -> Array[TileDefinition]:
 	]
 	var tiles: Array[TileDefinition] = []
 	var index: int = 0
-	for rank: int in SAMPLE_RANKS:
-		var face_color: int = _face_color_for(rank)
+	for rank_index: int in range(SAMPLE_RANKS.size()):
+		var rank: int = SAMPLE_RANKS[rank_index]
+		var is_joker: bool = rank == TileEnums.TileRank.JOKER
+		var base_suit: int = TileEnums.Suit.NONE if is_joker else TileEnums.Suit.HEARTS
+		var base_color: int = TileEnums.color_for_suit(base_suit)
+		var pattern: Array[TileEnums.EdgeColor] = []
+		for edge_index: int in range(TileEnums.EDGE_COUNT):
+			pattern.append(colors[(rank_index + edge_index) % colors.size()])
 		var base: TileDefinition = TileDefinition.create(
-			_id_for_index(index), rank, face_color, pattern
+			_id_for_index(index), rank, base_color, pattern, base_suit
 		)
 		for rotation: int in range(ROTATIONS_PER_RANK):
 			var edges: Array[TileEnums.EdgeColor] = base.get_rotated_edges(rotation)
+			var suit: int = TileEnums.Suit.NONE if is_joker else rotation
+			var face_color: int = TileEnums.color_for_suit(suit)
 			tiles.append(
-				TileDefinition.create(_id_for_index(index), rank, face_color, edges)
+				TileDefinition.create(_id_for_index(index), rank, face_color, edges, suit)
 			)
 			index += 1
 	return tiles
-
-
-## Returns the face colour assigned to a rank, so both colours appear.
-func _face_color_for(rank: int) -> int:
-	if RED_RANKS.has(rank):
-		return TileEnums.FaceColor.RED
-	return TileEnums.FaceColor.BLACK
 
 
 ## Returns the synthetic identity of a sample tile.

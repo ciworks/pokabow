@@ -1,10 +1,15 @@
 extends TestCase
 
-## Milestone 6 AI determinism tests (ADR-005 sections 3, 9, 10, 11, and 12).
+## Milestone 6 AI determinism tests (ADR-005 sections 3, 9, 10, 11, and 12,
+## retargeted to whole lines by ADR-011 section 12).
 ##
 ## Domain-level: no scene tree, no rendering, no input. The one controller test
 ## hosts the application node directly so the thinking-state surface can be
 ## observed; it never loads `GameScreen`.
+##
+## ADR-011 section 12 makes one AI move one whole LINE of two or more deck tiles,
+## so every call below hands the strategy the rival's held DECK rather than a
+## single active tile, and every determinism claim is made about the chosen line.
 
 const HUMAN: StringName = TurnEnums.HUMAN_PLAYER_ID
 const AI: StringName = TurnEnums.AI_PLAYER_ID
@@ -13,6 +18,9 @@ const TEST_SEED: int = 5150
 
 ## A fixed decision seed, so the ordering under test is reproducible.
 const DECISION_SEED: int = 20260921
+
+## Tiles the shortest legal line places (ADR-011 section 1).
+const TILES_PER_LINE: int = 2
 
 
 func test_the_same_seed_produces_the_same_decision() -> void:
@@ -38,21 +46,32 @@ func test_the_same_seed_produces_the_same_decision() -> void:
 		if not check_not_null(second_decision, "%s must decide twice" % label):
 			continue
 
-		check(first_decision.has_move(), "%s must propose a move" % label)
+		if not check(first_decision.has_move(), "%s must propose a move" % label):
+			continue
 		check_eq(
 			first_decision.move_key,
 			second_decision.move_key,
-			"%s: the same seed must produce the same move key" % label
+			"%s: the same seed must produce the same line key" % label
 		)
 		check_eq(
 			first_decision.cell,
 			second_decision.cell,
-			"%s: the same seed must produce the same coordinate" % label
+			"%s: the same seed must produce the same anchor coordinate" % label
 		)
 		check_eq(
 			first_decision.rotation,
 			second_decision.rotation,
-			"%s: the same seed must produce the same rotation" % label
+			"%s: the same seed must produce the same anchor rotation" % label
+		)
+		check_eq(
+			first_decision.line_cells,
+			second_decision.line_cells,
+			"%s: the same seed must target the same cells" % label
+		)
+		check_eq(
+			first_decision.tile_ids,
+			second_decision.tile_ids,
+			"%s: the same seed must commit the same deck tiles" % label
 		)
 		check_eq(
 			int(first_decision.diagnostics.get("deep_evaluations", 0)),
@@ -60,23 +79,82 @@ func test_the_same_seed_produces_the_same_decision() -> void:
 			"%s: the search must do the same amount of work for the same seed" % label
 		)
 
-		# Another seed must still produce a legal proposal: the tie-break of
+		# ADR-011 sections 1 and 5: what was chosen is a whole line, so it must be
+		# a line the shared validator accepts and it must place two or more tiles.
+		check_eq(
+			first_decision.line.size(),
+			first_decision.line_cells.size(),
+			"%s: every chosen tile must carry exactly one target cell" % label
+		)
+		check(
+			first_decision.line.size() >= TILES_PER_LINE,
+			"%s must choose a whole line, not a lone tile (ADR-011 section 1)" % label
+		)
+		var result: LineResult = LineValidator.validate(first.get_board(), first_decision.line)
+		check(
+			result != null and result.accepted,
+			"%s: the chosen line must pass the shared validator: %s"
+			% [label, "" if result == null else result.get_rejection_name()]
+		)
+
+		# Another seed must still produce a legal line: the tie-break of
 		# ADR-005 section 10 may only reorder candidates, never remove one.
 		var snapshot: AiGameSnapshot = AiGameSnapshot.create(first, AI)
 		if not check_not_null(snapshot, "%s must be able to snapshot the match" % label):
 			continue
 		var other_decision: AiDecision = strategy.choose_move(
 			snapshot,
-			first.active_tile_for(AI),
+			first.deck_for(AI),
 			config,
 			DECISION_SEED + 1,
 			AiCancellationToken.new()
 		)
 		if check_not_null(other_decision, "%s must decide under another seed" % label):
-			check(
+			if check(
 				other_decision.has_move(),
-				"%s must still propose a move under another seed" % label
-			)
+				"%s must still propose a line under another seed" % label
+			):
+				check(
+					other_decision.line.size() >= 1,
+					"%s: another seed must still choose a complete legal move" % label
+				)
+
+
+func test_no_clock_reading_can_change_the_chosen_line() -> void:
+	# ADR-005 section 3: the same snapshot, deck, configuration, and decision seed
+	# must return the same decision. A wall-clock cutoff would break that, because
+	# it would let two identical requests finish with different work. The check is
+	# therefore run twice with a deliberately different amount of unrelated work
+	# between them: only a time-derived decision could differ.
+	var session: GameSessionState = _ai_turn_session(&"ai-clock", TEST_SEED)
+	if session == null:
+		return
+	var strategy: AiStrategy = _strategy_for(AiEnums.Difficulty.HARD)
+	var config: AiDifficultyConfig = AiDifficultyConfig.create_default(AiEnums.Difficulty.HARD)
+	var first: AiDecision = _decide(session, strategy, config)
+	if not check_not_null(first, "the first analysis must decide"):
+		return
+	_burn_time(4000)
+	var second: AiDecision = _decide(session, strategy, config)
+	if not check_not_null(second, "the second analysis must decide"):
+		return
+
+	check_eq(first.move_key, second.move_key, "a clock reading must not change the chosen line")
+	check_eq(first.line_cells, second.line_cells, "a clock reading must not change the target cells")
+	check_eq(
+		first.diagnostics,
+		second.diagnostics,
+		"nothing a clock reads may reach the decision record (ADR-005 section 3)"
+	)
+
+	# The decision record itself may not carry a timing reading, so a timing value
+	# cannot leak into a comparison, a save, or a decision replay.
+	for key: Variant in first.diagnostics.keys():
+		var name: String = String(key).to_lower()
+		check(
+			not (name.contains("elapsed") or name.contains("time") or name.contains("duration")),
+			"the decision diagnostics must not carry a clock reading (found '%s')" % name
+		)
 
 
 func test_the_decision_seed_derives_from_the_match_identity() -> void:
@@ -142,19 +220,29 @@ func test_ai_analysis_never_changes_the_draw_order() -> void:
 		check_not_null(decision, "analysis must run without a scene tree")
 
 	var bag_before: Array[StringName] = _bag_ids(analysed)
-	var cell: Vector2i = analysed.get_board().get_frontier_cells()[0]
 
-	# The same move is committed on both matches; the only difference between them
-	# is that the first one ran the AI analysis.
-	var analysed_result: PlacementResult = MoveCommitter.commit(analysed, AI, cell, 0)
-	var untouched_result: PlacementResult = MoveCommitter.commit(untouched, AI, cell, 0)
+	# The same whole line is committed on both matches; the only difference
+	# between them is that the first one ran the AI analysis (ADR-011 section 5
+	# makes that one atomic line, not a sequence of placements).
+	var chosen: AiDecision = _decide(
+		analysed, AiEasyStrategy.new(), AiDifficultyConfig.create_default(AiEnums.Difficulty.EASY)
+	)
+	if not check_not_null(chosen, "the fixture must find a legal AI move"):
+		return
+	var line: Array[TileSnapshot] = chosen.line
+	if not check(line.size() >= 1, "the fixture must assemble a complete move"):
+		return
+	var analysed_result: LineResult = MoveCommitter.commit_line(analysed, AI, line)
+	var untouched_result: LineResult = MoveCommitter.commit_line(
+		untouched, AI, line
+	)
 	check(
 		analysed_result != null and analysed_result.was_committed(),
-		"the analysed match must still accept the move"
+		"the analysed match must still accept the line"
 	)
 	check(
 		untouched_result != null and untouched_result.was_committed(),
-		"the control match must accept the move"
+		"the control match must accept the line"
 	)
 
 	check_eq(
@@ -298,21 +386,18 @@ func test_the_controller_reports_an_ai_thinking_state() -> void:
 	# closes the turn on the commit itself, so play passes to the rival with no
 	# end-turn action in between.
 	var board: BoardState = controller.get_board()
-	var opening: Vector2i = board.get_frontier_cells()[0]
-	var partner: Vector2i = _adjacent_empty_cell(board, opening)
-	if not check(
-		partner != Vector2i(-1, -1), "the opening board must offer an adjacent second cell"
-	):
+	var opening: Array[Vector2i] = _opening_cells(board)
+	if not check_eq(opening.size(), TILES_PER_LINE, "the board must offer two adjacent cells"):
 		_release(controller)
 		return
-	var closed: bool = _commit_staged_line(controller, [opening, partner])
+	var closed: bool = _commit_staged_line(controller, opening)
 	check(closed, "the human's assembled line must commit through the controller")
 	check_eq(
 		controller.get_session().move_count(), 1, "the human line must commit exactly once"
 	)
 	check_eq(
 		controller.get_session().get_board().occupied_count(),
-		2,
+		TILES_PER_LINE,
 		"the whole line must reach the board in one commit"
 	)
 	# ADR-011 section 7: a turn is exactly one move, so the commit passed play on
@@ -323,12 +408,16 @@ func test_the_controller_reports_an_ai_thinking_state() -> void:
 	controller._on_ai_think_timeout()
 	check_eq(
 		controller.get_session().move_count(),
-		2,
-		"the opponent must commit one move through the same path as the human"
+		TILES_PER_LINE,
+		"the opponent must commit one whole line as the turn's one move"
 	)
 	check(
-		controller.get_session().get_board().occupied_count() >= 3,
-		"the opponent's line must reach the board"
+		controller.get_session().get_board().occupied_count() >= TILES_PER_LINE * 2,
+		"the opponent must place a whole line of two or more tiles, never a lone tile"
+	)
+	check(
+		controller.get_session().get_outcome() != TurnEnums.MatchOutcome.INCOMPLETE,
+		"a rival that can line up its hand must not fail the match"
 	)
 	check(not controller.is_ai_thinking(), "the thinking state must clear once the move is played")
 
@@ -346,6 +435,9 @@ func _strategy_for(difficulty: int) -> AiStrategy:
 
 
 ## Runs one strategy over the session's current opponent turn.
+##
+## ADR-011 section 12 hands the strategy the rival's whole held deck, because a
+## candidate is a line rather than a single placement.
 func _decide(
 	session: GameSessionState, strategy: AiStrategy, config: AiDifficultyConfig
 ) -> AiDecision:
@@ -356,39 +448,24 @@ func _decide(
 		return null
 	return strategy.choose_move(
 		snapshot,
-		session.active_tile_for(AI),
+		session.deck_for(AI),
 		config,
 		DECISION_SEED,
 		AiCancellationToken.new()
 	)
 
 
-## Returns true when the tie-break value is a pure function of its inputs.
+## Consumes `iterations` units of unrelated work.
 ##
-## ADR-005 section 10 requires the tie-break to come from the seeded value and
-## the candidate's canonical identity rather than from iteration order, object
-## address, or frame time, so it must be reproducible and independent per key.
-func test_the_tie_break_value_is_a_pure_function_of_the_seed_and_key() -> void:
-	var strategy: AiEasyStrategy = AiEasyStrategy.new()
-	var key_a: String = AiMoveCandidate.move_key_for(&"ai-fixture:tile:1", Vector2i(5, 4), 0)
-	var key_b: String = AiMoveCandidate.move_key_for(&"ai-fixture:tile:1", Vector2i(5, 4), 1)
-	check(key_a != key_b, "different placements must produce different move keys")
-
-	var value: int = strategy.tie_break_value_for(DECISION_SEED, key_a)
-	check(value >= 0, "the tie-break value must be a non-negative integer")
-	check_eq(
-		value,
-		strategy.tie_break_value_for(DECISION_SEED, key_a),
-		"the same seed and move key must produce the same tie-break value"
-	)
-	check(
-		value != strategy.tie_break_value_for(DECISION_SEED, key_b),
-		"a different candidate must produce a different tie-break value"
-	)
-	check(
-		value != strategy.tie_break_value_for(DECISION_SEED + 1, key_a),
-		"a different seed must produce a different tie-break value"
-	)
+## ADR-005 section 3 makes the decision a pure function of its inputs, so the
+## determinism check varies how much real time has passed without varying any
+## input. The loop is bounded and does no work the AI could observe.
+func _burn_time(iterations: int) -> void:
+	var accumulator: int = 0
+	for index: int in range(maxi(0, iterations)):
+		accumulator = (accumulator + index) % 7919
+	if accumulator < 0:
+		push_error("test_ai_determinism: the work loop must stay bounded and finite.")
 
 
 ## Returns the whole bag's identities, in bag order.
@@ -407,6 +484,9 @@ func _next_bag_tile_id(session: GameSessionState) -> StringName:
 
 
 ## Builds a session and advances it to the opponent's action phase.
+##
+## The human opens with a real two-tile line, so the board the rival faces is the
+## board ADR-011 section 1 produces, not a relic of the per-tile model.
 func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	var session: GameSessionState = GameSessionState.create(
 		match_id, seed, ScoringRules.create_default(), TileGenerationRules.create_default()
@@ -414,17 +494,17 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	if not check_not_null(session, "the session must be constructible"):
 		return null
 	TurnManager.setup(session)
-	var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
-	if not check(frontier.size() > 0, "the fixture must offer a frontier cell"):
+	var opening: Array[TileSnapshot] = _line_from_deck(session, HUMAN)
+	if not check_eq(opening.size(), TILES_PER_LINE, "the human must hold a pair for its line"):
 		return null
-	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, frontier[0], 0)
-	if not check(result != null and result.was_committed(), "the human move must commit"):
+	var result: LineResult = MoveCommitter.commit_line(session, HUMAN, opening)
+	if not check(result != null and result.was_committed(), "the human line must commit"):
 		return null
 	# ADR-011 section 7 makes a turn exactly one move, so resolving the committed
-	# move passes play to the opponent by itself; there is no end-turn action to
+	# line passes play to the opponent by itself; there is no end-turn action to
 	# call. Resolving it also runs the turn boundary of section 8, so the
 	# opponent's deck is the refilled one when the analysis starts.
-	TurnManager.resolve(session, _as_whole_move(result))
+	TurnManager.resolve(session, result)
 	if not check(
 		TurnManager.is_awaiting_ai_action(session),
 		"the fixture must reach the opponent's action phase"
@@ -433,57 +513,46 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	return session
 
 
-## Re-expresses a committed per-tile move as the whole-move result the ADR-011
-## turn boundary resolves (ADR-011 section 7).
+## Returns two of `player_id`'s own deck tiles of one rank staged as a legal line.
 ##
-## The AI candidate generator still proposes one coordinate and rotation for one
-## deck tile, and retargeting it to whole lines is ADR-011 section 12's later
-## pass, so this fixture commits through `MoveCommitter.commit` as it did under
-## ADR-010 and then resolves the commit as the one move a turn holds. Only the
-## fields the boundary reads are carried - the committed flag, the move
-## identifier, and the tile count the deck is refilled by (section 8) - and
-## nothing is re-scored: the points stay on the committed result's own events.
-func _as_whole_move(result: PlacementResult) -> LineResult:
-	if result == null or result.placed_tile == null:
-		return null
-	var tile: TileDefinition = result.placed_tile.get_tile()
-	if tile == null:
-		return null
-	var cell: Vector2i = result.placed_tile.get_cell()
-	var snapshots: Array[TileSnapshot] = [result.placed_tile]
-	var cells: Array[Vector2i] = [cell]
-	var ranks: Array[int] = [int(tile.rank)]
-	var view: LineResult = LineResult.create_accepted(
-		ScoringEnums.HandOrientation.HORIZONTAL, snapshots, cells, ranks, cells
-	)
-	view.move_id = result.move_id
-	return view
-
-
-## Assembles a legal line from the human's own deck and commits it through the
-## controller (ADR-011 sections 3, 5, and 11).
-##
-## ADR-011 section 3 makes a line legal only when its merged ranks repeat, so the
-## helper picks two of the player's own deck tiles of one rank - a deck of six
-## drawn from four ranks always holds a pair - stages them at `cells` with the
-## controller's own staging commands, and confirms the line once. Returns true
-## when the whole line committed.
-func _commit_staged_line(controller: GameSessionController, cells: Array[Vector2i]) -> bool:
-	var session: GameSessionState = controller.get_session()
+## ADR-012 section 1 makes a Pair the shortest legal hand and a deck of six drawn
+## from four ranks always holds a pair; the cells are the first gap-free run the
+## board offers, which is the opening cell and its neighbour.
+func _line_from_deck(session: GameSessionState, player_id: StringName) -> Array[TileSnapshot]:
+	var empty: Array[TileSnapshot] = []
 	if session == null:
-		return false
-	var pair: Array[TileDefinition] = _rank_pair(
-		session.deck_for(TurnEnums.HUMAN_PLAYER_ID), cells.size()
-	)
-	if pair.size() < cells.size():
-		return false
-	for index: int in range(cells.size()):
-		var tile: TileDefinition = pair[index]
-		controller.select_deck_tile(tile.tile_id)
-		if not controller.stage_tile(tile.tile_id, cells[index], 0):
-			return false
-	var result: LineResult = controller.commit_line()
-	return result != null and result.was_committed()
+		return empty
+	var board: BoardState = session.get_board()
+	if board == null:
+		return empty
+	var pair: Array[TileDefinition] = _rank_pair(session.deck_for(player_id), TILES_PER_LINE)
+	if pair.size() < TILES_PER_LINE:
+		return empty
+	var cells: Array[Vector2i] = _opening_cells(board)
+	if cells.size() < TILES_PER_LINE:
+		return empty
+	var line: Array[TileSnapshot] = []
+	for index: int in range(TILES_PER_LINE):
+		line.append(TileSnapshot.create(pair[index], cells[index], 0))
+	return line
+
+
+## Returns two adjacent empty cells of the first gapless run the board offers.
+func _opening_cells(board: BoardState) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	if board == null:
+		return cells
+	var frontier: Array[Vector2i] = board.get_frontier_cells()
+	if frontier.is_empty():
+		return cells
+	var first: Vector2i = frontier[0]
+	cells.append(first)
+	if board.is_empty_cell(first + Vector2i(1, 0)):
+		cells.append(first + Vector2i(1, 0))
+		return cells
+	if board.is_empty_cell(first + Vector2i(0, 1)):
+		cells.append(first + Vector2i(0, 1))
+	return cells
 
 
 ## Returns `count` tiles of one shared rank from `deck`, or an empty array.
@@ -511,13 +580,24 @@ func _rank_pair(deck: Array[TileDefinition], count: int) -> Array[TileDefinition
 	return empty
 
 
-## Returns the first empty orthogonal neighbour of `cell`, or (-1, -1).
-func _adjacent_empty_cell(board: BoardState, cell: Vector2i) -> Vector2i:
-	for offset: Vector2i in BoardEnums.neighbor_offsets():
-		var neighbor: Vector2i = cell + offset
-		if board.is_empty_cell(neighbor):
-			return neighbor
-	return Vector2i(-1, -1)
+## Assembles a legal line from the human's own deck and commits it through the
+## controller (ADR-011 sections 3, 5, and 11).
+func _commit_staged_line(controller: GameSessionController, cells: Array[Vector2i]) -> bool:
+	var session: GameSessionState = controller.get_session()
+	if session == null:
+		return false
+	var pair: Array[TileDefinition] = _rank_pair(
+		session.deck_for(TurnEnums.HUMAN_PLAYER_ID), cells.size()
+	)
+	if pair.size() < cells.size():
+		return false
+	for index: int in range(cells.size()):
+		var tile: TileDefinition = pair[index]
+		controller.select_deck_tile(tile.tile_id)
+		if not controller.stage_tile(tile.tile_id, cells[index], 0):
+			return false
+	var result: LineResult = controller.commit_line()
+	return result != null and result.was_committed()
 
 
 ## Adds a node to the live scene tree so `_ready` runs. Returns false on failure.

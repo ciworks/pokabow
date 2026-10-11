@@ -218,7 +218,9 @@ static func _audit_poker(
 				% String(hand_id)
 			)
 			continue
-		recomputed_points += rules.points_for_hand(category)
+		# Hand edge multipliers depend on the boundaries created by the move,
+		# which cannot be recovered from a final board alone. The event records
+		# those boundary IDs; replay verifies their historical timing.
 
 	report.poker_events_valid = true
 	var committed_points: int = 0
@@ -245,6 +247,22 @@ static func _audit_poker(
 					"poker event '%s' was awarded as %s but its window is now %s"
 					% [String(event.event_id), awarded, ScoringEnums.poker_hand_name(category)]
 				)
+			var raw_ids: Variant = event.evidence.get("new_hand_boundaries", [])
+			var boundary_ids: Array[StringName] = []
+			if raw_ids is Array:
+				for raw_id: Variant in raw_ids:
+					boundary_ids.append(StringName(String(raw_id)))
+			var category_points: int = rules.points_for_hand(category)
+			var card_points: int = HandMultiplierScorer.card_points(board, cells)
+			var card_multiplier: int = HandMultiplierScorer.card_multiplier(board, cells)
+			var edge_multiplier: int = HandMultiplierScorer.edge_multiplier_from_ids(
+				board, cells, boundary_ids
+			)
+			var expected: int = (category_points + card_points) * card_multiplier * edge_multiplier
+			recomputed_points += expected
+			if event.points != expected or int(event.evidence.get("category_points", -1)) != category_points or int(event.evidence.get("card_points", -1)) != card_points or int(event.evidence.get("card_multiplier", -1)) != card_multiplier or int(event.evidence.get("edge_multiplier", -1)) != edge_multiplier:
+				report.poker_events_valid = false
+				report.problems.append("poker event '%s' has inconsistent multiplier evidence" % String(event.event_id))
 
 	report.poker_points_agree = recomputed_points == committed_points
 	if not report.poker_points_agree:

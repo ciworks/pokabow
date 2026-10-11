@@ -69,6 +69,12 @@ var drop_cell: Vector2i = BoardMetrics.NO_CELL
 ## section 19); this state carries the verdict so a layer can draw it.
 var drag_legal: bool = false
 
+## Presentation scale of the dragged tile; staged and committed tiles stay full size.
+var drag_scale: float = 1.0
+
+## Deck drags paint their tile in a screen overlay; the board paints only the target.
+var drag_tile_visible: bool = true
+
 ## Draw scale each cell pops to, keyed by cell. 1.0 is rest.
 ##
 ## Written only by `ScoreRevealLayer` while a scoring bounce runs and read by

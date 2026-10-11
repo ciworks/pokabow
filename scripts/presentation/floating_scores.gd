@@ -9,9 +9,7 @@ extends Control
 ## were already awarded, they never compute a score, and clearing them cannot
 ## change any state.
 ##
-## At most one popup is shown per committed event, so a placement that scores a
-## hand, an edge match, and a cluster milestone produces three ordered popups.
-
+## One popup shows the sum of the committed awards for a played move.
 ## How far a popup drifts upward.
 const RISE_PIXELS: float = 56.0
 
@@ -19,7 +17,8 @@ const RISE_PIXELS: float = 56.0
 const DURATION: float = 1.15
 
 ## Popup font size.
-const FONT_SIZE: int = 22
+const FONT_SIZE: int = 55
+const OUTLINE_SIZE: int = 8
 
 
 func _ready() -> void:
@@ -27,32 +26,41 @@ func _ready() -> void:
 
 
 ## Spawns one popup at `at`, which is in this control's local coordinates.
-func spawn(at: Vector2, text: String, color: Color) -> void:
+func spawn(at: Vector2, points: int) -> void:
 	var label: Label = Label.new()
-	label.text = text
+	label.text = str(points)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", FONT_SIZE)
-	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_color", Color.WHITE)
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", OUTLINE_SIZE)
 	add_child(label)
 
-	# Centre the label on the anchor point rather than growing from a corner.
-	label.position = at - Vector2(float(text.length()) * 5.0, FONT_SIZE * 0.5)
+	# Measure the inherited font so large totals stay centred and on screen.
+	label.size = label.get_combined_minimum_size()
+	var inset: Vector2 = Vector2.ONE * OUTLINE_SIZE
+	var maximum: Vector2 = (size - label.size - inset).max(inset)
+	label.position = (at - label.size * 0.5).clamp(inset, maximum)
 
 	if AccessibilitySettings.reduced_motion():
 		# Reduced motion: the points are still shown, because the number is the
 		# whole point of a score popup, but it neither rises nor fades. It is
 		# anchored where it was asked for and removed after the same delay, so
 		# the ordering the ledger recorded still reads correctly.
-		var hold: Tween = create_tween()
+		var hold: Tween = label.create_tween()
 		hold.tween_interval(DURATION)
 		hold.tween_callback(label.queue_free)
 		return
 
-	var tween: Tween = create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(label, "position:y", label.position.y - RISE_PIXELS, DURATION)
-	tween.tween_property(label, "modulate:a", 0.0, DURATION)
-	tween.chain().tween_callback(label.queue_free)
+	var rise: Tween = label.create_tween()
+	rise.tween_property(label, "position:y", maxf(OUTLINE_SIZE, label.position.y - RISE_PIXELS), DURATION)
+	# One brief flash, a readable hold, then disappearance.
+	var flash: Tween = label.create_tween()
+	flash.tween_property(label, "modulate:a", 0.35, 0.12)
+	flash.tween_property(label, "modulate:a", 1.0, 0.12)
+	flash.tween_interval(0.36)
+	flash.tween_property(label, "modulate:a", 0.0, DURATION - 0.60)
+	flash.tween_callback(label.queue_free)
 
 
 ## Removes every popup immediately.

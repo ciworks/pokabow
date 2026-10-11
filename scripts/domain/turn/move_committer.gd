@@ -273,7 +273,7 @@ static func commit_line(
 	# deck tiles. A tile the player does not hold can never be placed
 	# (ADR-010 section 4), and the staged tiles must still be in the deck: a tile
 	# already committed is not available again.
-	if staged == null or staged.size() < 2:
+	if staged == null or staged.is_empty():
 		return _reject_line(PlacementEnums.PlacementRejection.LONE_TILE, anchor)
 	for snapshot: TileSnapshot in staged:
 		if snapshot == null or not snapshot.is_valid():

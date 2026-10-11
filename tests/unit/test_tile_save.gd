@@ -3,7 +3,7 @@ extends TestCase
 ## Milestone 1 save and resume tests (docs/PHASE-1-IMPLEMENTATION-PLAN.md).
 ##
 ## The first test is the Milestone 1 exit criterion: a headless test that
-## generates, draws, serializes, restores, and verifies all 144 tiles.
+## generates, draws, serializes, restores, and verifies all 52 tiles.
 ##
 ## ADR-004 requires the bag order and draw position to survive a save cycle and
 ## every tile ID to appear exactly once. Board-committed tiles, active-tile
@@ -14,12 +14,12 @@ const SEED: int = 31415926
 const PARTIAL_DRAW_COUNT: int = 40
 
 
-func test_exit_criterion_generate_draw_serialize_restore_and_verify_all_144_tiles() -> void:
+func test_exit_criterion_generate_draw_serialize_restore_and_verify_all_52_tiles() -> void:
 	var source: TileSource = _source()
 	var drawn_signatures: PackedStringArray = PackedStringArray()
 	var drawn_ids: Dictionary = {}
 
-	for index: int in range(144):
+	for index: int in range(52):
 		var tile: TileDefinition = source.draw()
 		if not check_not_null(tile, "draw %d must return a tile before the bag empties" % index):
 			return
@@ -33,10 +33,10 @@ func test_exit_criterion_generate_draw_serialize_restore_and_verify_all_144_tile
 	if not check_not_null(restored, "the saved bag must restore"):
 		return
 
-	check_eq(restored.get_bag_size(), 144, "restore must preserve all 144 tiles")
+	check_eq(restored.get_bag_size(), 52, "restore must preserve all 52 tiles")
 	check_eq(restored.get_match_id(), MATCH_ID, "restore must preserve the match ID")
 	check_eq(restored.get_seed(), SEED, "restore must preserve the match seed")
-	check_eq(restored.get_draw_index(), 144, "restore must preserve the draw position")
+	check_eq(restored.get_draw_index(), 52, "restore must preserve the draw position")
 	check_eq(
 		restored.get_rules_version(),
 		source.get_rules_version(),
@@ -50,7 +50,7 @@ func test_exit_criterion_generate_draw_serialize_restore_and_verify_all_144_tile
 		restored_signatures.append(_tile_signature(tile))
 		restored_ids[tile.tile_id] = true
 
-	check_eq(restored_ids.size(), 144, "no tile may be duplicated or lost by a save cycle")
+	check_eq(restored_ids.size(), 52, "no tile may be duplicated or lost by a save cycle")
 	check_eq(restored_ids.size(), drawn_ids.size(), "the restored identity set must match the generated set")
 	check_eq(
 		restored_signatures, drawn_signatures, "every drawn tile must survive serialization exactly"
@@ -68,12 +68,12 @@ func test_resume_after_a_partial_draw_continues_the_same_sequence() -> void:
 
 	check_eq(
 		restored.remaining_count(),
-		144 - PARTIAL_DRAW_COUNT,
+		52 - PARTIAL_DRAW_COUNT,
 		"restore must resume with the remaining tiles"
 	)
 
 	var mismatches: int = 0
-	for index: int in range(144 - PARTIAL_DRAW_COUNT):
+	for index: int in range(52 - PARTIAL_DRAW_COUNT):
 		var expected: TileDefinition = source.draw()
 		var actual: TileDefinition = restored.draw()
 		if actual == null:

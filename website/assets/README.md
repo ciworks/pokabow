@@ -11,7 +11,7 @@ placeholder div with an image:
 
 ```html
 <!-- SCREENSHOT SLOT: hero phone -->
-<img src="assets/game-board.png" alt="A Polkabow board mid-match, with tiles placed and the score panel visible" loading="lazy" width="720" height="1560">
+<img src="assets/game-board.png" alt="A Pokabow board mid-match, with tiles placed and the score panel visible" loading="lazy" width="720" height="1560">
 ```
 
 Suggested files:

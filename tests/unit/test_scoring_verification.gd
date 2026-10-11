@@ -14,8 +14,11 @@ const GREEN: int = TileEnums.EdgeColor.GREEN
 const YELLOW: int = TileEnums.EdgeColor.YELLOW
 
 ## A match that fills all 144 cells takes the whole bag, so this is the largest
-## case the tests need.
-const FULL_BOARD_MOVES: int = 144
+## case the tests need. The scored fixtures pin their own 144-tile bag on
+## purpose: the live rules hold 52 tiles (ADR-004 section 1, amended 2026-09-23)
+## and could not fill the board.
+const FULL_BOARD_BAG_SIZE: int = BoardEnums.CELL_COUNT
+const FULL_BOARD_MOVES: int = BoardEnums.CELL_COUNT
 
 
 func test_static_audit_passes_on_a_consistently_scored_board() -> void:
@@ -39,9 +42,9 @@ func test_static_audit_passes_on_a_consistently_scored_board() -> void:
 		"a component of two tiles has not completed a milestone"
 	)
 	check(report.clusters_agree, "the cluster entitlement and the ledger must agree")
-	check_eq(report.poker_window_ids.size(), 0, "two tiles cannot hold a five-cell window")
+	check_eq(report.poker_window_ids.size(), 0, "two different ranks have no ranked hand")
 	check(report.poker_ids_valid, "an empty scored-window set is trivially valid")
-	check(report.poker_points_agree, "no window means no poker points")
+	check(report.poker_points_agree, "no ranked hand means no poker points")
 	check(report.ok, "a consistent board must audit cleanly: %s" % str(report.problems))
 
 
@@ -150,7 +153,7 @@ func test_ordered_replay_matches_live_incremental_play() -> void:
 	)
 
 
-func test_incremental_scoring_agrees_with_a_full_board_recalculation() -> void:
+func test_current_board_hands_are_in_incremental_history() -> void:
 	var match_result: Dictionary = _play_seeded_match(7, &"match-b")
 	var board: BoardState = match_result["board"]
 	var ledger: ScoreLedger = match_result["ledger"]
@@ -162,11 +165,7 @@ func test_incremental_scoring_agrees_with_a_full_board_recalculation() -> void:
 	)
 	var recorded: Array[StringName] = scored.to_array()
 
-	check_eq(
-		full_board_windows.size(),
-		recorded.size(),
-		"every complete window on the final board must have scored exactly once"
-	)
+	check(recorded.size() > full_board_windows.size(), "history retains shorter hands after they grow")
 	for result: PokerHandResult in full_board_windows:
 		check(
 			recorded.has(result.hand_id),
@@ -258,8 +257,11 @@ func _play_seeded_match(seed: int, match_id: StringName) -> Dictionary:
 	var moves: Array[ScoringMove] = []
 	var tiles: Dictionary = {}
 
+	var generation: TileGenerationRules = TileGenerationRules.create_default()
+	generation.bag_size = FULL_BOARD_BAG_SIZE
+
 	var source: TileSource = TileSource.new()
-	if not source.initialize(match_id, seed, TileGenerationRules.create_default()):
+	if not source.initialize(match_id, seed, generation):
 		push_error("the test could not initialize a tile source")
 		return {"board": board, "ledger": ledger, "scored": scored, "moves": moves, "tiles": tiles}
 
@@ -317,7 +319,7 @@ func _blue_pair(board: BoardState) -> void:
 		var edges: Array[TileEnums.EdgeColor] = [BLUE, BLUE, BLUE, BLUE]
 		var tile: TileDefinition = TileDefinition.create(
 			StringName("blue-%d-%d" % [cell.x, cell.y]),
-			TileEnums.TileRank.ACE,
+			TileEnums.TileRank.ACE if cell.x == 5 else TileEnums.TileRank.KING,
 			TileEnums.FaceColor.RED,
 			edges
 		)

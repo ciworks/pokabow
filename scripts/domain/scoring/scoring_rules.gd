@@ -13,11 +13,14 @@ extends Resource
 ## milestone tunable, independently of each other. This type only composes them
 ## so callers pass one argument instead of three.
 ##
-## Phase 1 has no multipliers and awards only non-negative integer points
-## (ADR-007 section 11).
+## ADR-013 adds integer hand multipliers while retaining non-negative points.
 
 ## Rules/schema version, persisted with saves.
-const SCHEMA_VERSION: int = 1
+##
+## Version 5 records the four-color edge vocabulary and matching-color-only hand
+## edge factor, so a match saved under earlier scoring rules is refused rather
+## than silently re-scored.
+const SCHEMA_VERSION: int = 5
 
 ## Rules/schema version recorded alongside saved matches.
 @export var schema_version: int = SCHEMA_VERSION

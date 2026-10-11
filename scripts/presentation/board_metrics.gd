@@ -23,6 +23,16 @@ const DEFAULT_GRID: int = BoardEnums.BOARD_WIDTH
 const NO_CELL: Vector2i = Vector2i(-1, -1)
 
 
+## A camera expressed as a normalized board center; clamp it so no blank space
+## can be dragged into the viewport. Shared by drawing and hit testing.
+static func camera_rect(viewport_size: Vector2, zoom: float, center: Vector2) -> Rect2:
+	var bounded_zoom: float = maxf(1.0, zoom)
+	var half_visible: float = 0.5 / bounded_zoom
+	var bounded_center := center.clamp(Vector2.ONE * half_visible, Vector2.ONE * (1.0 - half_visible))
+	var board_size: Vector2 = viewport_size * bounded_zoom
+	return Rect2(viewport_size * 0.5 - bounded_center * board_size, board_size)
+
+
 ## Returns the largest centred square that fits inside `available` once
 ## `padding` has been removed from every side.
 ##

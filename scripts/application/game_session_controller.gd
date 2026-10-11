@@ -52,6 +52,14 @@ signal move_committed(result: PlacementResult, turn_phase: int)
 ## A swap was committed and the turn lifecycle resolved (ADR-011 section 6).
 signal swap_committed(returned_count: int, turn_phase: int)
 
+## A forced no-move pass resolved; consumers can persist it without parsing UI text.
+signal turn_passed(player_id: StringName)
+
+## Separate from state_changed so each clock tick does not rebuild the board
+## or interrupt a drag. Zero belongs to the expired player before handover.
+signal turn_clock_changed(player_id: StringName, seconds_left: int)
+signal turn_timed_out(player_id: StringName)
+
 ## Score events were awarded by a committed move, in deterministic order.
 signal score_awarded(events: Array, cell: Vector2i)
 
@@ -91,6 +99,11 @@ const SAVE_PATH: String = "user://match_save.json"
 ## Separate from the save so exporting for a report never disturbs the match the
 ## player is actually resuming.
 const FIXTURE_PATH: String = "user://match_fixture.json"
+
+## Notice shown when the active player's deck has no legal line on the board.
+const NO_VALID_MOVE_NOTICE: String = "No valid move available, now opponents turn"
+const TURN_TIMEOUT_NOTICE: String = "Time up, play moves to other player"
+const INVALID_POKER_HAND_NOTICE: String = "Form a valid poker hand"
 
 ## The save location actually in use.
 ##
@@ -136,6 +149,61 @@ var _ai_cancellation: AiCancellationToken = null
 
 ## The thinking state last reported, so the signal fires on change only.
 var _ai_thinking: bool = false
+
+var _clock_player: StringName = &""
+var _clock_seconds: int = -1
+var _updating_clock: bool = false
+var _app_in_background: bool = false
+
+
+func _process(_delta: float) -> void:
+	if not _app_in_background:
+		update_turn_clock()
+
+
+## Uses an absolute deadline so backgrounding and save/resume cannot reset it.
+## An injected time keeps deadline and race tests deterministic.
+func update_turn_clock(now_unix: float = -1.0) -> void:
+	if _updating_clock or _session == null:
+		return
+	var turn: TurnState = _session.get_turn_state()
+	if not turn.is_awaiting_action():
+		_publish_turn_clock(&"", 0)
+		return
+	var now: float = Time.get_unix_time_from_system() if now_unix < 0.0 else now_unix
+	if turn.deadline_unix_seconds <= 0.0:
+		turn.deadline_unix_seconds = now + turn.remaining_seconds
+	turn.remaining_seconds = minf(turn.remaining_seconds, maxf(0.0, turn.deadline_unix_seconds - now))
+	_publish_turn_clock(turn.active_player_id, ceili(turn.remaining_seconds))
+	if turn.remaining_seconds > 0.0:
+		return
+	_updating_clock = true
+	var expired_player: StringName = turn.active_player_id
+	_cancel_ai_analysis()
+	_ai_scheduled = false
+	_set_ai_thinking(false)
+	_clear_staged()
+	TurnManager.resolve_timeout(_session)
+	turn_timed_out.emit(expired_player)
+	turn_passed.emit(expired_player)
+	preview_changed.emit()
+	notice.emit(TURN_TIMEOUT_NOTICE)
+	_updating_clock = false
+	_after_state_change()
+
+
+func turn_seconds_left() -> int:
+	if _session == null or not _session.get_turn_state().is_awaiting_action():
+		return 0
+	return ceili(_session.get_turn_state().remaining_seconds)
+
+
+func _publish_turn_clock(player_id: StringName, seconds: int) -> void:
+	if player_id == _clock_player and seconds == _clock_seconds:
+		return
+	_clock_player = player_id
+	_clock_seconds = seconds
+	turn_clock_changed.emit(player_id, seconds)
 
 
 ## Creates the opponent's decision service.
@@ -188,8 +256,10 @@ func start_new_match(
 	_ai_scheduled = false
 	_clear_staged()
 	TurnManager.setup(_session)
+	update_turn_clock()
 	session_started.emit()
 	state_changed.emit()
+	_skip_human_turn_without_move()
 	_after_state_change()
 	return true
 
@@ -231,6 +301,7 @@ func resume_match() -> bool:
 	session_started.emit()
 	state_changed.emit()
 	notice.emit("Resumed your saved match")
+	_skip_human_turn_without_move()
 	_after_state_change()
 	return true
 
@@ -238,6 +309,28 @@ func resume_match() -> bool:
 ## Returns true when a resumable save exists.
 func has_saved_match() -> bool:
 	return FileAccess.file_exists(save_path)
+
+
+## Returns whether the local match has been created or restored.
+func has_session() -> bool:
+	return _session != null
+
+
+## Returns the local match identity used to associate its API sync record.
+func get_match_id() -> StringName:
+	if _session == null:
+		return &""
+	return _session.get_match_id()
+
+
+## Returns the current local snapshot for the server game creation record.
+func match_snapshot_dictionary() -> Dictionary:
+	if _session == null:
+		return {}
+	var dto: MatchSnapshotDto = _session.to_snapshot()
+	if dto == null or not dto.is_valid():
+		return {}
+	return dto.to_dictionary()
 
 
 ## Writes the match to disk (ADR-008 section 11: save at stable boundaries).
@@ -374,10 +467,35 @@ func _recovery_failed(reason: String) -> bool:
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_WINDOW_FOCUS_OUT, NOTIFICATION_WM_CLOSE_REQUEST:
+			_app_in_background = true
 			autosave()
+		NOTIFICATION_APPLICATION_RESUMED, NOTIFICATION_WM_WINDOW_FOCUS_IN:
+			_app_in_background = false
+			update_turn_clock()
+			if _session != null and TurnManager.is_awaiting_ai_action(_session):
+				_schedule_ai_move()
 
 
 # --- Commands (presentation to application, ADR-008 section 7) -------------
+
+
+## Ends the active match with the rival as winner when the human resigns.
+##
+## The regular terminal-state path publishes the final snapshot to persistence
+## listeners, including the API sync client. Any unfinished AI analysis and
+## staged preview are discarded before the match-ended signal is emitted.
+func resign() -> bool:
+	if _session == null or _session.is_over():
+		return false
+	_cancel_ai_analysis()
+	_ai_scheduled = false
+	_set_ai_thinking(false)
+	_clear_staged()
+	if not TurnManager.resign(_session, TurnEnums.HUMAN_PLAYER_ID):
+		return false
+	preview_changed.emit()
+	_after_state_change()
+	return true
 
 
 ## Selects one of the human's deck tiles as the tile the next staging command
@@ -697,6 +815,7 @@ func move_staged_at(from_cell: Vector2i, to_cell: Vector2i) -> bool:
 ## the staged line is therefore kept on a refusal and cleared only on success
 ## (ADR-011 section 11).
 func commit_line() -> LineResult:
+	update_turn_clock()
 	if not is_human_turn():
 		return null
 	if _staged.is_empty():
@@ -737,6 +856,7 @@ func cancel_staged() -> void:
 ## section 6 requires when the pot cannot supply the whole amount; a swap cannot
 ## place a tile and cannot score.
 func request_swap(tile_ids: Array[StringName]) -> int:
+	update_turn_clock()
 	return _request_swap_for(TurnEnums.HUMAN_PLAYER_ID, tile_ids)
 
 
@@ -892,6 +1012,16 @@ func is_line_valid() -> bool:
 ## Returns why the pending line is not legal, or an empty string.
 func line_reason() -> String:
 	return _staged_reason
+
+
+## Read-only scoring preview for the command drawer, using the commit scorer.
+func pending_score_preview() -> ScoreTransaction:
+	if _session == null or not is_human_turn() or not _staged_valid:
+		return null
+	return ScoringCoordinator.preview_line(
+		_session.get_board(), _staged, TurnEnums.HUMAN_PLAYER_ID,
+		_session.get_rules(), _session.get_scored_hand_set()
+	)
 
 
 ## Returns the first tile of the pending line, or null when nothing is staged.
@@ -1238,7 +1368,7 @@ func _line_reason_text(result: LineResult) -> String:
 		PlacementEnums.PlacementRejection.LINE_GAP:
 			return "A line cannot have a gap"
 		PlacementEnums.PlacementRejection.NO_REPEATED_RANK:
-			return "Form a valid poker hand"
+			return INVALID_POKER_HAND_NOTICE
 		PlacementEnums.PlacementRejection.HAND_TOO_LONG:
 			return "A hand can have at most five tiles"
 		PlacementEnums.PlacementRejection.OUT_OF_BOUNDS:
@@ -1277,6 +1407,7 @@ func _load_generation_rules() -> TileGenerationRules:
 
 ## Emits state changes and hands over to the opponent when it is their turn.
 func _after_state_change() -> void:
+	update_turn_clock()
 	state_changed.emit()
 	if _session == null:
 		return
@@ -1293,6 +1424,37 @@ func _after_state_change() -> void:
 	autosave()
 	if TurnManager.is_awaiting_ai_action(_session):
 		_schedule_ai_move()
+	else:
+		_skip_human_turn_without_move()
+
+
+## Hands over a human turn when the held deck has no legal placement.
+##
+## The legal-move generator delegates every candidate to the same line validator
+## used by the AI. When neither hand has a legal move, TurnManager's existing
+## terminal rule wins and this skips no turn.
+func _skip_human_turn_without_move() -> void:
+	if _session == null or _session.is_over():
+		return
+	if not TurnManager.is_awaiting_human_action(_session):
+		return
+	var board: BoardState = _session.get_board()
+	var player_id: StringName = _session.get_turn_state().active_player_id
+	var deck: Array[TileDefinition] = _session.deck_for(player_id)
+	var human_moves: Array[AiMoveCandidate] = LegalMoveGenerator.generate(board, deck)
+	if not human_moves.is_empty():
+		return
+	if _session.remaining_tile_count() >= deck.size():
+		return
+	if TurnManager.detect_end_reason(_session) != TurnEnums.EndReason.NONE:
+		return
+	var phase: int = TurnManager.resolve_no_valid_move(_session)
+	if phase == TurnEnums.MatchPhase.AWAIT_ACTION:
+		return
+	turn_passed.emit(player_id)
+	if phase != TurnEnums.MatchPhase.GAME_OVER:
+		notice.emit(NO_VALID_MOVE_NOTICE)
+	_after_state_change()
 
 
 ## Schedules the opponent's move after the configured presentation delay.
@@ -1317,7 +1479,12 @@ func _schedule_ai_move() -> void:
 	if _ai != null:
 		delay = _ai.presentation_delay_seconds()
 	var timer: SceneTreeTimer = get_tree().create_timer(delay)
-	timer.timeout.connect(_on_ai_think_timeout)
+	var scheduled_session: GameSessionState = _session
+	var scheduled_turn: int = _session.get_turn_state().turn_number
+	timer.timeout.connect(func() -> void:
+		if _session == scheduled_session and _session.get_turn_state().turn_number == scheduled_turn:
+			_on_ai_think_timeout()
+	)
 
 
 ## Plays the scheduled opponent move.
@@ -1326,6 +1493,9 @@ func _schedule_ai_move() -> void:
 ## thinking state is raised (ADR-005 section 9).
 func _on_ai_think_timeout() -> void:
 	_ai_scheduled = false
+	if _app_in_background:
+		return
+	update_turn_clock()
 	if _session == null or _session.is_over():
 		_set_ai_thinking(false)
 		return
@@ -1376,9 +1546,15 @@ func _play_ai_move() -> void:
 	# ADR-011 section 12: the candidate source is the rival's whole held deck, from
 	# which whole lines are generated - never the undrawn pot (ADR-004 section 7).
 	_ai_cancellation = AiCancellationToken.new()
+	_ai_cancellation.deadline_msec = Time.get_ticks_msec() + int(_session.get_turn_state().remaining_seconds * 1000.0)
+	var deciding_session: GameSessionState = _session
+	var deciding_turn: int = _session.get_turn_state().turn_number
 	var decision: AiDecision = _ai.choose_move(_session, deck, _ai_cancellation)
 	_ai_cancellation = null
 	_set_ai_thinking(_ai.is_thinking())
+	update_turn_clock()
+	if _session != deciding_session or _session.get_turn_state().turn_number != deciding_turn or _session.is_over():
+		return
 
 	if decision != null and decision.is_swap_move():
 		# ADR-011 section 6: the rival holds tiles it cannot line up, so its whole
@@ -1457,7 +1633,8 @@ func _finish_ai_turn() -> void:
 		swapped = _session.request_swap(TurnEnums.AI_PLAYER_ID, offer)
 	if swapped > 0:
 		_set_ai_thinking(false)
-		TurnManager.resolve_swap(_session, swapped)
+		var phase: int = TurnManager.resolve_swap(_session, swapped)
+		swap_committed.emit(swapped, phase)
 		_after_state_change()
 		return
 
@@ -1468,6 +1645,7 @@ func _finish_ai_turn() -> void:
 	var turn_state: TurnState = _session.get_turn_state()
 	turn_state.last_skip_reason = TurnEnums.SkipReason.NO_TILE_AVAILABLE
 	TurnManager.resolve_swap(_session, 0)
+	turn_passed.emit(TurnEnums.AI_PLAYER_ID)
 	_after_state_change()
 
 

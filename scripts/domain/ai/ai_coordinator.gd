@@ -1,25 +1,27 @@
 class_name AiCoordinator
 extends RefCounted
 
-## AI-side entry point for one match (ADR-005 sections 1, 3, 9, 10, 11, and 12).
+## AI-side entry point for one match (ADR-005 sections 1, 3, 9, 10, 11, and 12;
+## ADR-011 section 12).
 ##
 ## ADR-005 section 1 places the coordinator at the seam between the application
-## layer and the strategies, and section 232 of its data-ownership list says it
-## "requests or cancels decisions and owns no game rules". This type is exactly
-## that:
+## layer and the strategies, and its data-ownership list says it "requests or
+## cancels decisions and owns no game rules". This type is exactly that:
 ##
 ## - it selects the concrete strategy for the configured difficulty;
 ## - it derives the decision seed from the match seed, turn, player, and
 ##   difficulty (ADR-005 section 3), never from the tile bag's stream;
-## - it builds the detached `AiGameSnapshot` the strategies work on;
-## - it revalidates a proposal against the current board revision and retries at
-##   most once (ADR-005 section 11);
+## - it builds the detached `AiGameSnapshot` the strategies work on, including the
+##   two held decks ADR-011 section 12's line generation needs;
+## - it revalidates a proposal LINE against the current board revision and the
+##   shared `LineValidator`, and retries at most once (ADR-005 section 11);
 ## - it tracks the analysing state so presentation can show a thinking state
 ##   rather than infer one (ADR-005 section 9).
 ##
-## It owns no rules: legality is `PlacementValidator`, scoring is the ADR-007
-## coordinator, and committing happens only through `MoveCommitter`. The
-## coordinator never mutates the match.
+## It owns no rules: legality is `LineValidator` (the same validator the human
+## commit path uses, so the two cannot drift), scoring is the ADR-007 coordinator,
+## and committing happens only through `MoveCommitter`. The coordinator never
+## mutates the match.
 
 ## There is no analysis in flight; the next request starts a new one.
 const STATUS_READY: int = 0
@@ -51,11 +53,14 @@ var _attempts: int = 0
 var _last_decision: AiDecision = null
 
 ## The deck the current request is decided from, in deal order
-## (ADR-010 section 11).
+## (ADR-010 section 2).
 var _deck: Array[TileDefinition] = []
 
-## The deck tile the last accepted proposal was decided with, or null.
-var _decided_tile: TileDefinition = null
+## The line the last accepted proposal was decided from, in line order.
+##
+## ADR-011 section 12 makes a move a whole line, so revalidation has to resolve
+## EVERY tile of the proposal, not one tile.
+var _decided_line: Array[TileSnapshot] = []
 
 ## How many deck tiles the current request offered to the strategy.
 var _tiles_offered: int = 0
@@ -145,14 +150,13 @@ func last_decision() -> AiDecision:
 	return _last_decision
 
 
-## Returns the deck tile the last accepted proposal was decided with, or null.
+## Returns the line the last accepted proposal was decided with, in line order.
 ##
-## ADR-010 section 4 makes a placement commit a tile the player holds and the
-## commit path derives that tile from the session, so the application layer arms
-## this tile before it commits a rival's proposal. Without it, a proposal decided
-## for one deck tile could be committed with another.
-func decided_tile() -> TileDefinition:
-	return _decided_tile
+## ADR-011 sections 1 and 5 make a move a whole line taken from the player's own
+## deck, so the application layer arms every tile of this line before it commits;
+## without it, a proposal decided from one hand could be committed from another.
+func decided_line() -> Array[TileSnapshot]:
+	return _decided_line.duplicate()
 
 
 ## Returns how many decision attempts the last request consumed.
@@ -164,8 +168,8 @@ func last_attempts() -> int:
 
 ## Cancels the analysis in flight (ADR-005 section 9).
 ##
-## A cancelled decision carries no coordinate, so nothing can be committed from
-## it. Calling this with nothing in flight changes nothing.
+## A cancelled decision carries no line, so nothing can be committed from it.
+## Calling this with nothing in flight changes nothing.
 func cancel() -> void:
 	if _token != null:
 		_token.cancel()
@@ -173,16 +177,16 @@ func cancel() -> void:
 		_status = STATUS_CANCELLED
 
 
-## Returns a decision drawn from every tile in the AI's own deck, or null when the
-## inputs are unusable (ADR-010 section 11).
+## Returns a decision drawn from the rival's own deck, or null on unusable input.
 ##
 ## The returned decision is a proposal only: the caller validates it against the
-## live board and commits it through `MoveCommitter` (ADR-005 section 11).
+## live board and commits it through `MoveCommitter.commit_line` (ADR-005
+## section 11). ADR-011 section 12 makes the proposal a whole line - the rival's
+## tiles, their target cells, and their rotations - or a swap when no line is
+## legal (section 6).
 ##
-## ADR-010 section 11 amends ADR-005 sections 2, 4, 5, and 6, which all assume a
-## single active tile, so the deck - not one tile - is the candidate source. The
-## deck is supplied by the caller rather than read here, so the coordinator can
-## never be handed the undrawn pot (ADR-004 section 7).
+## The deck is supplied by the caller rather than read here, so the coordinator
+## can never be handed the undrawn pot (ADR-004 section 7).
 func choose_move(
 	session: GameSessionState,
 	deck: Array[TileDefinition],
@@ -197,16 +201,15 @@ func choose_move(
 		push_error("AiCoordinator.choose_move: the rival's deck is required to decide from.")
 		return null
 	# The deck is remembered for the duration of the request, so revalidation
-	# resolves a proposal's tile from the same deck the proposal was made from
-	# (ADR-010 section 11).
+	# resolves a proposal's tiles from the same deck the proposal was made from.
 	_deck = deck.duplicate()
-	_decided_tile = null
+	_decided_line = []
 	_tiles_offered = 0
 	var started_at: int = Time.get_ticks_msec()
 	var decision: AiDecision = _attempt_move(session, deck, cancellation, 1)
 	# ADR-005 section 12 records the elapsed analysis time beside the decision
 	# rather than inside its diagnostics, so the diagnostics stay a pure function
-	# of the snapshot, the tile, the configuration, and the decision seed
+	# of the snapshot, the deck, the configuration, and the decision seed
 	# (section 3). The reading covers the whole request, retries included.
 	if decision != null:
 		decision.elapsed_ms = Time.get_ticks_msec() - started_at
@@ -215,20 +218,20 @@ func choose_move(
 
 ## Revalidates a decision against the current board (ADR-005 section 11).
 ##
-## A stale, illegal, or cancelled proposal is refused rather than committed, and
-## the refusal names why so the caller can retry once or fall back to the turn
-## rules of ADR-003. A decision carries only data, so its tile is resolved from
-## the proposal itself and from the deck the proposal was drawn from
-## (ADR-010 section 11).
+## ADR-011 section 12 makes the proposal a whole line, so every tile of it is
+## resolved from the proposal itself and the deck it was drawn from, and the
+## whole line is re-validated through the shared `LineValidator`: a proposal can
+## only survive if the human path's validator would accept exactly that line on
+## the board as it stands now.
 func revalidate(session: GameSessionState, decision: AiDecision) -> AiDecision:
 	if session == null or decision == null:
 		return null
-	return _revalidate_with(session, decision, _tile_for_decision(session, decision))
+	return _revalidate_with(session, decision, _line_for_decision(session, decision))
 
 
-## Revalidates one decision that was made with `tile` (ADR-005 section 11).
+## Revalidates one decision that was decided from `line` (ADR-005 section 11).
 func _revalidate_with(
-	session: GameSessionState, decision: AiDecision, tile: TileDefinition
+	session: GameSessionState, decision: AiDecision, line: Array[TileSnapshot]
 ) -> AiDecision:
 	if session == null or decision == null:
 		return null
@@ -240,23 +243,59 @@ func _revalidate_with(
 		return decision
 	if decision.board_revision != revision:
 		return AiDecision.create_invalid(revision, {"reason": "stale board revision"})
-	if tile == null or not tile.is_valid():
-		return AiDecision.create_invalid(revision, {"reason": "no deck tile to place"})
-	var request: PlacementRequest = PlacementRequest.create(
-		TurnEnums.AI_PLAYER_ID, tile.tile_id, decision.cell, decision.rotation
-	)
-	var result: PlacementResult = PlacementValidator.validate(board, request, tile, true)
+	if decision.is_swap_move():
+		# ADR-011 section 6: a swap is a whole-turn move, and whether the pot can
+		# supply it is the session's decision, not this one's. It has no line to
+		# re-validate, so it passes through with the revision it was decided at.
+		return decision
+	if line.is_empty():
+		return AiDecision.create_invalid(
+			revision, {"reason": "the proposal has no tiles"}
+		)
+	var result: LineResult = LineValidator.validate(board, line)
 	if result == null or not result.accepted:
 		return AiDecision.create_invalid(
 			revision,
 			{
-				"reason": "the proposal is no longer legal",
+				"reason": "the proposed line is no longer legal",
 				"rejection": PlacementEnums.rejection_name(
 					0 if result == null else result.rejection
 				),
 			}
 		)
-	return decision
+	# ADR-011 sections 1 and 5: a move is exactly the line the validator judged and
+	# nothing else, so an accepted proposal is re-seated as the VALIDATED line -
+	# the tiles in the line order `LineValidator` returned, which is the order the
+	# commit path writes and refills by. Keeping the proposal's own order, or any
+	# subset of it, would let the caller commit a line one tile short of the one
+	# the rules accepted, which is the partial line section 5 forbids.
+	return _decision_from_line(result, revision, decision.diagnostics)
+
+
+## Returns one accepted validated line as a decision (ADR-011 sections 1 and 5).
+##
+## The canonical move key is rebuilt from the validated line rather than carried
+## over from the proposal, so a line the validator reordered is identified by what
+## will actually be committed and the ADR-005 section 10 tie-break stays a pure
+## function of the move.
+func _decision_from_line(
+	result: LineResult, revision: int, diagnostics: Dictionary
+) -> AiDecision:
+	var cells: Array[Vector2i] = []
+	var rotations: Array[int] = []
+	var tile_ids: Array[StringName] = []
+	for snapshot: TileSnapshot in result.staged_tiles:
+		if snapshot == null or not snapshot.is_valid():
+			continue
+		cells.append(snapshot.get_cell())
+		rotations.append(snapshot.get_rotation())
+		tile_ids.append(snapshot.get_tile_id())
+	return AiDecision.create_line(
+		result.staged_tiles,
+		revision,
+		AiMoveCandidate.move_key_for(cells, rotations, tile_ids),
+		diagnostics
+	)
 
 
 ## Returns the decision seed for one turn (ADR-005 section 3).
@@ -305,22 +344,16 @@ func decision_seed(session: GameSessionState) -> int:
 ## Runs one attempt over the deck, retrying at most once through ADR-005
 ## section 11.
 ##
-## ADR-010 section 11 makes every tile in the rival's own deck a candidate
-## source, so one attempt walks the deck in deal order and asks the strategy for
-## a proposal per tile. The first proposal that also survives revalidation is the
-## decision for this attempt, which keeps ADR-005 sections 3, 10, and 12 intact:
-## the first tile with a legal candidate is chosen deterministically, and the
-## per-tile search is exactly the one the strategy already defines.
+## ADR-011 section 12 makes the candidate a whole line, so the strategy is asked
+## once for the whole deck rather than once per tile: a line spans several deck
+## tiles, and asking per tile would fragment the move the rules define.
 ##
-## A tile with no legal candidate is skipped rather than reported as `NO_LEGAL_MOVE`,
-## because the rival may always choose a different tile from its deck; `NO_LEGAL_MOVE`
-## is reported only when no deck tile has a legal placement at all
-## (ADR-005 section 2).
-##
-## A stale or illegal result is re-decided against the current revision exactly
-## once. A second failure is reported as `INVALID`, never as a substituted move,
-## so the caller can apply ADR-003's turn rules instead of committing something
-## the rules never allowed.
+## A swap decision is a complete answer (ADR-011 section 6), so it is returned
+## without revalidation: it places nothing and the session decides whether the pot
+## can supply it. A stale or illegal proposal is re-decided against the current
+## revision exactly once; a second failure is reported as `INVALID`, never as a
+## substituted move, so the caller can apply the turn rules instead of committing
+## something the rules never allowed.
 func _attempt_move(
 	session: GameSessionState,
 	deck: Array[TileDefinition],
@@ -336,118 +369,116 @@ func _attempt_move(
 		_token = cancellation
 
 	var snapshot: AiGameSnapshot = AiGameSnapshot.create(session, TurnEnums.AI_PLAYER_ID)
-	if snapshot == null:
+	if snapshot == null or not snapshot.is_valid():
 		_status = STATUS_INVALID
 		return AiDecision.create_invalid(
 			_requested_revision, {"reason": "the match could not be snapshotted"}
 		)
 
+	_tiles_offered = _usable_tiles(deck).size()
 	_status = STATUS_THINKING
-	var no_legal_move: AiDecision = null
-	for tile: TileDefinition in _usable_tiles(deck):
-		_tiles_offered += 1
-		var decision: AiDecision = _strategy.choose_move(
-			snapshot, tile, _config, decision_seed(session), _token
+	var decision: AiDecision = _strategy.choose_move(
+		snapshot, deck, _config, decision_seed(session), _token
+	)
+	_last_decision = decision
+	if decision == null:
+		_status = STATUS_INVALID
+		return AiDecision.create_invalid(
+			_requested_revision, {"reason": "the strategy produced no decision"}
 		)
-		_last_decision = decision
-		if decision == null:
-			continue
-		if decision.is_cancelled():
-			_status = STATUS_CANCELLED
-			return decision
-		if decision.is_no_legal_move():
-			# ADR-005 section 2: this tile has no legal placement. Another deck
-			# tile still might, so the attempt continues (ADR-010 section 11).
-			if no_legal_move == null:
-				no_legal_move = decision
-			continue
-
-		var stale: bool = decision.board_revision != _requested_revision
-		var verified: AiDecision = _revalidate_with(session, decision, tile)
-		if verified != null and verified.has_move():
-			verified.diagnostics["final_validation"] = "accepted"
-			verified.diagnostics["attempts"] = attempt
-			verified.diagnostics["tiles_offered"] = _tiles_offered
-			verified.diagnostics["tile_id"] = String(tile.tile_id)
-			_status = STATUS_DECIDED
-			_decided_tile = tile
-			_last_decision = verified
-			return verified
-		if verified == null:
-			continue
-		# The proposal is no longer legal, so this tile produced no usable move.
-		# A later tile may still produce one; the attempt only fails once every
-		# deck tile has been tried (ADR-005 section 11).
-		if no_legal_move == null and not stale:
-			no_legal_move = verified
-
-	if no_legal_move != null and no_legal_move.is_no_legal_move():
-		# Every deck tile was tried and none had a legal placement: this is the
-		# structured refusal of ADR-005 section 2, whose turn outcome ADR-003
-		# owns. It carries the analysis shape for diagnostics.
+	if decision.is_cancelled():
+		_status = STATUS_CANCELLED
+		return decision
+	if decision.is_swap_move():
+		# ADR-011 section 6: the rival holds tiles it cannot line up, so its whole
+		# turn is the swap. Nothing is committed, so nothing needs revalidating.
 		_status = STATUS_DECIDED
-		var refusal: AiDecision = AiDecision.create_no_legal_move(
-			_requested_revision, _no_legal_move_diagnostics(session, attempt)
-		)
-		_last_decision = refusal
-		return refusal
+		_decided_line = [] as Array[TileSnapshot]
+		return decision
+
+	# ADR-005 section 11: a stale or illegal proposal is re-decided against the
+	# board as it stands now. Rebuilding the snapshot on the retry is what makes
+	# the second attempt fresh rather than a replay of the first.
+	var refused: Dictionary = (
+		{} if decision.diagnostics == null else decision.diagnostics
+	)
+	var verified: AiDecision = _revalidate_with(
+		session, decision, _line_for_decision(session, decision)
+	)
+	if verified != null and verified.has_line():
+		verified.diagnostics["final_validation"] = "accepted"
+		verified.diagnostics["attempts"] = attempt
+		verified.diagnostics["tiles_offered"] = _tiles_offered
+		_status = STATUS_DECIDED
+		_decided_line = _tiles_of(verified)
+		_last_decision = verified
+		return verified
+	if verified != null and verified.diagnostics != null:
+		refused = verified.diagnostics
 
 	if cancellation != null and cancellation.is_cancelled():
-		# ADR-005 section 9: the match moved on mid-request, so no partial result
-		# may be produced.
 		_status = STATUS_CANCELLED
 		return AiDecision.create_cancelled(_requested_revision, {"reason": "cancelled"})
 
-	# ADR-005 section 11: retry once against the current board revision.
 	if attempt < MAX_ATTEMPTS:
 		return _attempt_move(session, deck, cancellation, attempt + 1)
 
 	_status = STATUS_INVALID
-	var diagnostics: Dictionary = _invalid_diagnostics(attempt)
-	var last_decision: AiDecision = _last_decision
-	if last_decision != null and last_decision.diagnostics.has("move_key"):
-		diagnostics["move_key"] = last_decision.diagnostics["move_key"]
+	var diagnostics: Dictionary = _invalid_diagnostics(attempt, refused)
 	_last_decision = AiDecision.create_invalid(_requested_revision, diagnostics)
 	return _last_decision
 
 
-## Returns the proposal's tile, resolved from the decision itself and the deck the
-## request was made from (ADR-005 section 11, ADR-010 section 11).
+## Returns the proposal's line, resolved from the decision and the deck the
+## request was made from (ADR-005 section 11, ADR-011 section 12).
 ##
-## The tile identifier is recorded in the decision diagnostics when the
+## The tile identities are recorded in the decision diagnostics when the
 ## coordinator accepted it, so revalidation of an already-decided proposal is
-## exact. A decision built by a caller (a test or a replay fixture) carries no
-## tile identifier, so the deck order supplies the tile: the proposal was drawn
-## from that deck. The rival's armed tile is deliberately not consulted, so
-## revalidation does not depend on presentation state having been set.
-func _tile_for_decision(session: GameSessionState, decision: AiDecision) -> TileDefinition:
+## exact. A decision built by a caller (a test or a replay fixture) may carry only
+## tile identities from another source, so the deck order supplies any tile the
+## session does not hold: the proposal was drawn from that deck.
+func _line_for_decision(
+	session: GameSessionState, decision: AiDecision
+) -> Array[TileSnapshot]:
+	var line: Array[TileSnapshot] = []
 	if session == null or decision == null or not decision.has_move():
-		return null
-	if decision.diagnostics.has("tile_id"):
-		var named: StringName = StringName(String(decision.diagnostics["tile_id"]))
-		var held: TileDefinition = session.deck_tile(TurnEnums.AI_PLAYER_ID, named)
-		if held != null:
-			return held
+		return line
+	if decision.is_swap_move():
+		return line
+	for index: int in range(decision.tile_ids.size()):
+		var tile_id: StringName = decision.tile_ids[index]
+		var cell: Vector2i = Vector2i.ZERO
+		if index < decision.line_cells.size():
+			cell = decision.line_cells[index]
+		var rotation: int = 0
+		if index < decision.line_rotations.size():
+			rotation = decision.line_rotations[index]
+		var tile: TileDefinition = session.deck_tile(TurnEnums.AI_PLAYER_ID, tile_id)
+		if tile == null:
+			tile = _deck_tile(tile_id)
+		if tile == null or not tile.is_valid():
+			return [] as Array[TileSnapshot]
+		line.append(TileSnapshot.create(tile, cell, rotation))
+	return line
+
+
+## Returns the snapshots of an accepted decision, in line order.
+func _tiles_of(decision: AiDecision) -> Array[TileSnapshot]:
+	var line: Array[TileSnapshot] = []
+	if decision == null:
+		return line
+	for snapshot: TileSnapshot in decision.line:
+		if snapshot != null and snapshot.is_valid():
+			line.append(snapshot)
+	return line
+
+
+## Returns the deck tile with `tile_id` from the remembered deck, or null.
+func _deck_tile(tile_id: StringName) -> TileDefinition:
 	for tile: TileDefinition in _usable_tiles(_deck):
-		if tile.tile_id == _tile_id_of_move_key(decision.move_key):
+		if tile.tile_id == tile_id:
 			return tile
-	var deck: Array[TileDefinition] = _usable_tiles(_deck)
-	if not deck.is_empty():
-		return deck[0]
-	return session.active_tile_for(TurnEnums.AI_PLAYER_ID)
-
-
-## Returns the tile identifier embedded in a candidate's canonical move key.
-##
-## `AiMoveCandidate.move_key_for()` builds `ai-move:<tile-id>:<x>,<y>:<rotation>`,
-## so the identifier sits between the prefix and the coordinate. Returns an empty
-## name for a key that does not have that shape, so a malformed key cannot be
-## mistaken for a tile.
-func _tile_id_of_move_key(move_key: String) -> StringName:
-	var parts: PackedStringArray = move_key.split(":")
-	if parts.size() < 4:
-		return &""
-	return StringName(parts[1])
+	return null
 
 
 ## Returns `deck` without unusable entries, preserving deal order.
@@ -461,28 +492,13 @@ func _usable_tiles(deck: Array[TileDefinition]) -> Array[TileDefinition]:
 	return tiles
 
 
-## Returns the diagnostics for the `NO_LEGAL_MOVE` refusal (ADR-005 section 2).
-func _no_legal_move_diagnostics(session: GameSessionState, attempt: int) -> Dictionary:
-	var diagnostics: Dictionary = {
-		"reason": "no deck tile has a legal placement",
-		"attempts": attempt,
-		"tiles_offered": _tiles_offered,
-		"deck_size": _deck.size(),
-	}
-	if _config != null:
-		diagnostics["difficulty"] = AiEnums.difficulty_name(_config.difficulty)
-	if session != null:
-		diagnostics["board_revision"] = _requested_revision
-	return diagnostics
-
-
 ## Returns the diagnostics for an `INVALID` refusal (ADR-005 section 11).
 ##
-## The reason is the strategy's own refusal when it reported one, and the deck
-## exhaustion of ADR-010 section 11 otherwise.
-func _invalid_diagnostics(attempt: int) -> Dictionary:
+## The reason is the strategy's own refusal when it reported one, and the
+## revalidation refusal otherwise.
+func _invalid_diagnostics(attempt: int, rejected: Variant) -> Dictionary:
 	var diagnostics: Dictionary = {
-		"reason": "no proposal survived revalidation",
+		"reason": "no legal line survived revalidation",
 		"attempts": attempt,
 		"final_validation": "rejected",
 		"tiles_offered": _tiles_offered,
@@ -490,7 +506,13 @@ func _invalid_diagnostics(attempt: int) -> Dictionary:
 	}
 	var last_decision: AiDecision = _last_decision
 	if last_decision != null and last_decision.diagnostics.has("reason"):
-		diagnostics["reason"] = last_decision.diagnostics["reason"]
+		diagnostics["last_reason"] = last_decision.diagnostics["reason"]
+	if rejected is Dictionary:
+		var refused: Dictionary = rejected
+		if refused.has("reason"):
+			diagnostics["revalidation_reason"] = refused["reason"]
+		if refused.has("rejection"):
+			diagnostics["rejection"] = refused["rejection"]
 	if _config != null:
 		diagnostics["difficulty"] = AiEnums.difficulty_name(_config.difficulty)
 	return diagnostics

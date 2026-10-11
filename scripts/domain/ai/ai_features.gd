@@ -105,9 +105,15 @@ static func occupies_high_value_completion_cell(
 	var board: BoardState = snapshot.get_board()
 	if board == null:
 		return false
-	if not is_completion_cell(board, candidate.cell):
-		return false
-	return best_completable_category(board, candidate.cell) > ScoringEnums.PokerHandCategory.NONE
+	# ADR-011 section 12 makes a candidate a whole line, so the cells it occupies
+	# are all of its cells: a line that takes any high-value completion cell is
+	# blocking that threat.
+	for cell: Vector2i in candidate.cells:
+		if not is_completion_cell(board, cell):
+			continue
+		if best_completable_category(board, cell) > ScoringEnums.PokerHandCategory.NONE:
+			return true
+	return false
 
 
 ## Returns the strongest poker category a four-tile histogram could still reach.
@@ -244,13 +250,13 @@ static func open_opportunity(
 	rules: ScoringRules,
 	_cancellation: AiCancellationToken
 ) -> int:
-	if snapshot == null or candidate == null or candidate.snapshot == null:
+	if snapshot == null or candidate == null or candidate.snapshots.is_empty():
 		return 0
 	var board: BoardState = snapshot.get_board()
 	if board == null:
 		return 0
 	var before: int = open_opportunity_count(board, rules)
-	var after: int = open_opportunity_count(board.with_tile(candidate.snapshot), rules)
+	var after: int = open_opportunity_count(board.with_tiles(candidate.snapshots), rules)
 	return maxi(0, after - before)
 
 
@@ -273,12 +279,12 @@ static func human_open_threat(
 	candidate: AiMoveCandidate,
 	rules: ScoringRules
 ) -> int:
-	if snapshot == null or candidate == null or candidate.snapshot == null:
+	if snapshot == null or candidate == null or candidate.snapshots.is_empty():
 		return 0
 	var board: BoardState = snapshot.get_board()
 	if board == null:
 		return 0
-	var after: BoardState = board.with_tile(candidate.snapshot)
+	var after: BoardState = board.with_tiles(candidate.snapshots)
 	var count: int = 0
 	for cell: Vector2i in completion_cells(board, rules):
 		if after.is_empty_cell(cell) and is_completion_cell(after, cell):
@@ -296,10 +302,10 @@ static func matched_edge_count(
 	snapshot: AiGameSnapshot,
 	candidate: AiMoveCandidate
 ) -> int:
-	if snapshot == null or candidate == null or candidate.snapshot == null:
+	if snapshot == null or candidate == null or candidate.snapshots.is_empty():
 		return 0
-	return EdgeMatchScorer.evaluate_placement(
-		snapshot.get_board(), candidate.snapshot
+	return EdgeMatchScorer.evaluate_line(
+		snapshot.get_board(), candidate.snapshots
 	).size()
 
 
@@ -334,14 +340,18 @@ static func _facing_color_of(board: BoardState, cell: Vector2i, neighbor: Vector
 	return neighbor_tile.get_edge_at(BoardEnums.opposite_edge_position(position))
 
 
-## Returns the poker category a complete rank-frequency histogram would score as.
+## Returns the poker category a complete five-tile rank-frequency histogram would
+## score as (ADR-012 section 1).
 ##
-## The pattern table is ADR-001 section 2's set of rank counts, matching the
-## vocabulary `ScoringEnums.PokerHandCategory` declares.
+## This helper only ever sees counts, never the order the tiles sit in, so it can
+## never recognise a sequence hand. That is correct for its one caller: it answers
+## "could this window still hold a *ranked* hand", and at five tiles ADR-012
+## section 1 leaves exactly one ranked shape, the Full House (3+2). Every other
+## five-tile shape, including five identical ranks, is no longer a hand.
 static func _classify_category_counts(counts: Dictionary) -> int:
 	if counts.is_empty():
 		return ScoringEnums.PokerHandCategory.NONE
-	var frequencies: Array[int] = []
+	var frequencies: Array = []
 	var total: int = 0
 	for key: Variant in counts.keys():
 		frequencies.append(int(counts[key]))
@@ -351,20 +361,6 @@ static func _classify_category_counts(counts: Dictionary) -> int:
 
 	frequencies.sort()
 	frequencies.reverse()
-	if frequencies.size() == 1:
-		return ScoringEnums.PokerHandCategory.FIVE_OF_A_KIND
-	if frequencies.size() == 2:
-		if frequencies[0] == 4:
-			return ScoringEnums.PokerHandCategory.FOUR_OF_A_KIND
-		if frequencies[0] == 3:
-			return ScoringEnums.PokerHandCategory.FULL_HOUSE
-		return ScoringEnums.PokerHandCategory.NONE
-	if frequencies.size() == 3:
-		if frequencies[0] == 3:
-			return ScoringEnums.PokerHandCategory.THREE_OF_A_KIND
-		if frequencies[0] == 2:
-			return ScoringEnums.PokerHandCategory.TWO_PAIR
-		return ScoringEnums.PokerHandCategory.NONE
-	if frequencies.size() == 4 and frequencies[0] == 2:
-		return ScoringEnums.PokerHandCategory.PAIR
+	if frequencies == [3, 2]:
+		return ScoringEnums.PokerHandCategory.FULL_HOUSE
 	return ScoringEnums.PokerHandCategory.NONE

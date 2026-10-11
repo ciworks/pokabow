@@ -1,0 +1,18 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[harness] res://tests/unit/test_deck_touch_targets.gd
+  ok   test_drag_from_padding_reports_tile_and_respects_interaction_gates
+  ok   test_outside_empty_and_zero_size_rows_cannot_select_tiles
+  ok   test_surrounding_space_selects_nearest_tile_for_every_hand_size
+[harness] res://tests/unit/test_turn_timer.gd
+  ok   test_each_player_has_sixty_seconds_before_timeout
+  ok   test_timer_border_loses_equal_lengths_and_disappears_at_zero
+[harness] res://tests/integration/test_game_screen.gd
+  ok   test_a_drag_off_turn_is_refused
+  ok   test_a_dragged_tile_is_staged_at_the_cell_it_is_dropped_on
+  ok   test_a_second_tap_on_the_selected_deck_tile_turns_it_in_the_row
+  ok   test_deck_surrounding_space_can_drag_a_tile_onto_the_board
+  ok   test_the_deck_row_is_not_selectable_off_turn
+
+[harness] suites: 3  tests: 10  assertions: 772  failures: 0
+[harness] PASS

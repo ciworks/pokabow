@@ -29,11 +29,15 @@ const DECK_SIZE: int = DeckRules.DEFAULT_DECK_SIZE
 
 ## Tiles the shortest legal line places, in each player's own line (ADR-011
 ## section 1). A six-tile deck drawn from four ranks always holds a pair, so both
-## players can assemble one (section 3).
+## players can assemble one: that pair is the ADR-012 section 1 Pair.
 const TILES_PER_LINE: int = 2
 
 ## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
-const POT_AFTER_SETUP: int = BoardEnums.CELL_COUNT - DECK_SIZE * 2
+##
+## This suite drives the real controller, which loads the real generation rules,
+## so the bag holds 52 tiles (ADR-004 section 1, amended 2026-09-23) and the deal
+## leaves 40.
+const POT_AFTER_SETUP: int = TileGenerationRules.DEFAULT_BAG_SIZE - DECK_SIZE * 2
 
 
 func test_a_controller_built_with_new_owns_an_opponent_service() -> void:
@@ -100,13 +104,27 @@ func test_the_opponent_actually_takes_its_turn() -> void:
 	# ADR-011 sections 6 and 7: the rival's turn is exactly one move, and there
 	# are only two of them - a committed line or the swap. A committed line is
 	# what an opening board should produce, because a deck of six drawn from four
-	# ranks always holds a pair (section 3) and the proposal is completed into a
-	# legal line through the proposed cell; a rival whose own hand cannot form
+	# ranks always holds a pair (ADR-012 section 1) and the proposal is completed
+	# into a legal line through the proposed cell; a rival whose own hand cannot form
 	# that line takes the section 6 swap, which places nothing. Either way the
 	# turn is consumed, which is what this regression guards: a rival that
 	# neither lines nor swaps would leave the running game waiting forever.
+	# Branch on what was actually recorded, not on how many tiles landed. A
+	# committed move and a swap are the only two outcomes (ADR-011 sections 5 to
+	# 7), and `move_count() == 2` is the recorded-move signature, so a committed
+	# one-tile continuation is classified as the move it is rather than being
+	# mistaken for a swap.
 	var rival_placed: int = board.occupied_count() - TILES_PER_LINE
-	if rival_placed == TILES_PER_LINE:
+	if session.move_count() == 2:
+		# ADR-011 sections 1 and 5: the rival's whole turn is ONE atomic line of
+		# two or more tiles. ADR-012 section 1 makes such a line a hand of its own
+		# right - one of the closed list's exact shapes, with equal ranks adjacent
+		# along the line - so a line longer than the two-tile minimum is a
+		# complete legal move and not a partial one - the
+		# checks below therefore prove the line is WHOLE rather than assuming its
+		# length: every committed tile must be in the move, and the move's cells
+		# must be one gapless run in one orientation (the shared validator's own
+		# test), which is exactly the shape a partial line would fail.
 		check_eq(
 			session.move_count(), 2, "the rival's line is one recorded move, not one per tile"
 		)
@@ -114,11 +132,63 @@ func test_the_opponent_actually_takes_its_turn() -> void:
 			session.has_move_id(ScoringCoordinator.move_id_for(MATCH_ID, 2, 1)),
 			"the rival's line is turn 2's one move, at placement index 1 (ADR-011 section 7)"
 		)
+		var move: ScoringMove = session.last_move()
+		if check_not_null(move, "the rival's line must be recorded in the history"):
+			check_eq(
+				move.placement_count(),
+				rival_placed,
+				"every tile the rival put on the board must be part of the one recorded move, so no tile can be left behind outside it"
+			)
+			check_eq(
+				String(move.player_id),
+				String(AI),
+				"the recorded move must belong to the rival"
+			)
+			var cells: Array[Vector2i] = []
+			var ranks: Array[int] = []
+			for placement: ScoringMove.Placement in move.placements:
+				cells.append(placement.cell)
+				var tile: TileSnapshot = board.get_tile(placement.cell)
+				if check_not_null(
+					tile,
+					"the committed tile at %s must be on the board" % BoardEnums.cell_name(placement.cell)
+				):
+					ranks.append(int(tile.get_tile().rank))
+			var orientation: int = LineValidator.orientation_of(cells)
+			# `LineValidator` refuses a single staged tile only while the board
+			# is empty (its line 62), so once the human has opened, one tile that
+			# merges into a ranked hand is a whole legal move - ADR-011 section
+			# 4's continuation. A one-cell move has no orientation
+			# (`orientation_of` returns -1 for it), so it is asserted as that
+			# continuation rather than run through the scatter and gapless
+			# checks, which describe lines of two or more cells.
+			if cells.size() == 1:
+				check_eq(
+					rival_placed,
+					1,
+					"a one-cell move is a single post-opening continuation and places exactly the tile it records"
+				)
+			else:
+				check(
+					orientation >= 0,
+					"the rival's committed move must lie in one orientation, never a partial scatter (ADR-011 section 1)"
+				)
+				check(
+					orientation >= 0
+					and LineValidator.is_contiguous_line(cells, orientation),
+					"the rival's committed move must be gapless, never a partial line (ADR-011 sections 1 and 5)"
+				)
+			var completed_hand: bool = false
+			for hand_cells: Variant in PokerHandEvaluator.hands_through_cells(board, cells):
+				var hand: Array[Vector2i] = hand_cells
+				if PokerHandEvaluator.classify_window(board, hand) != ScoringEnums.PokerHandCategory.NONE:
+					completed_hand = true
+			check(completed_hand, "the rival's move must complete a valid merged hand")
 	else:
 		check_eq(
 			rival_placed,
 			0,
-			"the rival's whole turn places a line of two tiles or nothing at all (ADR-011 sections 1 and 6); a board one tile short is a partial line, which section 5 forbids"
+			"a swap places nothing, so an unrecorded move must leave the board as the human's opening left it (ADR-011 section 6)"
 		)
 		check_eq(session.move_count(), 1, "a swap records no move (ADR-011 section 6)")
 	check(
@@ -147,7 +217,7 @@ func test_a_real_path_turn_is_one_line_and_tops_the_deck_up_at_turn_end() -> voi
 	var pot_after_setup: int = session.remaining_tile_count()
 	check_eq(session.deck_count(HUMAN), DECK_SIZE, "the human is dealt a deck of six")
 	check_eq(session.deck_count(AI), DECK_SIZE, "the rival is dealt a deck of six")
-	check_eq(pot_after_setup, POT_AFTER_SETUP, "dealing both decks leaves 132 in the pot")
+	check_eq(pot_after_setup, POT_AFTER_SETUP, "dealing both decks leaves 40 in the pot")
 
 	# An unselected deck presents its first tile as the tile a placement commits.
 	var first_tile: TileDefinition = controller.human_tile()
@@ -265,10 +335,10 @@ func test_a_real_path_turn_is_one_line_and_tops_the_deck_up_at_turn_end() -> voi
 
 ## Assembles and commits the human's opening line through the controller.
 ##
-## ADR-011 sections 1, 3, and 11: a legal move is a contiguous line of two or more
-## deck tiles of one rank, staged on the board and confirmed as a whole. Returns
-## the commit result, or null when this hand cannot supply the pair the line
-## needs.
+## ADR-011 sections 1, 3, and 11 with the ADR-012 section 1 hand list: a legal
+## move is a contiguous line of two or more deck tiles of one rank, staged on the
+## board and confirmed as a whole. Returns the commit result, or null when this
+## hand cannot supply the pair the line needs.
 func _commit_opening_line(controller: GameSessionController) -> LineResult:
 	var board: BoardState = controller.get_board()
 	if board == null:

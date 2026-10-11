@@ -1,0 +1,12 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 610.88 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 2060
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+WARNING: res://scenes/hub/hub_screen.tscn:5 - ext_resource, invalid UID: uid://dq0uwn4sl7qbd - using text path instead: res://assets/hub/settings_icon.png
+   at: load (scene/resources/resource_format_text.cpp:501)
+   GDScript backtrace (most recent call first):
+       [0] _run (res://.tmp/preview_hub_sound.gd:7)
+SOUND TOGGLE: passed
+HUB SOUND (320, 568) button=[P: (444.0, 18.0), S: (76.0, 76.0)] texture=(128.0, 128.0)
+HUB SOUND (540, 960) button=[P: (444.0, 18.0), S: (76.0, 76.0)] texture=(128.0, 128.0)

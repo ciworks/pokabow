@@ -16,19 +16,21 @@ extends Control
 ## selection to the application controller, which is the only place a tile is
 ## armed (ADR-008 section 7).
 ##
-## AGENTS.md section 8 asks for tap, drag, and valid-placement highlighting.
-## Tap is a `tile_selected` report. A press that travels past `DRAG_THRESHOLD`
-## becomes a drag instead: this row then reports the tile, the pointer, and the
-## release, and the screen turns those into staging commands. The row itself never
-## decides where a tile may land, so the drag path and the tap path reach the
-## board through exactly the same application commands.
+## AGENTS.md section 8 asks for tap, drag, valid-placement highlighting, and
+## rotation. Tap is a `tile_selected` report, and a tap on the tile the row already
+## draws as selected is a `tile_rotation_requested` report instead: the row turns
+## the tile the player tapped again rather than re-selecting it. A press that
+## travels past `DRAG_THRESHOLD` becomes a drag instead: this row then reports the
+## tile, the pointer, and the release, and the screen turns those into staging
+## commands. The row itself never decides where a tile may land, so the drag path
+## and the tap path reach the board through exactly the same application commands.
 ##
 ## The row is laid out by the screen's containers and this control draws inside
 ## whatever rectangle that layout gives it, so it never states a pixel position
 ## of its own (ADR-008 section 8).
 ##
-## Drawing and hit-testing share one geometry function, `tile_rect`, so a tap can
-## never land on a different tile from the one drawn under the finger.
+## Hit-testing uses the drawn tile centers, extending each target through the
+## surrounding deck space up to the midpoint between neighboring tiles.
 
 ## Emitted when the player taps a deck tile, with that tile's identity.
 signal tile_selected(tile_id: StringName)
@@ -36,6 +38,23 @@ signal tile_selected(tile_id: StringName)
 ## Emitted when the player taps a deck tile while the row is in mark mode
 ## (ADR-011 section 6: the tiles a swap would return).
 signal tile_toggled(tile_id: StringName)
+
+## Emitted when the player taps the tile this row already draws as selected and the
+## application controller reports that tile as armed, which asks for it to be turned
+## one quarter-turn before it is staged.
+##
+## A tap on the row's own fallback selection - the first tile, shown as selected
+## while nothing is armed - is a selection rather than a rotation, so the deck's
+## first tile can still be armed by tapping it.
+##
+## Rotation is real staged state: it lives on the immutable `TileSnapshot` a
+## staging command creates, so the row reports the request and the screen forwards
+## it to the application controller rather than keeping a rotation of its own. The
+## request is the release of a press that never became a drag, so a press that goes
+## on to drag the tile onto the board stages it at the rotation the player chose
+## here instead of turning it on the way (AGENTS.md section 8: one gesture, one
+## intent).
+signal tile_rotation_requested(tile_id: StringName)
 
 ## Emitted once when a press on a deck tile has travelled past `DRAG_THRESHOLD`,
 ## with the tile being dragged and the pointer that started the drag.
@@ -59,10 +78,13 @@ signal tile_drop_requested(tile_id: StringName, pointer: Vector2)
 ## lost focus, or a cancellation. The screen clears any drag it was showing.
 signal tile_drag_cancelled(tile_id: StringName)
 
-## Gap between tiles as a fraction of one tile's width.
-const GAP_RATIO: float = 0.10
+## Reserve a full hand's width even when tiles leave the deck.
+const LAYOUT_SLOT_COUNT: int = 6
 
-## Air left inside the control so tiles never touch the panel edge.
+## Minimum horizontal gap, including the two outer gaps, relative to tile width.
+const GAP_RATIO: float = 0.25
+
+## Minimum vertical padding; horizontal space is divided into equal gaps.
 const PADDING: float = 8.0
 
 ## How far the selected tile is lifted, as a fraction of the tile's height.
@@ -86,6 +108,9 @@ const MARKED_INSET: float = 3.0
 ## shows the tile is held while the board shows where it would land.
 const DRAGGED_ALPHA: float = 0.45
 
+## Width and height of a deck tile while it is being dragged.
+const DRAG_SCALE: float = 0.9
+
 ## How far a press must travel before it is a drag rather than a tap, in pixels.
 ##
 ## A finger rolls a few pixels on every touch, so without a threshold every tap
@@ -98,6 +123,28 @@ var _deck: Array[TileDefinition] = []
 
 ## Index of the tile drawn as selected; -1 when the deck is empty.
 var _selected_index: int = -1
+
+## Identity the application controller reports as armed, as handed to `set_deck`.
+##
+## The drawn selection falls back to the first tile when the controller reports no
+## armed tile, and that fallback has not been armed by anything: a tap on it must
+## still select it, or the deck's first tile could never be staged. Keeping the
+## armed identity is how the row tells the two apart, so a rotation is only ever
+## reported for a tile the application layer really holds.
+var _armed_id: StringName = &""
+
+## Quarter-turn the selected tile is drawn at, supplied by the screen from the
+## application controller. The row never keeps a rotation of its own, so the tile
+## it draws and the tile the next staging command commits cannot disagree.
+var _pending_rotation: int = 0
+
+## Identities the row must not draw yet, because the deal animation is still
+## flying them in (ADR-008 section 4).
+##
+## A concealed tile keeps its slot in the row and is simply not painted, so the
+## tiles that have already landed never shift as the rest arrive, and a dealt tile
+## is never visible in two places at once.
+var _concealed: Array[StringName] = []
 
 ## True while the row rejects taps, because it is not the player's turn.
 var _locked: bool = true
@@ -119,6 +166,13 @@ var _press_point: Vector2 = Vector2.ZERO
 
 ## Index of the tile the current press landed on; -1 when it landed off a tile.
 var _press_index: int = -1
+
+## Index of the already-selected tile the current press landed on; -1 otherwise.
+##
+## This press is a rotation request, and it is reported on its release: the same
+## press may still travel past `DRAG_THRESHOLD`, and a drag stages the tile rather
+## than turning it.
+var _rotate_index: int = -1
 
 ## True between a drag gesture starting and its release or cancellation.
 var _dragging: bool = false
@@ -152,29 +206,39 @@ func _notification(what: int) -> void:
 		cancel_drag()
 
 
-## Replaces the drawn deck and the selected tile (ADR-010 section 10).
+## Replaces the drawn deck, the selected tile, and its rotation
+## (ADR-010 section 10).
 ##
 ## `tiles` is the human's deck in deal order; `selected_id` is the tile the
-## application controller reports as armed, or an empty name when none is. The row
-## never keeps its own idea of which tile is armed: the application layer owns
-## that choice, so a redraw cannot disagree with the next placement.
+## application controller reports as armed, or an empty name when none is; and
+## `rotation` is the quarter-turn that tile would be staged at, so the player can
+## see the tile turn in the row instead of only once it is on the board. The row
+## never keeps its own idea of which tile is armed or how far it is turned: the
+## application layer owns both, so a redraw cannot disagree with the next
+## placement.
 ##
 ## A drag in flight is abandoned here, because the deck it was dragging from no
 ## longer exists in the shape the drag described. The press that started it is
 ## deliberately left alone: reporting a tap re-renders the deck, and a gesture
 ## that is still a tap must not be torn down by its own redraw.
-func set_deck(tiles: Array[TileDefinition], selected_id: StringName = &"") -> void:
+func set_deck(
+	tiles: Array[TileDefinition], selected_id: StringName = &"", rotation: int = 0
+) -> void:
 	_abandon_drag()
 	_deck = []
 	for tile: TileDefinition in tiles:
 		if tile != null:
 			_deck.append(tile)
 	_prune_marked()
+	_pending_rotation = posmod(rotation, TileEnums.ROTATION_COUNT)
+	_armed_id = selected_id
+	# A tile is drawn as selected only when the application layer reports that
+	# exact tile as armed. There is deliberately no fallback to the deck's first
+	# tile: straight after a deal nothing has been chosen yet, and drawing tile 0
+	# as selected invited a board tap that staged a tile the player never picked.
+	# The player's own tap is what selects, which is the gesture this row reports
+	# as `tile_selected`.
 	_selected_index = _index_of(_deck, selected_id)
-	if _selected_index < 0 and not _deck.is_empty():
-		# Nothing is armed yet, so the deck's first tile is the one a placement
-		# would commit and the one drawn as selected.
-		_selected_index = 0
 	queue_redraw()
 
 
@@ -190,6 +254,16 @@ func selected_tile_id() -> StringName:
 	if _selected_index < 0 or _selected_index >= _deck.size():
 		return &""
 	return _deck[_selected_index].tile_id
+
+
+## Returns the quarter-turn the selected tile is drawn at.
+##
+## This is exactly the rotation `_draw` passes into the snapshot it paints, so a
+## test can prove the row renders the rotation the controller reports without
+## reading a pixel buffer. The row is never the authority for the value: compare
+## it against `GameSessionController.pending_rotation()`.
+func selected_rotation() -> int:
+	return _pending_rotation
 
 
 ## Returns true while the row rejects taps (not the player's turn).
@@ -242,15 +316,46 @@ func set_dragging(dragging: bool, notify: bool = false) -> void:
 ## Used by the screen when the selection came from somewhere else, so the row
 ## always reflects the tile the application layer has armed.
 func set_selected(tile_id: StringName) -> void:
+	# A tile the row does not hold leaves nothing selected rather than falling
+	# back to the deck's first tile: the selection names the armed tile, and a
+	# tile that is not in hand is not armed.
 	var index: int = _index_of(_deck, tile_id)
-	if index < 0:
-		# The tile is no longer held (it was just committed), so fall back to the
-		# first remaining tile rather than pointing past the deck.
-		index = 0 if not _deck.is_empty() else -1
 	if index == _selected_index:
 		return
 	_selected_index = index
 	queue_redraw()
+
+
+## Sets the tiles this row must not draw yet, because the deal animation is still
+## flying them in. The screen owns that set: it conceals a fresh tile while it is
+## in flight and clears it once the layer reports the tile has landed.
+func set_concealed(tile_ids: Array[StringName]) -> void:
+	if _concealed == tile_ids:
+		return
+	_concealed = tile_ids.duplicate()
+	queue_redraw()
+
+
+## Returns the identities the row is currently concealing.
+func concealed_ids() -> Array[StringName]:
+	return _concealed.duplicate()
+
+
+## Returns the GLOBAL rectangle of one tile in the drawn row.
+##
+## The deal animation needs the place a tile will land, measured the same way the
+## row draws it, so this shares `tile_rect` rather than re-deriving the layout and
+## a flight can never aim at a rectangle the row does not use.
+func tile_global_rect(index: int) -> Rect2:
+	var local: Rect2 = tile_rect(index, _deck.size(), size)
+	if local.size == Vector2.ZERO:
+		return Rect2()
+	return get_global_transform() * local
+
+
+## Resolve by identity so a changing rack still receives a tile in its own slot.
+func tile_global_rect_for(tile_id: StringName) -> Rect2:
+	return tile_global_rect(_index_of(_deck, tile_id))
 
 
 ## Draws the tile row, the selection outline, and any swap marks.
@@ -264,6 +369,11 @@ func set_selected(tile_id: StringName) -> void:
 ## the real ghost at the cell under the pointer, so this copy is dimmed to read as
 ## picked up, and a drag that is currently off the board never makes the row look
 ## as if it lost a tile.
+##
+## The selected tile is drawn at `_pending_rotation`, so tapping it again is
+## visibly a turn rather than a change the player only sees once the tile is on the
+## board. The rotation shown is the one a staging command would apply, because the
+## screen supplies it from the application controller (AGENTS.md section 19).
 func _draw() -> void:
 	if _deck.is_empty():
 		return
@@ -271,21 +381,30 @@ func _draw() -> void:
 		var rect: Rect2 = tile_rect(index, _deck.size(), size)
 		if not TilePainter.is_drawable(rect):
 			continue
+		# A tile the deal animation is still flying in is drawn only by that
+		# layer, so it is never painted twice in one frame. The slot is reserved
+		# either way: `tile_rect` lays the row out from the count, so the tiles
+		# that have landed do not shift as the rest arrive.
+		if _concealed.has(_deck[index].tile_id):
+			continue
 		if index == _drag_index:
+			# The dragged copy is drawn at the pending rotation too, so the row
+			# and the board's ghost cannot disagree about the tile in flight.
 			TilePainter.paint_tile(
 				self,
-				rect,
-				TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, 0),
+				Rect2(rect.get_center() - rect.size * DRAG_SCALE * 0.5, rect.size * DRAG_SCALE),
+				TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, _pending_rotation),
 				DRAGGED_ALPHA
 			)
 			continue
 		if index == _selected_index and not _mark_mode:
 			rect = _lifted(rect)
 			# TilePainter reads a tile's visible edges from a snapshot, so the
-			# row draws the identical face the board would commit (ADR-006
-			# section 5, ADR-010 section 12).
+			# row draws the identical face the board would commit, at the
+			# rotation the player has turned it to (ADR-006 section 5,
+			# ADR-010 section 12).
 			TilePainter.paint_tile(
-				self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, 0)
+				self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, _pending_rotation)
 			)
 			draw_rect(rect, SELECTED_COLOR, false, SELECTED_OUTLINE)
 			_draw_mark(index, rect)
@@ -336,12 +455,18 @@ func _handle_button(event: InputEventMouseButton) -> void:
 	_handle_release(button)
 
 
-## Reports the tap and remembers where the finger landed.
+## Reports the selection, or marks the press as a rotation of the selected tile.
 ##
-## The tap is reported on the press, not on the release, because a tap is decided
-## the moment a finger touches a tile. A press that then travels past
+## The selection is reported on the press, not on the release, because it is
+## decided the moment a finger touches a tile. A press that then travels past
 ## `DRAG_THRESHOLD` is not an undone tap: it continues as a drag of the same tile,
 ## and both paths reach the same staging command, so nothing is staged twice.
+##
+## A press on the tile the row already draws as selected is the rotation gesture
+## instead, and it is deliberately not reported here: the same press may still
+## become a drag onto the board, and the drop stages the tile at the rotation the
+## player chose. It is reported on the release, when the press is known to have
+## stayed a tap.
 ##
 ## The gesture is consumed because the board listens for unhandled pointer input:
 ## a deck gesture that stayed unhandled would also reach `BoardInputController`,
@@ -350,20 +475,28 @@ func _handle_press(button: InputEventMouseButton) -> void:
 	_consume()
 	_pressing = true
 	_press_point = button.position
+	# Cleared first, so a press that is not a rotation can never inherit the mark
+	# of an earlier one and report a turn the player did not ask for.
+	_rotate_index = -1
 	_press_index = _index_at(button.position, _deck.size(), size)
 	if _press_index < 0:
 		return
 	if _mark_mode:
 		tile_toggled.emit(_deck[_press_index].tile_id)
 		return
-	if _press_index != _selected_index:
+	if _press_index != _selected_index or not _is_armed(_press_index):
+		# Either a different tile than the one drawn as selected, or the drawn
+		# selection is the row's own fallback, which nothing has armed yet: both
+		# are a selection, so the first tap on the deck's first tile still arms it.
 		_selected_index = _press_index
 		queue_redraw()
-	tile_selected.emit(_deck[_press_index].tile_id)
+		tile_selected.emit(_deck[_press_index].tile_id)
+		return
+	_rotate_index = _press_index
 
 
-## Ends a press: a drag asks for a drop, and a gesture that never became a drag
-## has already been reported as a tap.
+## Ends a press: a drag asks for a drop, and a gesture that never became a drag is
+## either the tap already reported on its press or a rotation request.
 ##
 ## The drop is reported without a cancellation, so one release cannot arrive as
 ## two endings. Where the drop landed, and whether it may land there at all, is
@@ -375,6 +508,7 @@ func _handle_release(button: InputEventMouseButton) -> void:
 	_consume()
 	_pressing = false
 	if not _dragging:
+		_report_rotation()
 		return
 	var dragged_id: StringName = _dragged_tile_id()
 	_dragging = false
@@ -383,6 +517,36 @@ func _handle_release(button: InputEventMouseButton) -> void:
 	if not String(dragged_id).is_empty():
 		tile_drop_requested.emit(dragged_id, button.position)
 	queue_redraw()
+
+
+## Reports a press that landed on the already-selected tile as a rotation request.
+##
+## This is the release half of the rotation gesture, and it is the only place the
+## request is made: a press that became a drag must stage the tile instead. The
+## request names the tile this row draws as selected, so the screen can check it
+## against the tile the application layer has armed and refuse a stale one, and the
+## mark is cleared either way so one gesture can never turn a tile twice.
+func _report_rotation() -> void:
+	var index: int = _rotate_index
+	_rotate_index = -1
+	if index < 0 or index >= _deck.size() or index != _selected_index:
+		return
+	if not _is_armed(index):
+		return
+	tile_rotation_requested.emit(_deck[index].tile_id)
+
+
+## Returns true when the tile drawn at `index` is the tile the controller armed.
+##
+## The row reports a rotation only for an armed tile: a tile the row merely draws
+## as selected is not the application layer's choice, so turning it would have no
+## effect the player could see or that a later staging command would honour.
+func _is_armed(index: int) -> bool:
+	if index < 0 or index >= _deck.size():
+		return false
+	if String(_armed_id).is_empty():
+		return false
+	return _deck[index].tile_id == _armed_id
 
 
 ## Promotes a held press to a drag once it has travelled far enough, and reports
@@ -431,6 +595,9 @@ func _start_drag(point: Vector2) -> void:
 	_dragging = true
 	_drag_index = _press_index
 	_drag_point = point
+	# A drag stages the tile, so it must not also turn it: the rotation the player
+	# chose in the row is the rotation the drop stages.
+	_rotate_index = -1
 	queue_redraw()
 	tile_drag_started.emit(_deck[_drag_index].tile_id, point)
 
@@ -445,6 +612,7 @@ func _start_drag(point: Vector2) -> void:
 func cancel_drag(notify: bool = true) -> void:
 	_pressing = false
 	_press_index = -1
+	_rotate_index = -1
 	var dragged_id: StringName = _dragged_tile_id()
 	var was_dragging: bool = _dragging
 	_abandon_drag()
@@ -558,34 +726,36 @@ func _prune_marked() -> void:
 static func tile_rect(index: int, count: int, available: Vector2) -> Rect2:
 	if count <= 0 or index < 0 or index >= count:
 		return Rect2(Vector2.ZERO, Vector2.ZERO)
-	var inner: Vector2 = Vector2(
-		maxf(available.x - PADDING * 2.0, 0.0), maxf(available.y - PADDING * 2.0, 0.0)
-	)
+	# Size against a full hand, not the remaining tiles. The background keeps
+	# its screen-defined dimensions and fewer tiles retain the same square size.
+	var slot_count: int = maxi(count, LAYOUT_SLOT_COUNT)
 	var hint: Vector2 = Vector2(
-		inner.x / (float(count) + GAP_RATIO * float(count - 1)), inner.y
+		available.x / (float(slot_count) + GAP_RATIO * float(slot_count + 1)),
+		maxf(available.y - PADDING * 2.0, 0.0)
 	)
 	if hint.x <= 0.0 or hint.y <= 0.0:
 		return Rect2(Vector2.ZERO, Vector2.ZERO)
 	var tile_size: float = minf(hint.x, hint.y)
-	var gap: float = tile_size * GAP_RATIO
-	var row_width: float = tile_size * float(count) + gap * float(count - 1)
-	var origin: Vector2 = Vector2(
-		PADDING + maxf((inner.x - row_width) * 0.5, 0.0),
-		PADDING + maxf((inner.y - tile_size) * 0.5, 0.0)
-	)
+	var gap: float = (available.x - tile_size * float(count)) / float(count + 1)
+	var origin := Vector2(gap, (available.y - tile_size) * 0.5)
 	return Rect2(origin + Vector2((tile_size + gap) * float(index), 0.0), Vector2(tile_size, tile_size))
 
 
-## Returns the index of the tile containing `point`, or -1.
-##
-## The selection lift is deliberately ignored: the player taps where the tile is
-## drawn, so the hit box stays the un-lifted rectangle and the band the lift
-## uncovers remains a miss.
+## Uses the full row height and divides horizontal gaps at tile-center midpoints.
+## Outer tiles own the space to the row edges; a single tile owns the whole row.
+## Targets stay stable when selection lifts the artwork. Points outside the row
+## and rows with no drawable tiles remain misses.
 static func _index_at(point: Vector2, count: int, available: Vector2) -> int:
-	for index: int in range(count):
-		if tile_rect(index, count, available).has_point(point):
+	if count <= 0 or not Rect2(Vector2.ZERO, available).has_point(point):
+		return -1
+	if not tile_rect(0, count, available).has_area():
+		return -1
+	for index: int in range(count - 1):
+		var center: float = tile_rect(index, count, available).get_center().x
+		var next_center: float = tile_rect(index + 1, count, available).get_center().x
+		if point.x < (center + next_center) * 0.5:
 			return index
-	return -1
+	return count - 1
 
 
 ## Returns the drawn rectangle with the selected tile's slight lift applied.

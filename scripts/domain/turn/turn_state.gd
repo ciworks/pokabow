@@ -56,6 +56,10 @@ var placements_this_turn: int = 0
 ## 1-based turn number. Turn 1 is the human's opening move (ADR-003 section 2).
 var turn_number: int = 0
 
+## Remaining action time, persisted with the turn (ADR-017).
+var remaining_seconds: float = TurnManager.TURN_SECONDS
+var deadline_unix_seconds: float = 0.0
+
 ## Automatic no-tile turn ends recorded in a row (ADR-010 section 4).
 var consecutive_no_tile_skips: int = 0
 
@@ -87,6 +91,8 @@ func copy() -> TurnState:
 	# placement index; the counter is restored afterwards.
 	clone.active_player_id = active_player_id
 	clone.turn_number = turn_number
+	clone.remaining_seconds = remaining_seconds
+	clone.deadline_unix_seconds = deadline_unix_seconds
 	clone.consecutive_no_tile_skips = consecutive_no_tile_skips
 	clone.last_skip_reason = last_skip_reason
 	clone.placements_this_turn = placements_this_turn

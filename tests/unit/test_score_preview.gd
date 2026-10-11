@@ -45,14 +45,14 @@ func test_preview_reports_every_category_without_mutating_anything() -> void:
 		ScoringEnums.ScoreCategory.EDGE_CLUSTER,
 		"cluster events come third"
 	)
-	check_eq(preview.points_for_category(ScoringEnums.ScoreCategory.POKER_HAND), 4, "the window is a Two Pair")
+	check_eq(preview.points_for_category(ScoringEnums.ScoreCategory.POKER_HAND), 162, "the Full House includes card values and multipliers")
 	check_eq(preview.points_for_category(ScoringEnums.ScoreCategory.EDGE_MATCH), 1, "one boundary matches")
 	check_eq(
 		preview.points_for_category(ScoringEnums.ScoreCategory.EDGE_CLUSTER),
 		3,
 		"the blue component completes its first milestone"
 	)
-	check_eq(preview.total_points(), 8, "the transaction total is the sum of its events")
+	check_eq(preview.total_points(), 166, "the transaction total is the sum of its events")
 	check_eq(
 		preview.move_id,
 		ScoringCoordinator.PREVIEW_MOVE_ID,
@@ -65,7 +65,7 @@ func test_preview_reports_every_category_without_mutating_anything() -> void:
 	check(board.is_empty_cell(Vector2i(8, 5)), "a preview must not write the target cell")
 	check_eq(ledger.size(), 0, "a preview must not touch the ledger")
 	check_eq(scored.size(), 0, "a preview must not record a scored window")
-	check_eq(preview.total_points(), 8, "a second read of the preview must be stable")
+	check_eq(preview.total_points(), 166, "a second read of the preview must be stable")
 
 
 func test_a_commit_reproduces_the_preview_on_the_same_revision() -> void:
@@ -111,7 +111,7 @@ func test_a_commit_reproduces_the_preview_on_the_same_revision() -> void:
 	check(board.is_occupied(Vector2i(8, 5)), "a commit writes the tile")
 	check_eq(board.get_revision(), 5, "a commit advances the board revision")
 	check_eq(ledger.size(), 3, "every committed event reaches the ledger")
-	check_eq(ledger.total_for(&"player-1"), 8, "the player is credited with the whole award")
+	check_eq(ledger.total_for(&"player-1"), 166, "the player is credited with the whole award")
 	check_eq(scored.size(), 1, "a scoring window must be recorded as scored")
 
 
@@ -121,9 +121,10 @@ func test_a_placement_that_scores_nothing_produces_an_empty_transaction() -> voi
 	_build_line(board)
 
 	# A tile placed away from every committed tile touches no boundary and
-	# completes no five-cell window, so it can score nothing at all. (A complete
-	# five-tile window always contains at least a Pair, because five tiles are
-	# drawn from only four ranks, so the quiet placement must not complete one.)
+	# completes no five-cell window, so it can score nothing at all. (ADR-012
+	# section 1 makes a five-tile window legal only as a Full House, so a window
+	# that filled with any other shape would score nothing either; the quiet
+	# placement must simply complete none.)
 	var quiet: TileSnapshot = TileSnapshot.create(
 		_tile("quiet", TileEnums.TileRank.QUEEN, GREEN, GREEN, GREEN, YELLOW), Vector2i(0, 0), 0
 	)
@@ -153,7 +154,7 @@ func test_a_repeated_commit_never_scores_twice() -> void:
 	var first: ScoreTransaction = ScoringCoordinator.commit_placement(
 		board, _placed_tile(), ledger, scored, &"player-1", &"move:match-1:5", 5, rules
 	)
-	check_eq(first.total_points(), 8, "the first commit awards the points")
+	check_eq(first.total_points(), 166, "the first commit awards the points")
 
 	var revision_after_first: int = board.get_revision()
 	var ledger_size_after_first: int = ledger.size()
@@ -167,7 +168,7 @@ func test_a_repeated_commit_never_scores_twice() -> void:
 	check(repeat.is_empty(), "a repeated commit must award nothing")
 	check_eq(board.get_revision(), revision_after_first, "a repeated commit must not change the board")
 	check_eq(ledger.size(), ledger_size_after_first, "a repeated commit must not add an event")
-	check_eq(ledger.total_for(&"player-1"), 8, "a repeated commit must not inflate the total")
+	check_eq(ledger.total_for(&"player-1"), 166, "a repeated commit must not inflate the total")
 
 
 func test_a_duplicate_event_is_refused_before_the_board_is_touched() -> void:
@@ -222,7 +223,7 @@ func test_each_window_scores_once_for_the_whole_match() -> void:
 	var committed: ScoreTransaction = ScoringCoordinator.commit_placement(
 		board, _placed_tile(), ledger, scored, &"player-1", &"move:match-1:5", 5, rules
 	)
-	check_eq(committed.total_points(), 8, "the window must score on commit")
+	check_eq(committed.total_points(), 166, "the window must score on commit")
 
 	var without_history: Array[PokerHandResult] = PokerHandEvaluator.evaluate_full_board(
 		board, rules.poker, null
@@ -267,10 +268,10 @@ func _build_line(board: BoardState) -> void:
 	_commit(board, Vector2i(7, 5), _tile("d", TileEnums.TileRank.KING, GREEN, BLUE, GREEN, BLUE))
 
 
-## Returns the tile under test: a jack whose left edge matches the blue line.
+## Returns the tile under test: a king whose left edge matches the blue line.
 func _placed_tile() -> TileSnapshot:
 	return TileSnapshot.create(
-		_tile("e", TileEnums.TileRank.JACK, GREEN, GREEN, GREEN, BLUE), Vector2i(8, 5), 0
+		_tile("e", TileEnums.TileRank.KING, GREEN, GREEN, GREEN, BLUE), Vector2i(8, 5), 0
 	)
 
 

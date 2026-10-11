@@ -12,10 +12,12 @@ extends RefCounted
 ## Authority notes:
 ## - Score categories are exactly the three Phase 1 categories of ADR-007
 ##   section 1: poker hands, edge matches, and edge clusters.
-## - Poker categories and their rank-frequency patterns come from ADR-001
-##   section 2. Category order is precedence order: the evaluator returns the
-##   highest matching category only, so a Full House never also scores as a Pair.
-## - A hand window is five contiguous orthogonal cells (ADR-001 section 1).
+## - The valid poker hands are the closed seven-item list of ADR-012 section 1,
+##   which supersedes ADR-001 section 2. A hand has two to five contiguous
+##   orthogonal cells and must classify as one of those seven; anything else is
+##   refused as a move and awards nothing.
+## - A five-cell hand is valid only as a Full House (ADR-012 section 2), so
+##   `WINDOW_SIZE` is a maximum hand length rather than the only legal length.
 ## - A matching boundary awards exactly +1 (ADR-002 section 1), which is why
 ##   EDGE_MATCH_POINTS is a constant here rather than a tunable resource value.
 ## - Phase 1 accepts non-negative integer points and no multipliers
@@ -32,19 +34,28 @@ enum ScoreCategory {
 	EDGE_CLUSTER = 2,
 }
 
-## Poker hand categories in precedence order (ADR-001 section 2).
+## The closed list of poker hand categories (ADR-012 section 1).
 ##
-## `NONE` is not a poker hand: it means the window matched no pattern and awards
-## no points. With five tiles drawn from only four ranks a complete window always
-## contains at least a Pair, so Phase 1 has no High Card category.
+## `NONE` is not a poker hand: the hand matched no pattern in the list, awards no
+## points, and is refused as a move by the placement validator, so a hand never
+## "scores as NONE" in play.
+##
+## ADR-012 section 1 lists exactly seven categories. Five-of-a-Kind is not one of
+## them: five identical ranks are no longer a hand and have no point value.
+##
+## The declared order is ascending point value, which is what
+## `PokerScoreRules.validate()` checks. The numeric values are internal indexes
+## into `PokerScoreRules.points_by_category`; save data records the category
+## *name* (ADR-007 section 5), so renumbering never invalidates a save.
 enum PokerHandCategory {
 	NONE = 0,
 	PAIR = 1,
 	TWO_PAIR = 2,
-	THREE_OF_A_KIND = 3,
-	FULL_HOUSE = 4,
-	FOUR_OF_A_KIND = 5,
-	FIVE_OF_A_KIND = 6,
+	STRAIGHT_3 = 3,
+	THREE_OF_A_KIND = 4,
+	STRAIGHT_4 = 5,
+	FULL_HOUSE = 6,
+	FOUR_OF_A_KIND = 7,
 }
 
 ## Window orientation (ADR-001 section 1). Only horizontals and verticals count.

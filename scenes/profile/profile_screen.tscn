@@ -1,0 +1,260 @@
+[gd_scene format=3 uid="uid://dwjjmtnjnp12v"]
+
+[ext_resource type="Script" uid="uid://b11a3yri8qy0u" path="res://scripts/presentation/profile_screen.gd" id="1_profile"]
+[ext_resource type="Texture2D" uid="uid://coq5xq2p57bpi" path="res://assets/ui/close.png" id="2_close"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_button"]
+content_margin_left = 18.0
+content_margin_top = 12.0
+content_margin_right = 18.0
+content_margin_bottom = 12.0
+bg_color = Color(0.93, 0.76, 0.32, 1)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.45, 0.3, 0.07, 1)
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+corner_radius_bottom_right = 18
+corner_radius_bottom_left = 18
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_field"]
+content_margin_left = 16.0
+content_margin_top = 12.0
+content_margin_right = 16.0
+content_margin_bottom = 12.0
+bg_color = Color(0.97, 0.94, 0.86, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_or3b4"]
+
+[node name="ProfileScreen" type="Control" unique_id=225819765]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_profile")
+
+[node name="Background" type="ColorRect" parent="." unique_id=1409037423]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.12, 0.08, 0.19, 1)
+
+[node name="BackButton" type="Button" parent="." unique_id=1001]
+unique_name_in_owner = true
+layout_mode = 1
+offset_left = 24.0
+offset_top = 20.0
+offset_right = 152.0
+offset_bottom = 76.0
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBox_button")
+theme_override_styles/pressed = SubResource("StyleBox_button")
+theme_override_styles/hover = SubResource("StyleBox_button")
+text = "‹  Back"
+
+[node name="Title" type="Label" parent="." unique_id=1435462820]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 18.0
+offset_right = 300.0
+offset_bottom = 78.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 40
+text = "My Profile"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=1798906474]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.14
+anchor_top = 0.15
+anchor_right = 0.86
+anchor_bottom = 0.95
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+
+[node name="Form" type="VBoxContainer" parent="ScrollContainer" unique_id=545130463]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="DisplayNameLabel" type="Label" parent="ScrollContainer/Form" unique_id=1468682725]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 22
+text = "Display name"
+
+[node name="DisplayNameField" type="LineEdit" parent="ScrollContainer/Form" unique_id=1002]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.12, 0.08, 0.19, 1)
+theme_override_colors/font_placeholder_color = Color(0.4, 0.36, 0.43, 1)
+theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("StyleBox_field")
+placeholder_text = "Display name"
+
+[node name="UsernameLabel" type="Label" parent="ScrollContainer/Form" unique_id=1596400537]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 22
+text = "Username"
+
+[node name="UsernameField" type="LineEdit" parent="ScrollContainer/Form" unique_id=1003]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.12, 0.08, 0.19, 1)
+theme_override_colors/font_placeholder_color = Color(0.4, 0.36, 0.43, 1)
+theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("StyleBox_field")
+placeholder_text = "Username"
+
+[node name="EmailLabel" type="Label" parent="ScrollContainer/Form" unique_id=251550357]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.97, 0.94, 0.86, 1)
+theme_override_font_sizes/font_size = 22
+text = "Email"
+
+[node name="EmailField" type="LineEdit" parent="ScrollContainer/Form" unique_id=1004]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.12, 0.08, 0.19, 1)
+theme_override_colors/font_placeholder_color = Color(0.4, 0.36, 0.43, 1)
+theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("StyleBox_field")
+placeholder_text = "Email address"
+
+[node name="UpdateButton" type="Button" parent="ScrollContainer/Form" unique_id=1005]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.16, 0.1, 0.03, 1)
+theme_override_font_sizes/font_size = 26
+theme_override_styles/normal = SubResource("StyleBox_button")
+theme_override_styles/pressed = SubResource("StyleBox_button")
+theme_override_styles/hover = SubResource("StyleBox_button")
+text = "Update"
+
+[node name="AchievementsPage" type="MarginContainer" parent="." unique_id=548444534]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 0
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 0
+theme_override_constants/margin_bottom = 0
+
+[node name="AchievementFrame" type="PanelContainer" parent="AchievementsPage" unique_id=412798559]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Column" type="VBoxContainer" parent="AchievementsPage/AchievementFrame" unique_id=255178808]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Header" type="HBoxContainer" parent="AchievementsPage/AchievementFrame/Column" unique_id=1722114783]
+layout_mode = 2
+
+[node name="AchievementBack" type="Button" parent="AchievementsPage/AchievementFrame/Column/Header" unique_id=206643697]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(48, 48)
+layout_mode = 2
+tooltip_text = "Back to hub"
+theme_override_constants/icon_max_width = 36
+theme_override_styles/focus = SubResource("StyleBoxEmpty_or3b4")
+icon = ExtResource("2_close")
+flat = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="Heading" type="Label" parent="AchievementsPage/AchievementFrame/Column/Header" unique_id=1960600992]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 34
+text = "Achievements"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Balance" type="Control" parent="AchievementsPage/AchievementFrame/Column/Header" unique_id=1548177134]
+custom_minimum_size = Vector2(48, 48)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="CategoryPanel" type="PanelContainer" parent="AchievementsPage/AchievementFrame/Column" unique_id=1539701022]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Categories" type="HBoxContainer" parent="AchievementsPage/AchievementFrame/Column/CategoryPanel" unique_id=1148118420]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="All" type="Button" parent="AchievementsPage/AchievementFrame/Column/CategoryPanel/Categories" unique_id=1909270460]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "All"
+
+[node name="Hands" type="Button" parent="AchievementsPage/AchievementFrame/Column/CategoryPanel/Categories" unique_id=1210653]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Hands"
+
+[node name="Edges" type="Button" parent="AchievementsPage/AchievementFrame/Column/CategoryPanel/Categories" unique_id=785228595]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Edges"
+
+[node name="Victories" type="Button" parent="AchievementsPage/AchievementFrame/Column/CategoryPanel/Categories" unique_id=1146992310]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Victories"
+
+[node name="AchievementSummary" type="Label" parent="AchievementsPage/AchievementFrame/Column" unique_id=2142635548]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Account achievements"
+autowrap_mode = 2
+
+[node name="AchievementScroll" type="ScrollContainer" parent="AchievementsPage/AchievementFrame/Column" unique_id=109377580]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+follow_focus = true
+horizontal_scroll_mode = 0
+
+[node name="AchievementCards" type="VBoxContainer" parent="AchievementsPage/AchievementFrame/Column/AchievementScroll" unique_id=472062040]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[connection signal="pressed" from="AchievementsPage/AchievementFrame/Column/Header/AchievementBack" to="." method="_on_back_pressed"]

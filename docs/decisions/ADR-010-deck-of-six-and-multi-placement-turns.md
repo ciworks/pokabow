@@ -345,3 +345,6 @@ commit rules, remains in force.
 - 2026-09-22: Accepted on owner direction. Numbered ADR-010 because the decisions
   index reserves ADR-009 for the edge-cluster decision (GAME_SPEC 13.3, 13.4),
   which was delivered as ADR-002.
+- 2026-09-22: ADR-011's later owner correction adds a five-tile connected-run
+  cap and ends a match when neither current deck has a legal placement. Its
+  section 9 supersedes the end-condition wording above where they differ.

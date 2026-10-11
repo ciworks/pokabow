@@ -3,22 +3,44 @@ extends Resource
 
 ## Versioned tile generation configuration (ADR-004 sections 2, 3, and 8).
 ##
-## Weights are data rather than control flow, so rebalancing never requires
-## changes to the generator. Phase 1 defaults are uniform: every rank, face
-## colour, and edge colour has weight 1.0 (ADR-004 section 8).
+## Weights are data rather than control flow. Defaults are uniform for all five
+## ranks, both ordinary face colours, four suits, and four edge colours.
 ##
-## The bag holds one tile per board cell (ADR-004 section 1). `bag_size` is
-## configurable so a future mode could change supply without touching code.
+## The bag is the shared supply one match draws from, and `bag_size` is how many
+## tiles it holds (ADR-004 sections 1 and 2).
+##
+## The Figure Actually In Force: `bag_size` is an exported value, so the number a
+## real match uses is the one stored in
+## `res://resources/rules/tile_generation_rules.tres`, NOT the constant below.
+## A stored value always wins over a script default, so the `@export` line is the
+## authority in play and this constant is only the fallback for a rules instance
+## built in code. Changing one without the other silently does nothing, which is
+## the single easiest way to misconfigure supply here.
+##
+## `max_jokers` is the most Joker-ranked tiles the pot may hold, whatever the bag
+## size (ADR-014). It is a figure of the whole bag, not of one player's deck: the
+## generator treats the Joker rank weight as zero once that allowance is spent, so
+## the rest of the bag draws the ordinary ranks in proportion to `rank_weights`.
 ##
 ## ADR-004 section 8 requires the resource to validate that every category has
 ## at least one positive weight.
 
 ## Generator and schema version, persisted with saves so a future generator
-## change can be detected (ADR-004 section 3).
-const SCHEMA_VERSION: int = 1
+## change can be detected (ADR-004 section 3). Version 4 removes Golden from the
+## edge-color vocabulary; old bags and tile records must not be replayed under
+## the four-color rules.
+const SCHEMA_VERSION: int = 4
 
-## Default bag size: one tile for every 12 x 12 board cell.
-const DEFAULT_BAG_SIZE: int = 144
+## Fallback bag size, used only when a rules instance is built in code. Keep it in
+## step with the value stored in `res://resources/rules/tile_generation_rules.tres`,
+## which is what a real match loads.
+const DEFAULT_BAG_SIZE: int = 52
+
+## Fallback Joker allowance, used only when a rules instance is built in code.
+## Keep it in step with the value stored in
+## `res://resources/rules/tile_generation_rules.tres`, which is what a real match
+## loads.
+const DEFAULT_MAX_JOKERS: int = 4
 
 ## Generator/schema version recorded alongside saved matches.
 @export var schema_version: int = SCHEMA_VERSION
@@ -26,11 +48,21 @@ const DEFAULT_BAG_SIZE: int = 144
 ## Number of tiles generated during MATCH_SETUP.
 @export var bag_size: int = DEFAULT_BAG_SIZE
 
+## Most Joker-ranked tiles the generated pot may contain (ADR-014).
+##
+## A cap at or above `bag_size` never binds, because the bag cannot hold more
+## tiles than that in total. Zero removes Jokers from the pot entirely. This is the
+## single source of truth for the allowance; generator code must not carry its own
+## copy of the number.
+@export var max_jokers: int = DEFAULT_MAX_JOKERS
+
 ## Relative weights, indexed by `TileEnums.TileRank`.
-@export var rank_weights: Array[float] = [1.0, 1.0, 1.0, 1.0]
+@export var rank_weights: Array[float] = [1.0, 1.0, 1.0, 1.0, 1.0]
 
 ## Relative weights, indexed by `TileEnums.FaceColor`.
 @export var face_color_weights: Array[float] = [1.0, 1.0]
+
+@export var suit_weights: Array[float] = [1.0, 1.0, 1.0, 1.0]
 
 ## Relative weights, indexed by `TileEnums.EdgeColor`.
 @export var edge_color_weights: Array[float] = [1.0, 1.0, 1.0, 1.0]
@@ -50,10 +82,18 @@ func validate() -> PackedStringArray:
 		)
 	if bag_size <= 0:
 		problems.append("bag_size must be positive, got %d" % bag_size)
+	if max_jokers < 0:
+		problems.append("max_jokers must not be negative, got %d" % max_jokers)
 	_collect_weight_problems(problems, "rank_weights", rank_weights, TileEnums.TileRank.size())
 	_collect_weight_problems(
-		problems, "face_color_weights", face_color_weights, TileEnums.FaceColor.size()
+		problems, "face_color_weights", face_color_weights, TileEnums.FaceColor.size() - 1
 	)
+	_collect_weight_problems(problems, "suit_weights", suit_weights, TileEnums.Suit.size() - 1)
+	if suit_weights.size() == TileEnums.Suit.size() - 1:
+		if suit_weights[0] + suit_weights[1] <= 0.0:
+			problems.append("red suits must have positive total weight")
+		if suit_weights[2] + suit_weights[3] <= 0.0:
+			problems.append("black suits must have positive total weight")
 	_collect_weight_problems(
 		problems, "edge_color_weights", edge_color_weights, TileEnums.EdgeColor.size()
 	)

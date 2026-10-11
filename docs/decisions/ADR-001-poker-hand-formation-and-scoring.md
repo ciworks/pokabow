@@ -205,3 +205,12 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or amend
 ## Amendments
 
 - 2026-09-21: The initial proposal was accepted without changes.
+- 2026-09-22: ADR-011's owner-approved amendment supersedes the fixed-five-only
+  hand and scoring scope in sections 1, 2, 5, and the decision confirmation.
+  Valid hands now have 2–5 tiles, use the existing category values, and score
+  each newly formed distinct hand once, including a larger hand formed later.
+  The five-card rank patterns, one-time identity rule, red/black exclusion, and
+  Five-of-a-Kind value remain in force. See ADR-011 sections 3 and 10.
+  ADR-011's later owner correction also rejects moves that would create a
+  connected run longer than five tiles. The longer-run window rule above applies
+  only to legacy or synthetic board states, not legal new moves.

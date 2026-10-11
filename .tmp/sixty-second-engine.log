@@ -1,0 +1,5 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[harness] res://tests/unit/test_turn_timer.gd
+  ok   test_each_player_has_sixty_seconds_before_timeout
+  ok   test_late_commit_is_rejected_and_next_turn_is_not_consumed

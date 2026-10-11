@@ -12,28 +12,36 @@ extends Resource
 ## instead of one field per category, so adding a category is a single-entry
 ## change and `points_for()` cannot drift out of step with the enum.
 ##
-## Phase 1 defaults (ADR-001 section 4):
+## Phase 1 defaults (ADR-012 section 4):
 ##
-##     NONE             0
-##     PAIR             2
-##     TWO_PAIR         4
-##     THREE_OF_A_KIND  6
-##     FULL_HOUSE      10
-##     FOUR_OF_A_KIND  12
-##     FIVE_OF_A_KIND  16
+##     NONE              0
+##     PAIR              2
+##     TWO_PAIR          4
+##     STRAIGHT_3        5
+##     THREE_OF_A_KIND   6
+##     STRAIGHT_4        9
+##     FULL_HOUSE       10
+##     FOUR_OF_A_KIND   12
+##
+## Five-of-a-Kind has no entry: ADR-012 section 1 removed it from the valid hand
+## list, so five identical ranks are refused rather than scored.
 ##
 ## Phase 1 has no multipliers (ADR-007 section 11), so a category's value is the
 ## whole award for that category.
 
 ## Rules/schema version, persisted with saves so a rebalance can be detected
 ## (ADR-004 section 3 pattern, ADR-007 section 11).
-const SCHEMA_VERSION: int = 1
+##
+## Version 2 records ADR-012 section 4: the point table lost Five-of-a-Kind and
+## gained the two sequence hands, so a match saved under version 1 is refused
+## rather than silently re-scored (ADR-012 section 6).
+const SCHEMA_VERSION: int = 2
 
 ## Rules/schema version recorded alongside saved matches.
 @export var schema_version: int = SCHEMA_VERSION
 
 ## Points per `ScoringEnums.PokerHandCategory`, indexed by enum value.
-@export var points_by_category: Array[int] = [0, 2, 4, 6, 10, 12, 16]
+@export var points_by_category: Array[int] = [0, 2, 4, 5, 6, 9, 10, 12]
 
 
 ## Returns a stable identifier for this rules version, persisted with saves.
@@ -104,6 +112,3 @@ func is_valid() -> bool:
 ## Returns a rules instance carrying the approved Phase 1 values.
 static func create_default() -> PokerScoreRules:
 	return PokerScoreRules.new()
-
-
-

@@ -13,7 +13,13 @@ config_version=5
 config/name="polkabow"
 run/main_scene="res://scenes/app/app_root.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
+boot_splash/bg_color=Color(0.07, 0.086, 0.118, 1)
+boot_splash/show_image=false
 config/icon="res://icon.svg"
+
+[debug]
+
+overlays=false
 
 [display]
 
@@ -27,6 +33,11 @@ window/handheld/orientation="sensor_landscape"
 
 project/assembly_name="polkabow"
 
+[polkabow]
+
+server_ip="192.168.0.1"
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

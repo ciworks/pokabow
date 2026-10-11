@@ -1,0 +1,435 @@
+## `BoardMetrics.NO_CELL` when that gesture did not begin on a staged tile.
+##
+## A board gesture is resolved on release rather than on the press, so this is what
+## the press recorded: released on the same cell it began on turns that tile,
+## released on another cell moves it there, and released off the board takes it out
+## of the line. Presentation-only - it records where a gesture started, and every
+## outcome still goes through an application command.
+var _move_from_cell: Vector2i = BoardMetrics.NO_CELL
+
+## The platform feedback service, injected by `AppRoot`, or null when there is
+## none (Milestone 8).
+##
+## Optional by design: every cue is null-safe and no rule path reads it, so a
+## screen without an adapter - the headless tests - behaves identically minus the
+## vibration (docs/sections/05-mobile-ux.md section 6).
+var feedback: FeedbackAdapter = null
+var _toast_panel: PanelContainer
+var _toast_label: Label
+var _toast_tween: Tween
+var _original_canvas_size: Vector2i
+var _original_orientation: int
+
+
+func _ready() -> void:
+	_original_canvas_size = get_window().content_scale_size
+	_original_orientation = DisplayServer.screen_get_orientation()
+	if DisplayServer.has_feature(DisplayServer.FEATURE_ORIENTATION):
+		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR)
+	get_window().size_changed.connect(_fit_canvas)
+	_fit_canvas()
+	_bind_nodes()
+	_connect_once(board_view.resized, _fit_deck_width)
+	_connect_once(deck_bar.resized, _fit_deck_width)
+	_connect_once(deck_panel.resized, _fit_deck_content)
+	_setup_input()
+	_setup_buttons()
+	_connect_once(resized, _fit_layout)
+	_fit_layout()
+	call_deferred("_fit_deck_width")
+	if summary_overlay is MatchEndPresentation:
+		(summary_overlay as MatchEndPresentation).clear()
+	_apply_swap_controls()
+	_refresh_all()
+
+
+func _fit_canvas() -> void:
+	var window: Window = get_window()
+	var landscape: bool = window.size.x > window.size.y
+	var width: int = mini(window.size.x, 1280 if landscape else 540)
+	var target := Vector2i(width, roundi(width * (720.0 / 1280.0 if landscape else 960.0 / 540.0)))
+	if window.content_scale_size != target:
+		window.content_scale_size = target
+
+
+func _exit_tree() -> void:
+	if resized.is_connected(_fit_layout):
+		resized.disconnect(_fit_layout)
+	var window: Window = get_window()
+	if window != null and window.size_changed.is_connected(_fit_canvas):
+		window.size_changed.disconnect(_fit_canvas)
+		window.content_scale_size = _original_canvas_size
+	if DisplayServer.has_feature(DisplayServer.FEATURE_ORIENTATION):
+		DisplayServer.screen_set_orientation(_original_orientation)
+
+
+## Keep the reference's vertical arrangement on phones and reclaim header space
+## in landscape. This only changes Control layout, never tile painting.
+func _fit_layout() -> void:
+	var landscape: bool = size.x > size.y
+	var root_margin: Control = get_node("Root") as Control
+	var inset: float = maxf(0.0, (size.x - 1000.0) * 0.5)
+	root_margin.offset_left = inset
+	root_margin.offset_right = -inset
+	var tools_row: Control = get_node("Root/Column/HeaderTools") as Control
+	var menu: Button = get_node("%OpenMenuButton") as Button
+	var menu_parent: Node = get_node("Root/Column/Hud") if landscape else tools_row
+	if menu.get_parent() != menu_parent:
+		menu.reparent(menu_parent, false)
+	tools_row.visible = not landscape
+	call_deferred("_fit_deck_width")
+	deck_panel.custom_minimum_size.y = 116.0 if landscape else 132.0
+	human_score_panel.custom_minimum_size.y = 80.0 if landscape else 94.0
+	ai_score_panel.custom_minimum_size.y = human_score_panel.custom_minimum_size.y
+	var pot: Control = get_node("%PotPanel") as Control
+	pot.custom_minimum_size.y = 92.0 if landscape else 108.0
+	if command_drawer != null:
+		command_drawer.call_deferred("_layout")
+
+
+## Keeps the centered rack within the board's actual grid width on every layout.
+func _fit_deck_width() -> void:
+	if board_view == null or deck_bar == null or deck_panel == null:
+		return
+	var board_width: float = board_view.global_board_rect().size.x
+	var target_width: float = board_width
+	if target_width > 0.0 and not is_equal_approx(deck_panel.custom_minimum_size.x, target_width):
+		deck_panel.custom_minimum_size.x = target_width
+	_fit_deck_content()
+
+
+from pathlib import Path
+import re
+
+path = Path('scenes/game/game_screen.tscn')
+original = path.read_text(encoding='utf-8')
+resources = original[:original.index('[sub_resource')]
+if 'id="13_drawer"' not in resources:
+    resources += '[ext_resource type="Script" path="res://scripts/presentation/game_command_drawer.gd" id="13_drawer"]\n\n'
+if 'id="14_settings"' not in resources:
+    resources += '[ext_resource type="Texture2D" path="res://assets/ui/settings.png" id="14_settings"]\n\n'
+if 'id="22_background"' not in resources:
+    resources += '[ext_resource type="Texture2D" path="res://assets/ui/default_background.png" id="22_background"]\n\n'
+if 'id="23_board_deck"' not in resources:
+    resources += '[ext_resource type="Texture2D" path="res://assets/ui/board_deck.png" id="23_board_deck"]\n\n'
+if 'id="26_close"' not in resources:
+    resources += '[ext_resource type="Texture2D" path="res://assets/ui/close.png" id="26_close"]\n\n'
+if 'id="27_bottom_navigation"' not in resources:
+    resources += '[ext_resource type="Script" path="res://scripts/presentation/game_bottom_navigation.gd" id="27_bottom_navigation"]\n\n'
+blocks = re.split(r'(?=\[node )', original[original.index('[node '):])
+nodes = {re.search(r'name="([^"]+)"', b)[1]: b for b in blocks if b.strip()}
+parts = [resources]
+parts.append('''[sub_resource type="StyleBoxFlat" id="AvatarTurnOutline"]
+draw_center = false
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+''')
+parts.append('[sub_resource type="StyleBoxEmpty" id="SettingsButtonEmpty"]\n\n')
+
+def style(id, bg, border, radius=16, margin=14):
+    parts.append(f'''[sub_resource type="StyleBoxFlat" id="{id}"]
+bg_color = Color({bg})
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color({border})
+corner_radius_top_left = {radius}
+corner_radius_top_right = {radius}
+corner_radius_bottom_left = {radius}
+corner_radius_bottom_right = {radius}
+content_margin_left = {margin}.0
+content_margin_right = {margin}.0
+content_margin_top = 10.0
+content_margin_bottom = 10.0
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+''')
+
+style('StyleBox_panel','0.07, 0.09, 0.11, 0.98','0.28, 0.33, 0.35, 1')
+style('HumanPanel','0.38, 0.06, 0.08, 1','0.85, 0.21, 0.24, 1')
+style('RivalPanel','0.035, 0.18, 0.33, 1','0.08, 0.52, 0.8, 1')
+style('PotPanel','0.22, 0.13, 0.07, 1','0.64, 0.42, 0.2, 1')
+style('RackPanel','0.19, 0.105, 0.06, 1','0.52, 0.32, 0.16, 1',20)
+style('ButtonNormal','0.09, 0.13, 0.17, 1','0.22, 0.3, 0.37, 1',12)
+style('ButtonHover','0.14, 0.21, 0.27, 1','0.45, 0.66, 0.77, 1',12)
+style('ButtonPressed','0.04, 0.09, 0.12, 1','0.3, 0.75, 0.62, 1',12)
+style('ButtonDisabled','0.09, 0.11, 0.13, 1','0.16, 0.2, 0.22, 1',12)
+parts.append('''[sub_resource type="SystemFont" id="InterfaceFont"]
+font_names = PackedStringArray("Bahnschrift", "Segoe UI", "DejaVu Sans")
+font_weight = 600
+
+[sub_resource type="Theme" id="InterfaceTheme"]
+default_font = SubResource("InterfaceFont")
+default_font_size = 18
+Button/colors/font_color = Color(0.95, 0.97, 0.98, 1)
+Button/colors/font_disabled_color = Color(0.42, 0.49, 0.54, 1)
+Button/styles/normal = SubResource("ButtonNormal")
+Button/styles/hover = SubResource("ButtonHover")
+Button/styles/pressed = SubResource("ButtonPressed")
+Button/styles/disabled = SubResource("ButtonDisabled")
+Button/styles/focus = SubResource("ButtonHover")
+OptionButton/styles/normal = SubResource("ButtonNormal")
+OptionButton/styles/hover = SubResource("ButtonHover")
+OptionButton/styles/pressed = SubResource("ButtonPressed")
+OptionButton/styles/disabled = SubResource("ButtonDisabled")
+
+''')
+
+def node(name, type, parent=None, props='', unique=False):
+    head = f'[node name="{name}" type="{type}"'
+    if parent is not None: head += f' parent="{parent}"'
+    parts.append(head + ']\n' + ('unique_name_in_owner = true\n' if unique else '') + props.strip() + '\n\n')
+
+full = 'layout_mode = 1\nanchors_preset = 15\nanchor_right = 1.0\nanchor_bottom = 1.0\ngrow_horizontal = 2\ngrow_vertical = 2\nmouse_filter = 2'
+container = 'layout_mode = 2\nmouse_filter = 2'
+node('GameScreen','Control', props=full+'\nscript = ExtResource("1_screen")\ntheme = SubResource("InterfaceTheme")')
+parts.append(nodes['Background'])
+node('Root','MarginContainer','.',full+'\ntheme_override_constants/margin_left = 16\ntheme_override_constants/margin_right = 16\ntheme_override_constants/margin_top = 16\ntheme_override_constants/margin_bottom = 16')
+node('Column','VBoxContainer','Root',container+'\ntheme_override_constants/separation = 12')
+node('HeaderTools','HBoxContainer','Root/Column',container)
+node('Brand','Label','Root/Column/HeaderTools',container+'\ntext = "POLKABOW"\nsize_flags_horizontal = 3\nvertical_alignment = 1\ntheme_override_font_sizes/font_size = 18\ntheme_override_colors/font_color = Color(0.92, 0.76, 0.48, 1)')
+node('OpenMenuButton','Button','Root/Column/HeaderTools','''layout_mode = 2
+custom_minimum_size = Vector2(48, 48)
+size_flags_vertical = 4
+tooltip_text = "Open match settings and turn actions"
+theme_override_colors/icon_pressed_color = Color(0.75, 0.75, 0.75, 1)
+theme_override_styles/normal = SubResource("SettingsButtonEmpty")
+theme_override_styles/hover = SubResource("SettingsButtonEmpty")
+theme_override_styles/pressed = SubResource("SettingsButtonEmpty")
+theme_override_styles/disabled = SubResource("SettingsButtonEmpty")
+icon = ExtResource("14_settings")
+icon_alignment = 1
+expand_icon = true''',True)
+node('Hud','HBoxContainer','Root/Column',container+'\ntheme_override_constants/separation = 10')
+
+def label(name,parent,text,size=18,extra='',unique=False):
+    node(name,'Label',parent,container+f'\ntext = "{text}"\ntheme_override_font_sizes/font_size = {size}\n'+extra,unique)
+
+def score(name,prefix,title,style_id):
+    p='Root/Column/Hud/'+name
+extends TestCase
+
+## Milestone 5 scene smoke tests (ADR-008 sections 4, 5, 7, 8, 9, and 13),
+## retargeted to the line-staging screen of ADR-011 sections 1, 3, 5, 6, 7, and
+## 11.
+##
+## ADR-008 section 13 puts scene smoke tests at level 3 and asks for few,
+## focused tests covering signal wiring, responsive layout, and command routing.
+## Rule correctness is already covered by the domain suites, so nothing here
+## re-tests a rule; these check that the UI submits intents, renders
+## authoritative state, is gated by the turn phase, and never computes a rule
+## result itself.
+##
+## ADR-011 section 11 replaces per-tile placement with a staging state. The flow
+## these tests fix is: a deck tap names the tile the next board tap stages, a
+## second tap on that same tile turns it a quarter-turn and the deck row draws it
+## turned, board taps build the pending line and it is drawn whole with one
+## validity verdict, a tap on a staged tile turns that staged tile instead of
+## taking it out of the line, dragging a staged tile off the board is what takes it
+## out, Rotate turns the tile the line last took without writing to the board,
+## Cancel returns every staged tile to the deck, and one Confirm commits the whole
+## line as one move. Swapping (section 6) returns deck tiles for equal
+## replacements and consumes the whole turn.
+##
+## ADR-011 section 7 makes a turn exactly one move, which removed the explicit
+## End Turn action: the hierarchy test asserts the control is gone rather than
+## wired, and the gating test asserts a committed line is what freezes input.
+##
+## Controllers are started with an explicit match id and seed so every run is
+## reproducible (ADR-004 section 9).
+##
+## The opponent moves on a SceneTreeTimer, and these tests never yield to the
+## engine's process step, so the turn always remains with the opponent after a
+## human commit. That makes the turn-phase assertions deterministic.
+
+const GAME_SCREEN_SCENE: String = "res://scenes/game/game_screen.tscn"
+const APP_ROOT_SCENE: String = "res://scenes/app/app_root.tscn"
+
+const HUMAN: StringName = TurnEnums.HUMAN_PLAYER_ID
+
+const TEST_MATCH_ID: StringName = &"ui-test"
+const TEST_SEED: int = 4242
+
+## Tiles a legal move places at minimum (ADR-011 sections 1 and 4).
+const TILES_PER_LINE: int = 2
+
+## The Phase 1 deck size every deck is filled to (ADR-010 section 1).
+const DECK_SIZE: int = DeckRules.DEFAULT_DECK_SIZE
+
+## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
+##
+## The screen drives the real controller, which loads the real generation rules,
+## so the bag holds 52 tiles (ADR-004 section 1, amended 2026-09-23) and the deal
+## leaves 40.
+const POT_AFTER_SETUP: int = TileGenerationRules.DEFAULT_BAG_SIZE - DECK_SIZE * 2
+
+## Gap that must be refused as a hole in a line (ADR-011 section 1).
+const LINE_GAP: int = PlacementEnums.PlacementRejection.LINE_GAP
+
+## Diagonal continuation that must be refused as a mixed orientation.
+const MIXED_ORIENTATION: int = PlacementEnums.PlacementRejection.MIXED_ORIENTATION
+
+
+func test_a_human_with_no_valid_move_sees_a_toast_and_loses_the_turn() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var controller: GameSessionController = screen.controller
+	var session: GameSessionState = controller.get_session()
+	var board: BoardState = controller.get_board()
+	var tile: TileDefinition = controller.human_deck()[0]
+	var filler: TileDefinition = TileDefinition.create(
+		&"test-no-move-filler", TileEnums.TileRank.ACE, TileEnums.FaceColor.RED,
+		[TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE]
+	)
+	var snapshots: Array[TileSnapshot] = []
+	for x: int in range(BoardEnums.OPENING_MIN, BoardEnums.OPENING_MIN + 5):
+		snapshots.append(TileSnapshot.create(filler, Vector2i(x, BoardEnums.OPENING_MIN), 0))
+	if not check(LineValidator.validate(board, snapshots).is_legal(), "fixture line must be legal"):
+		_release(screen)
+		return
+	board.commit_tiles(snapshots)
+	var turn_state: TurnState = session.get_turn_state()
+	turn_state.active_player_id = HUMAN
+	turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
+	var human_deck: Array[TileDefinition] = session._deck(HUMAN)
+	human_deck.clear()
+	human_deck.append(tile)
+	var notices: Array[String] = []
+	controller.notice.connect(func(message: String) -> void: notices.append(message))
+	controller._after_state_change()
+	check(not controller.is_human_turn(), "a hand with no legal move must pass the turn")
+	check_eq(turn_state.active_player_id, TurnEnums.AI_PLAYER_ID, "play passes to the opponent")
+	check_eq(turn_state.turn_number, 2, "the skipped turn advances the turn number")
+	check_eq(notices.back() if not notices.is_empty() else "", GameSessionController.NO_VALID_MOVE_NOTICE, "the exact no-move notice is emitted")
+	check(screen._is_toast_notice(GameSessionController.NO_VALID_MOVE_NOTICE), "the no-move notice is presented as a toast")
+	_release(screen)
+
+
+## One scoring move must reveal what it awarded, not merely announce a number
+## (AGENTS.md section 8, Milestone 8: edge and cluster visualization).
+##
+## The cells and the colour arrive on the events, so the board marks what really
+## scored rather than re-deriving it from the board - which is what keeps the
+## reveal and the ledger from ever disagreeing (ADR-008 section 4).
+func test_a_scoring_move_reveals_its_edges_and_clusters() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+
+	# One matching boundary and one paying cluster, in the order ADR-007 section 7
+	# records them: edge matches by boundary id, then clusters by colour.
+	var events: Array[ScoreEvent] = [
+		ScoreEvent.create(
+			&"score:move:m1:edge:edge:5,5-6,5",
+			&"move:m1",
+			&"human",
+			ScoringEnums.ScoreCategory.EDGE_MATCH,
+			1,
+			[Vector2i(5, 5), Vector2i(6, 5)],
+			{"boundary_id": "edge:5,5-6,5", "color": "BLUE"}
+		),
+		ScoreEvent.create(
+			&"score:move:m1:poker:hand:H:5:5",
+			&"move:m1",
+			&"human",
+			ScoringEnums.ScoreCategory.POKER_HAND,
+			10,
+			[
+				Vector2i(5, 5),
+				Vector2i(6, 5),
+				Vector2i(7, 5),
+				Vector2i(8, 5),
+				Vector2i(9, 5),
+			],
+			{"hand_id": "hand:H:5:5", "category": "FULL_HOUSE"}
+		),
+		ScoreEvent.create(
+			&"score:move:m1:cluster:blue:1",
+			&"move:m1",
+class_name TilePileView
+extends Control
+
+## Decorative shared bag artwork; pictured faces do not describe unseen tiles.
+## The screen supplies the authoritative count and deals from the bag opening.
+const POT_TEXTURE: Texture2D = preload("res://assets/ui/tile_pot.png")
+## Visible artwork plus a small edge allowance; excludes faint alpha noise in
+## the source's large transparent top and bottom margins.
+const POT_ART_REGION: Rect2 = Rect2(0, 264, 1005, 1030)
+## Soft ellipse cast under the bag. Cropped to the shape's visible pixels,
+## because the source canvas carries 128px of empty margin above and below it.
+const POT_SHADOW_TEXTURE: Texture2D = preload("res://assets/ui/tile_pot_shadow.png")
+const POT_SHADOW_ART_REGION: Rect2 = Rect2(0, 128, 970, 282)
+## The artwork is drawn this much larger than the space the header reserves for
+## it, so the pot reads as a foreground object rather than a small badge.
+const POT_DRAW_SCALE: float = 1.25
+## Fraction of the drawn artwork its base is lowered below the header slot. The
+## slot ends 12px above the board's outer border, so the bag is shifted only far
+## enough to clear that border: at 25% above its slot the bag cannot both stay
+## on screen and sit flush with the slot.
+const POT_BASE_DROP: float = 0.075
+
+## Tiles the pile currently stands for.
+var _tile_count: int = 0
+var _pot_texture: AtlasTexture
+var _pot_rect: Rect2
+var _shadow_texture: AtlasTexture
+var _shadow_rect: Rect2
+
+@onready var count_plate: NinePatchRect = $CountPlate
+@onready var count_label: Label = $CountPlate/AvailableTilesLabel
+@onready var caption: Label = $PotCaption
+
+
+func _ready() -> void:
+	# Decorative: pointer events pass straight through to whatever is behind.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Ignore transparent source margins without altering the supplied assets.
+	_pot_texture = AtlasTexture.new()
+	_pot_texture.atlas = POT_TEXTURE
+	_pot_texture.region = POT_ART_REGION
+	_shadow_texture = AtlasTexture.new()
+	_shadow_texture.atlas = POT_SHADOW_TEXTURE
+	_shadow_texture.region = POT_SHADOW_ART_REGION
+	resized.connect(_layout)
+	_layout()
+
+
+## Shows a pile standing for `tile_count` tiles still in the bag.
+func set_tile_count(tile_count: int) -> void:
+	var clamped: int = maxi(tile_count, 0)
+	if clamped == _tile_count:
+		return
+	_tile_count = clamped
+	queue_redraw()
+
+
+## Returns the number of tiles the pile stands for.
+func tile_count() -> int:
+	return _tile_count
+
+
+## Returns the point a dealt tile should leave from, in GLOBAL coordinates.
+##
+## The screen measures the deal's flight without knowing how the bag is drawn.
+func stack_origin_global() -> Vector2:
+	return get_global_transform() * (_pot_rect.position + _pot_rect.size * Vector2(0.5, 0.3))
+
+
+func _draw() -> void:
+	# Shadow first: the bag's base sits over the shadow's upper half.
+	if _shadow_texture != null:
+		draw_texture_rect(_shadow_texture, _shadow_rect, false)
+	if _pot_texture != null:
+		draw_texture_rect(_pot_texture, _pot_rect, false)
+
+
+func _layout() -> void:
+	var source_size: Vector2 = _pot_texture.get_size()
+	var scale: float = minf(size.x / source_size.x, size.y / source_size.y) * POT_DRAW_SCALE

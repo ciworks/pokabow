@@ -1,0 +1,199 @@
+tools\preview_game_layout.gd:38:			print(filename, " screen=", screen.size, " board=", screen.board_view.global_board_rect(), " deck=", screen.deck_view.get_global_rect(), " drawer=", screen.command_drawer.panel.get_global_rect())
+tests\integration\test_game_screen.gd:197:		"Root/Column/Body/BoardViewport/BoardView/TileLayer": "Control",
+tests\integration\test_game_screen.gd:198:		"Root/Column/Body/BoardViewport/BoardView/PreviewLayer": "Control",
+tests\integration\test_game_screen.gd:199:		"Root/Column/Body/BoardViewport/BoardView/HighlightLayer": "Control",
+tests\integration\test_game_screen.gd:200:		"Root/Column/Body/BoardViewport/BoardView/ScoreRevealLayer": "Control",
+tests\integration\test_game_screen.gd:201:		"Root/Column/Body/BoardViewport/BoardView/EffectsLayer": "Control",
+tests\integration\test_game_screen.gd:2046:	var board_rect: Rect2 = screen.board_view.global_board_rect()
+tests\integration\test_game_screen.gd:2055:	return screen.board_view.global_board_rect().position + Vector2(-50.0, -50.0)
+tests\integration\test_game_screen.gd:2126:	var board_rect: Rect2 = screen.board_view.global_board_rect()
+tools\preview_header_logo.gd:42:		var board_rect := screen.board_view.global_board_rect()
+scripts\presentation\board_view.gd:105:func get_board_rect() -> Rect2:
+scripts\presentation\board_view.gd:110:func global_board_rect() -> Rect2:
+scripts\presentation\board_view.gd:116:	return BoardMetrics.cell_from_point(global_board_rect(), point, BoardEnums.BOARD_WIDTH)
+scripts\presentation\board_view.gd:423:	# while `global_board_rect()` - which hit-tests every gesture - recomputes from
+scripts\presentation\game_screen.gd:210:	var board_width: float = board_view.global_board_rect().size.x
+scripts\presentation\game_screen.gd:1667:	var global_rect: Rect2 = board_view.global_board_rect()
+
+
+## Enables the tile controls only when the human may act.
+##
+## ADR-011 section 7 makes a turn one move, so every control here belongs to the
+## single move the turn allows: Play and Undo act on the pending line, while
+## Swap is the alternative move of section 6.
+func _set_interactive(enabled: bool) -> void:
+	# The swap set belongs to the player's own turn, so it is closed as soon as
+	# they may no longer act: a locked row must never keep collecting marks.
+	if not enabled:
+		_close_swap_mode()
+		# A drag belongs to the player's own turn too, so it is abandoned when
+		# the turn passes rather than left drawable over the board (AGENTS.md
+		# section 8: off-turn input is refused).
+		_end_drag()
+	if swap_confirm_button != null:
+		swap_confirm_button.disabled = not enabled
+	if swap_cancel_button != null:
+		swap_cancel_button.disabled = not enabled
+	_apply_swap_controls()
+	_refresh_navigation()
+
+
+## Returns where a popup for `cell` should appear, in this screen's coordinates.
+func _popup_anchor(cell: Vector2i) -> Vector2:
+	var global_rect: Rect2 = board_view.global_board_rect()
+	var cell_global: Vector2 = BoardMetrics.cell_rect(
+		global_rect, cell, BoardEnums.BOARD_WIDTH
+	).get_center()
+	return floating_scores.get_global_transform().affine_inverse() * cell_global
+
+
+## Returns the popup caption for one committed event.
+func _popup_text(event: ScoreEvent) -> String:
+	match event.category:
+		ScoringEnums.ScoreCategory.POKER_HAND:
+			var hand: String = String(event.evidence.get("category", ""))
+			return "+%d %s" % [event.points, _prettify(hand)]
+		ScoringEnums.ScoreCategory.EDGE_MATCH:
+			return "+%d Edge" % event.points
+		ScoringEnums.ScoreCategory.EDGE_CLUSTER:
+			return "+%d Cluster" % event.points
+	return "+%d" % event.points
+
+
+## Returns the popup colour for one committed event.
+func _popup_color(event: ScoreEvent) -> Color:
+	match event.category:
+		ScoringEnums.ScoreCategory.POKER_HAND:
+class_name BoardRenderState
+extends RefCounted
+
+## What the board layers draw, derived from authoritative state
+## (ADR-008 section 9).
+##
+## One instance is shared by the four board layers so they always agree about
+## the geometry and the pending placement. It holds references to authoritative
+## objects (`BoardState`, `TileSnapshot`) rather than copies, so a layer can
+## never draw a tile that the session does not actually hold.
+##
+## Nothing here mutates game state, and nothing here decides legality: whether a
+## pending placement is legal arrives as `pending_valid` from the application
+## layer, which got it from `PlacementValidator` (ADR-008 section 4:
+## presentation reflects state, it does not own rules).
+##
+## `pending_line` is the uncommitted line - tiles that are *not* on the board yet.
+## Keeping them here rather than in the board is what makes a preview incapable of
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+script = ExtResource("2_board")
+
+[node name="TileLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1192569401]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_tile_layer")
+
+[node name="BoardFrame" type="NinePatchRect" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1509824097]
+layout_mode = 0
+texture = ExtResource("20_board_frame")
+draw_center = false
+patch_margin_left = 128
+patch_margin_top = 128
+patch_margin_right = 128
+patch_margin_bottom = 128
+
+[node name="HighlightLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=716925728]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_highlight")
+
+[node name="PreviewLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1706127183]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_preview")
+
+[node name="ClusterDisplayLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=437358953]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("12_cluster")
+
+[node name="ScoreRevealLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1955324976]
+unique_name_in_owner = true
+anchors_preset = 0
+mouse_filter = 2
+script = ExtResource("6_qs4dp")
+
+[node name="EffectsLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1012152133]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("6_effects")
+
+[node name="DebugOverlay" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1980842878]
+unique_name_in_owner = true
+anchors_preset = 0
+mouse_filter = 2
+script = ExtResource("8_dagq5")
+
+[node name="DeckBar" type="HBoxContainer" parent="Root/Column" unique_id=1990410009]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+alignment = 1
+
+[node name="DeckPanel" type="TextureRect" parent="Root/Column/DeckBar" unique_id=172467655]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("23_board_deck")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="RackColumn" type="VBoxContainer" parent="Root/Column/DeckBar/DeckPanel" unique_id=1399526047]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 38.0
+offset_top = 14.0
+offset_right = -38.0
+offset_bottom = -22.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 4
+
+[node name="RackHeader" type="HBoxContainer" parent="Root/Column/DeckBar/DeckPanel/RackColumn" unique_id=1504725270]
+layout_mode = 2
+mouse_filter = 2
+

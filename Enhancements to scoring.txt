@@ -1,0 +1,85 @@
+# Enhancements to scoring
+
+## Score Calculation
+
+Scoring depends on a combination of the tile 'symbol' or 'card' (Jack, Queen, King and Ace, Joker), the 'suit' (Hearts, Clubs, Spades and Diamonds) and the 'edges' (Red, Yellow, Green, Blue,and Golden)
+
+## Individual Card Point Scores
+
+The first consideration is the 'base' score of the hand assuming that the hand is a valid hand. This is based on the total of the individual card values.
+
+Jack (J) = 1 point
+
+Queen (Q) = 2 points
+
+King (K) = 3 points
+
+Ace (A) = 4 points 
+
+Joker (W) = 5 points
+
+## Base Hand Point Scores
+
+The base score of a hand is the total of the individual card scores. Here are some examples...
+
+J + J + J = 3 points
+
+J + Q + K = 6 points
+
+Q + Q + Q + Q = 8 points
+
+Q + K + A = 9 points
+
+Q + Q + K + K = 10 points
+
+
+## Matching Cards Multiplier
+
+The score of a hand can be improved by having 'matching' cards within the hand. The cards can match on colour, suit and exact card.
+
+The matching cards multiplier has a default value of 1 so therefore has no effect.The multiplier is then adjusted depending on which sort of card match is present.
+
+NOTE: Only 1 of the following 3 multipliers will be applied, they are not cumulative.
+Match Card Colour Multiplier
+
+If a hand's cards match on colour the base hand score is multiplied by 2.
+
+Example:
+
+### Matching Suit + Matching Colour Multiplier
+
+(Q Clubs) + (Q Spades) + (Q Clubs) Base score = 6, Matching card multiplier = 2 (Same Colour), Total score = 6 * 2 = 12
+
+### Matching Card Suit Multiplier
+
+If a hand's cards match on suit the base hand score is multiplied by 3.
+
+(J Clubs) + (Q Clubs) + (K Clubs) + (A Clubs) Base Score = 10, Matching card multiplier = 3 (Same Suit), Total score = 10 * 30 = 30
+
+### Exact Card Match Multiplier
+
+If a hand's cards are an exact match, i.e. all cards in hand are the same card symbol AND suit then the base hand score is multiplied by 4.
+
+NOTE: This can only happen with hands which are by definition all the same card, i.e. 'pair', '3 of a kind' and '4 of a kind'.
+
+(K Hearts) * 4 Base score = 12, Matching card multiplier = 4 (Exact Same card), Total score = 12 * 4 = 48
+
+## Matching Edge Multipliers
+
+The score of a hand can also be improved further by having matching colour 'edges' within the hand.
+
+The current edge colours are:
+
+RED, YELLOW, BLUE, GREEN.
+
+A new GOLDEN edge colour will be introduced that will act as a wildcard.
+
+The edge multiplier starts off at a value of 1 so therefore has no effect. For each pair of edges which match, this edge multiplier is increased by 1.
+
+The GOLDEN colour edge is a 'wildcard' and will match any other colour and increases the edge multiplier by 1 in the same way as a standard colour match.
+
+NOTE: If a GOLDEN edge is matched to another GOLDEN edge this adds 2 to the edge multiplier.
+
+This edge multiplier is then multiplied by the hand score so far after the 'base hand score' has been multiplied by the 'matching card multiplier' to arrive at the final hand score.
+
+NOTE: Only newly matching edges created by the current move tiles being played count in the edge multiplier. Existing matching edges between tiles already on the board do NOT count in the multiplier.

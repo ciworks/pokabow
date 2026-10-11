@@ -1,0 +1,360 @@
+[gd_scene format=3 uid="uid://dgu3k3bp86op"]
+
+[ext_resource type="Script" uid="uid://djcefqsfh53du" path="res://scripts/presentation/game_screen.gd" id="1_screen"]
+[ext_resource type="Script" uid="uid://bdgqv13an2por" path="res://scripts/presentation/board_view.gd" id="2_board"]
+[ext_resource type="Script" uid="uid://c3gtuu53m4un6" path="res://scripts/presentation/board_tile_layer.gd" id="3_tile_layer"]
+[ext_resource type="Script" uid="uid://d1p7xkfcyeexg" path="res://scripts/presentation/board_highlight_layer.gd" id="4_highlight"]
+[ext_resource type="Script" uid="uid://cpnlai624rs57" path="res://scripts/presentation/board_preview_layer.gd" id="5_preview"]
+[ext_resource type="Script" uid="uid://ceg7wsiwchl2s" path="res://scripts/presentation/board_effect_layer.gd" id="6_effects"]
+[ext_resource type="Script" uid="uid://b1a1i4tvypphk" path="res://scripts/presentation/score_reveal_layer.gd" id="6_qs4dp"]
+[ext_resource type="Script" uid="uid://dc0dt8jagx82v" path="res://scripts/presentation/tile_pile_view.gd" id="7_664sp"]
+[ext_resource type="Script" uid="uid://5058aup06e2b" path="res://scripts/presentation/board_input_controller.gd" id="7_input"]
+[ext_resource type="Script" uid="uid://h0mob0wjk3r7" path="res://scripts/presentation/debug_overlay.gd" id="8_dagq5"]
+[ext_resource type="Script" uid="uid://dlcrc0w3gg2qd" path="res://scripts/presentation/floating_scores.gd" id="9_scores"]
+[ext_resource type="Script" uid="uid://84qy7swejcdg" path="res://scripts/presentation/deck_view.gd" id="10_deck"]
+[ext_resource type="Script" uid="uid://cmkl7iu12kgld" path="res://scripts/presentation/deal_layer.gd" id="11_fvr6p"]
+[ext_resource type="Script" uid="uid://cq2rf6mhrugeh" path="res://scripts/presentation/cluster_display_layer.gd" id="12_cluster"]
+[ext_resource type="Script" uid="uid://f2qag4u6307g" path="res://scripts/presentation/game_command_drawer.gd" id="13_drawer"]
+[ext_resource type="Texture2D" uid="uid://dawwo27xeltaq" path="res://assets/ui/settings.png" id="14_settings"]
+[ext_resource type="Texture2D" uid="uid://b0hbic33uju6o" path="res://assets/ui/avatar_panel_default.png" id="15_avatar_panel"]
+[ext_resource type="Texture2D" uid="uid://cao7nn8qiuvev" path="res://assets/board/characters/avatar_default.png" id="16_avatar"]
+[ext_resource type="Script" uid="uid://crv46mjrtt36x" path="res://scripts/presentation/player_score_art.gd" id="17_score_art"]
+[ext_resource type="Script" path="res://scripts/presentation/turn_timer_outline.gd" id="28_turn_timer"]
+[ext_resource type="Texture2D" uid="uid://cmvfpaahmsgic" path="res://assets/ui/avatar_panel_rival.png" id="18_rival_panel"]
+[ext_resource type="Texture2D" uid="uid://ci73oc0hllme3" path="res://assets/board/characters/avatar_default_rival.png" id="19_rival_avatar"]
+[ext_resource type="Texture2D" uid="uid://clhe3pmr256q8" path="res://assets/board/game_border.png" id="20_board_frame"]
+[ext_resource type="Texture2D" uid="uid://dce2gfgn51433" path="res://assets/ui/board_deck.png" id="23_board_deck"]
+[ext_resource type="Script" uid="uid://b8jnvbj14gd4p" path="res://scripts/presentation/confetti_layer.gd" id="26_0lrm5"]
+[ext_resource type="Texture2D" uid="uid://coq5xq2p57bpi" path="res://assets/ui/close.png" id="26_close"]
+[ext_resource type="Script" uid="uid://ci7l7e407wk7l" path="res://scripts/presentation/game_bottom_navigation.gd" id="27_bottom_navigation"]
+[ext_resource type="Script" uid="uid://b0c0bxdaec7j7" path="res://scripts/presentation/match_end_presentation.gd" id="27_match_end"]
+
+[sub_resource type="StyleBoxFlat" id="ButtonDisabled"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.09, 0.11, 0.13, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.16, 0.2, 0.22, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="StyleBoxFlat" id="ButtonHover"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.14, 0.21, 0.27, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.45, 0.66, 0.77, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="StyleBoxFlat" id="ButtonNormal"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.09, 0.13, 0.17, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.22, 0.3, 0.37, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="StyleBoxFlat" id="ButtonPressed"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.04, 0.09, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.3, 0.75, 0.62, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="SystemFont" id="InterfaceFont"]
+font_names = PackedStringArray("Bahnschrift", "Segoe UI", "DejaVu Sans")
+font_weight = 600
+subpixel_positioning = 0
+
+[sub_resource type="Theme" id="InterfaceTheme"]
+default_font = SubResource("InterfaceFont")
+default_font_size = 18
+Button/colors/font_color = Color(0.95, 0.97, 0.98, 1)
+Button/colors/font_disabled_color = Color(0.42, 0.49, 0.54, 1)
+Button/styles/disabled = SubResource("ButtonDisabled")
+Button/styles/focus = SubResource("ButtonHover")
+Button/styles/hover = SubResource("ButtonHover")
+Button/styles/normal = SubResource("ButtonNormal")
+Button/styles/pressed = SubResource("ButtonPressed")
+OptionButton/styles/disabled = SubResource("ButtonDisabled")
+OptionButton/styles/hover = SubResource("ButtonHover")
+OptionButton/styles/normal = SubResource("ButtonNormal")
+OptionButton/styles/pressed = SubResource("ButtonPressed")
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_f7bvm"]
+load_path = "res://.godot/imported/default_background.png-c5d357b988df6da182b906339b467aa8.ctex"
+
+[sub_resource type="StyleBoxEmpty" id="SettingsButtonEmpty"]
+
+[sub_resource type="StyleBoxFlat" id="AvatarTurnOutline"]
+draw_center = false
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.07, 0.09, 0.11, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.28, 0.33, 0.35, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[node name="GameScreen" type="Control" unique_id=1916252917]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = SubResource("InterfaceTheme")
+script = ExtResource("1_screen")
+
+[node name="Background" type="TextureRect" parent="." unique_id=1293800763]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = SubResource("CompressedTexture2D_f7bvm")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Root" type="MarginContainer" parent="." unique_id=1070611768]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="Column" type="VBoxContainer" parent="Root" unique_id=189979346]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 12
+
+[node name="HeaderTools" type="HBoxContainer" parent="Root/Column" unique_id=1865484477]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Brand" type="Label" parent="Root/Column/HeaderTools" unique_id=1043454517]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.92, 0.76, 0.48, 1)
+theme_override_font_sizes/font_size = 18
+text = "POLKABOW"
+vertical_alignment = 1
+
+[node name="OpenMenuButton" type="Button" parent="Root/Column/HeaderTools" unique_id=86566607]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(48, 48)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Open match settings and turn actions"
+theme_override_colors/icon_pressed_color = Color(0.75, 0.75, 0.75, 1)
+theme_override_styles/focus = SubResource("SettingsButtonEmpty")
+theme_override_styles/normal = SubResource("SettingsButtonEmpty")
+theme_override_styles/pressed = SubResource("SettingsButtonEmpty")
+theme_override_styles/hover = SubResource("SettingsButtonEmpty")
+theme_override_styles/disabled = SubResource("SettingsButtonEmpty")
+icon = ExtResource("14_settings")
+icon_alignment = 1
+expand_icon = true
+
+[node name="Hud" type="HBoxContainer" parent="Root/Column" unique_id=531532990]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 10
+
+[node name="HumanScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=588964454]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 94)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_styles/panel = SubResource("SettingsButtonEmpty")
+
+[node name="HumanScoreBox" type="Control" parent="Root/Column/Hud/HumanScorePanel" unique_id=1627722504]
+layout_mode = 2
+mouse_filter = 2
+script = ExtResource("17_score_art")
+
+[node name="Plate" type="NinePatchRect" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=307373539]
+layout_mode = 0
+texture = ExtResource("15_avatar_panel")
+patch_margin_left = 12
+patch_margin_top = 12
+patch_margin_right = 12
+patch_margin_bottom = 12
+
+[node name="TurnOutline" type="PanelContainer" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=1089964734]
+layout_mode = 0
+mouse_filter = 2
+script = ExtResource("28_turn_timer")
+theme_override_styles/panel = SubResource("AvatarTurnOutline")
+
+[node name="Portrait" type="TextureRect" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=683538940]
+layout_mode = 0
+mouse_filter = 2
+texture = ExtResource("16_avatar")
+expand_mode = 1
+extends SceneTree
+
+func _initialize() -> void:
+	call_deferred("_run")
+
+func _run() -> void:
+	var suite = load("res://tests/integration/test_game_screen.gd").new()
+	for method: String in [
+		"test_game_screen_provides_the_adr_008_hierarchy",
+		"test_player_panel_always_shows_you",
+		"test_human_input_is_gated_to_the_human_action_phase",
+		"test_command_drawer_opens_closes_and_returns_to_rack_for_swap",
+		"test_command_preview_matches_commit_without_mutating_board",
+		"test_bottom_navigation_play_and_undo_use_staged_line_commands",
+		"test_bottom_navigation_swap_uses_existing_selection_and_confirmation",
+		"test_bottom_navigation_quit_requests_the_hub",
+		"test_a_second_tap_on_the_selected_deck_tile_turns_it_in_the_row",
+		"test_rotating_a_staged_tile_updates_the_line_without_writing_to_the_board",
+	]:
+		var before: int = suite.assertions
+		suite.call(method)
+		if suite.assertions == before:
+			suite.failures.append(method + " aborted without assertions")
+		print(method, ": assertions=", suite.assertions - before)
+	for failure: String in suite.failures:
+		push_error(failure)
+	print("LAYOUT CHECK: ", suite.assertions, " assertions, ", suite.failures.size(), " failures")
+	var failed: bool = not suite.failures.is_empty()
+	suite = null
+	quit(1 if failed else 0)
+extends SceneTree
+
+func _initialize() -> void:
+	call_deferred("_run")
+
+func _run() -> void:
+	root.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	root.content_scale_size = Vector2i.ZERO
+	root.size = Vector2i(540, 960)
+	var screen: GameScreen = load("res://scenes/game/game_screen.tscn").instantiate()
+	root.add_child(screen)
+	var controller := GameSessionController.new()
+	controller.save_path = "user://layout_preview_only.json"
+	screen.add_child(controller)
+	screen.attach_controller(controller)
+	controller.start_new_match(&"layout-preview", 4242)
+	screen.set_player_display_name("You")
+	var deck: Array[TileDefinition] = controller.human_deck()
+	var staged: bool = false
+	for a: int in range(deck.size()):
+		for b: int in range(a + 1, deck.size()):
+			if deck[a].rank == deck[b].rank:
+				controller.stage_tile(deck[a].tile_id, Vector2i(5, 5))
+				controller.stage_tile(deck[b].tile_id, Vector2i(6, 5))
+				staged = true
+				break
+		if staged:
+			break
+	await create_timer(5.0).timeout
+	for dimensions: Vector2i in [Vector2i(540, 960), Vector2i(360, 800), Vector2i(1280, 720)]:
+		root.size = dimensions
+		for opened: bool in [false, true]:
+			screen.command_drawer.set_open(opened)
+			await create_timer(0.4).timeout
+			await RenderingServer.frame_post_draw
+			var filename: String = "res://layout-%dx%d-%s.png" % [dimensions.x, dimensions.y, "open" if opened else "closed"]
+			root.get_texture().get_image().save_png(filename)
+			print(filename, " screen=", screen.size, " board=", screen.board_view.global_board_rect(), " deck=", screen.deck_view.get_global_rect(), " drawer=", screen.command_drawer.panel.get_global_rect())
+	root.size = Vector2i(360, 800)
+	await create_timer(0.2).timeout
+	screen.command_drawer.set_open(true, false)
+	var board_presses: Array[int] = []
+	screen.board_input.cell_tapped.connect(func(_cell: Vector2i) -> void: board_presses.append(1))
+	_click(screen.get_node("%CloseMenuButton").get_global_rect().get_center())
+	await create_timer(0.3).timeout
+	var close_works: bool = not screen.command_drawer.is_open
+	_click(screen.get_node("%OpenMenuButton").get_global_rect().get_center())
+	await create_timer(0.3).timeout
+	var settings_works: bool = screen.command_drawer.is_open
+	_click(Vector2(45, 310))
+	await create_timer(0.3).timeout
+	var outside_works: bool = not screen.command_drawer.is_open and board_presses.is_empty()
+	print("POINTER CHECK: close=", close_works, " settings=", settings_works, " outside_consumed=", outside_works)
+	screen.queue_free()
+	await process_frame
+	quit(0 if close_works and settings_works and outside_works else 1)
+
+func _click(point: Vector2) -> void:
+	for pressed: bool in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.position = point
+		event.global_position = point
+		event.pressed = pressed
+		root.push_input(event, true)

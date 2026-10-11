@@ -12,12 +12,13 @@ extends RefCounted
 ## The record is versioned because ADR-004 section 3 requires the serialization
 ## format to be versioned.
 
-const SCHEMA_VERSION: int = 1
+const SCHEMA_VERSION: int = 3
 
 var schema_version: int = SCHEMA_VERSION
 var tile_id: StringName = &""
 var rank: int = 0
 var face_color: int = 0
+var suit: int = 0
 var edges: Array[int] = []
 
 
@@ -30,6 +31,13 @@ func is_valid() -> bool:
 	if not TileEnums.is_valid_rank(rank):
 		return false
 	if not TileEnums.is_valid_face_color(face_color):
+		return false
+	if not TileEnums.is_valid_suit(suit):
+		return false
+	if rank == TileEnums.TileRank.JOKER:
+		if suit != TileEnums.Suit.NONE or face_color != TileEnums.FaceColor.NONE:
+			return false
+	elif suit == TileEnums.Suit.NONE or TileEnums.color_for_suit(suit) != face_color:
 		return false
 	if edges.size() != TileEnums.EDGE_COUNT:
 		return false
@@ -46,6 +54,7 @@ func to_dictionary() -> Dictionary:
 		"tile_id": String(tile_id),
 		"rank": rank,
 		"face_color": face_color,
+		"suit": suit,
 		"edges": edges.duplicate(),
 	}
 
@@ -60,6 +69,7 @@ static func from_dictionary(source: Dictionary) -> TileDto:
 	dto.tile_id = StringName(String(source.get("tile_id", "")))
 	dto.rank = int(source.get("rank", -1))
 	dto.face_color = int(source.get("face_color", -1))
+	dto.suit = int(source.get("suit", -1))
 	dto.edges = []
 	var raw_edges: Variant = source.get("edges", [])
 	if raw_edges is Array:

@@ -15,13 +15,21 @@ extends Control
 ## fetched from a global, and it is injected after this node is ready, so
 ## `attach_controller` performs the wiring.
 
-## Score popup colours per category.
-const POKER_COLOR: Color = Color(1.0, 0.86, 0.42, 1.0)
-const EDGE_COLOR: Color = Color(0.52, 0.78, 1.0, 1.0)
-const CLUSTER_COLOR: Color = Color(0.55, 0.94, 0.62, 1.0)
+## Raised when the player asks to leave the match and go back to the hub.
+##
+## A signal rather than a direct call, because leaving a match means releasing
+## the match services, and only the composition root owns them (ADR-008 section
+## 5). The screen reports the wish and holds no reference to the shell, so
+## Presentation stays out of Application (ADR-008 section 1).
+signal hub_requested
 
-## Vertical gap between stacked popups so simultaneous awards stay readable.
-const POPUP_STAGGER: float = 26.0
+var _api_score_preview: Dictionary = {}
+
+
+func set_api_score_preview(score: Dictionary) -> void:
+	_api_score_preview = score.duplicate(true)
+	if is_node_ready() and controller != null:
+		_refresh_command_context()
 
 ## Human-readable names for the two Phase 1 players.
 const HUMAN_LABEL: String = "You"
@@ -41,21 +49,36 @@ const TURN_HIGHLIGHT_COLOR: Color = Color(1.0, 0.87, 0.30, 1.0)
 ## Thickness of the turn highlight outline, in pixels.
 const TURN_HIGHLIGHT_WIDTH: int = 3
 
+## Usable wood recess within the original tray artwork, excluding rails/base.
+const DECK_RECESS: Rect2 = Rect2(0.04, 0.22, 0.92, 0.46)
+
+var _timer_warning_turn: int = -1
+var _timer_warning_second: int = -1
+const TOAST_HOLD_SECONDS: float = 4.0
+const TOAST_FADE_SECONDS: float = 0.28
+const TOAST_BACKGROUND: Texture2D = preload("res://assets/ui/toast_banner.png")
+const TOAST_OPENING_TEXT: String = "The opening hand needs at least two tiles"
+const TOAST_LINE_TEXT: String = "A line goes in one row or one column"
+const TOAST_NO_VALID_MOVE_TEXT: String = GameSessionController.NO_VALID_MOVE_NOTICE
+
 @onready var board_view: BoardView = %BoardView
+@onready var deck_bar: HBoxContainer = %DeckBar
+@onready var deck_panel: TextureRect = %DeckPanel
+@onready var bottom_navigation: GameBottomNavigation = %BottomNavigation
 @onready var board_input: BoardInputController = %BoardInputController
 @onready var available_tiles_label: Label = %AvailableTilesLabel
 @onready var tile_pile_view: TilePileView = %TilePileView
 @onready var deal_layer: DealLayer = %DealLayer
+@onready var confetti_layer: ConfettiLayer = %ConfettiLayer
 @onready var deck_view: DeckView = %DeckView
-@onready var rotate_button: Button = %RotateButton
-@onready var confirm_button: Button = %ConfirmButton
-@onready var cancel_button: Button = %CancelButton
-@onready var swap_button: Button = %SwapButton
 @onready var swap_confirm_button: Button = %SwapConfirmButton
 @onready var swap_cancel_button: Button = %SwapCancelButton
 @onready var restart_button: Button = %RestartButton
+@onready var resign_button: Button = %ResignButton
+@onready var summary_hub_button: Button = %SummaryHubButton
 @onready var difficulty_picker: OptionButton = %DifficultyPicker
 @onready var human_score_value: Label = %HumanScoreValue
+@onready var human_score_title: Label = %HumanScoreTitle
 @onready var ai_score_value: Label = %AiScoreValue
 @onready var human_score_panel: PanelContainer = %HumanScorePanel
 @onready var ai_score_panel: PanelContainer = %AiScorePanel
@@ -68,18 +91,23 @@ const TURN_HIGHLIGHT_WIDTH: int = 3
 @onready var recovery_overlay: Control = %RecoveryOverlay
 @onready var recovery_body: Label = %RecoveryBody
 @onready var recovery_restart_button: Button = %RecoveryRestartButton
+@onready var feedback_layer: Control = %FeedbackLayer
+@onready var command_drawer: GameCommandDrawer = %CommandDrawer
+@onready var resign_confirmation_dialog: ConfirmationDialog = %ResignConfirmationDialog
 
 ## The application-layer controller this screen drives, or null before boot.
 var controller: GameSessionController = null
 
-## The un-highlighted score-panel style, captured from the scene before any
-## highlight is applied, so a panel returns to exactly the look it was authored
-## with rather than falling back to the engine's default panel.
-var _base_panel_style: StyleBox = null
 
-## Cached highlighted style, built once from `_base_panel_style` because the HUD
-## refreshes on every state change.
-var _highlight_panel_style: StyleBox = null
+## Applies the opponent chosen by the pre-match reveal to the rival score card.
+func set_rival_portrait(portrait: Texture2D) -> void:
+	if portrait == null:
+		return
+	var portrait_view: TextureRect = get_node_or_null(
+		"Root/Column/Hud/AiScorePanel/AiScoreBox/Portrait"
+	) as TextureRect
+	if portrait_view != null:
+		portrait_view.texture = portrait
 
 ## Deck identities the row has already drawn, so `_refresh_deck` can tell which
 ## tiles are new and deal only those.
@@ -109,6 +137,10 @@ var _swap_mode: bool = false
 ## untouched (ADR-011 section 5).
 var _drag_tile_id: StringName = &""
 
+const DeckDragPreviewScript = preload("res://scripts/presentation/deck_drag_preview.gd")
+var _deck_drag_preview: DeckDragPreviewScript = null
+var _deck_drag_size: Vector2 = Vector2.ZERO
+
 ## The staged board cell the current board gesture began on, or
 ## `BoardMetrics.NO_CELL` when that gesture did not begin on a staged tile.
 ##
@@ -126,16 +158,122 @@ var _move_from_cell: Vector2i = BoardMetrics.NO_CELL
 ## screen without an adapter - the headless tests - behaves identically minus the
 ## vibration (docs/sections/05-mobile-ux.md section 6).
 var feedback: FeedbackAdapter = null
+var _toast_panel: PanelContainer
+var _toast_label: Label
+var _toast_tween: Tween
+var _original_canvas_size: Vector2i
 
 
 func _ready() -> void:
+	_original_canvas_size = get_window().content_scale_size
+	get_window().size_changed.connect(_fit_canvas)
+	_fit_canvas()
 	_bind_nodes()
+	_prepare_deck_texture()
+	_connect_once(board_view.resized, _fit_deck_width)
+	_connect_once(deck_bar.resized, _fit_deck_width)
+	_connect_once(deck_panel.resized, _fit_deck_content)
 	_setup_input()
 	_setup_buttons()
-	if summary_overlay != null:
-		summary_overlay.visible = false
+	_connect_once(resized, _fit_layout)
+	_fit_layout()
+	call_deferred("_fit_deck_width")
+	if summary_overlay is MatchEndPresentation:
+		(summary_overlay as MatchEndPresentation).clear()
 	_apply_swap_controls()
 	_refresh_all()
+
+
+## Route the configured mouse wheel actions through the same bounded zoom steps
+## as the header buttons. Disabled-endpoint requests are consumed without
+## disturbing an in-progress board or tile gesture.
+func _unhandled_input(event: InputEvent) -> void:
+	if not event.is_pressed():
+		return
+	if event.is_action_pressed("mouse_wheel_zoom_in"):
+		if board_view != null and board_view.zoom < BoardView.CLOSE_ZOOM:
+			_set_board_zoom(true)
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("mouse_wheel_zoom_out"):
+		if board_view != null and board_view.zoom > BoardView.OVERVIEW_ZOOM:
+			_set_board_zoom(false)
+		get_viewport().set_input_as_handled()
+
+
+func _fit_canvas() -> void:
+	# Keep a portrait play area even in wide desktop or multi-window viewports.
+	var window: Window = get_window()
+	var target := Vector2i(540, 960)
+	if window.content_scale_size != target:
+		window.content_scale_size = target
+
+
+func _exit_tree() -> void:
+	if resized.is_connected(_fit_layout):
+		resized.disconnect(_fit_layout)
+	var window: Window = get_window()
+	if window != null and window.size_changed.is_connected(_fit_canvas):
+		window.size_changed.disconnect(_fit_canvas)
+		window.content_scale_size = _original_canvas_size
+
+
+## Keep the portrait layout independent of the physical window's orientation.
+func _fit_layout() -> void:
+	var root_margin: Control = get_node("Root") as Control
+	var inset: float = maxf(0.0, (size.x - 1000.0) * 0.5)
+	root_margin.offset_left = inset
+	root_margin.offset_right = -inset
+	call_deferred("_fit_deck_width")
+	human_score_panel.custom_minimum_size.y = 94.0
+	ai_score_panel.custom_minimum_size.y = human_score_panel.custom_minimum_size.y
+	var pot: Control = get_node("%PotPanel") as Control
+	pot.custom_minimum_size.y = 108.0
+	if command_drawer != null:
+		command_drawer.call_deferred("_layout")
+
+
+## Trim only transparent margins so the visible tray can match the board frame.
+func _prepare_deck_texture() -> void:
+	if deck_panel.texture == null or deck_panel.texture is AtlasTexture:
+		return
+	var source: Texture2D = deck_panel.texture
+	var atlas := AtlasTexture.new()
+	atlas.atlas = source
+	atlas.region = Rect2(source.get_image().get_used_rect())
+	deck_panel.texture = atlas
+
+
+## Match the stationary board frame, including while the grid is zoomed or panned.
+func _fit_deck_width() -> void:
+	if board_view == null or deck_bar == null or deck_panel == null or deck_panel.texture == null:
+		return
+	var target_width: float = board_view.global_visible_rect().grow(BoardView.PADDING).size.x
+	var image_size: Vector2 = deck_panel.texture.get_size()
+	var target_size := Vector2(target_width, target_width * image_size.y / image_size.x)
+	if target_width > 0.0 and not deck_panel.custom_minimum_size.is_equal_approx(target_size):
+		deck_panel.custom_minimum_size = target_size
+	_fit_deck_content()
+
+
+## Center the tile row in the wood recess, with no fixed child-height override.
+func _fit_deck_content() -> void:
+	if deck_panel == null or deck_panel.texture == null:
+		return
+	var image_size: Vector2 = deck_panel.texture.get_size()
+	var image_scale: float = minf(deck_panel.size.x / image_size.x, deck_panel.size.y / image_size.y)
+	var drawn_size: Vector2 = image_size * image_scale
+	var origin: Vector2 = (deck_panel.size - drawn_size) * 0.5
+	var source_size: Vector2 = image_size
+	var source_origin := Vector2.ZERO
+	if deck_panel.texture is AtlasTexture:
+		var atlas := deck_panel.texture as AtlasTexture
+		source_size = atlas.atlas.get_size()
+		source_origin = atlas.region.position
+	var column: Control = deck_panel.get_node("RackColumn") as Control
+	column.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	column.position = origin + (source_size * DECK_RECESS.position - source_origin) * image_scale
+	column.size = source_size * DECK_RECESS.size * image_scale
 
 
 ## Resolves every scene node this screen drives.
@@ -151,25 +289,22 @@ func _bind_nodes() -> void:
 	available_tiles_label = get_node_or_null("%AvailableTilesLabel") as Label
 	tile_pile_view = get_node_or_null("%TilePileView") as TilePileView
 	deal_layer = get_node_or_null("%DealLayer") as DealLayer
+	confetti_layer = get_node_or_null("%ConfettiLayer") as ConfettiLayer
 	deck_view = get_node_or_null("%DeckView") as DeckView
-	rotate_button = get_node_or_null("%RotateButton") as Button
-	confirm_button = get_node_or_null("%ConfirmButton") as Button
-	cancel_button = get_node_or_null("%CancelButton") as Button
-	swap_button = get_node_or_null("%SwapButton") as Button
 	swap_confirm_button = get_node_or_null("%SwapConfirmButton") as Button
 	swap_cancel_button = get_node_or_null("%SwapCancelButton") as Button
 	restart_button = get_node_or_null("%RestartButton") as Button
+	# The way back to the hub, offered on the final summary. Looked up the same
+	# defensive way as every other control: a screen hosted before this node
+	# exists must not fail on attach.
+	summary_hub_button = get_node_or_null("%SummaryHubButton") as Button
 	difficulty_picker = get_node_or_null("%DifficultyPicker") as OptionButton
 	human_score_value = get_node_or_null("%HumanScoreValue") as Label
+	human_score_title = get_node_or_null("%HumanScoreTitle") as Label
 	ai_score_value = get_node_or_null("%AiScoreValue") as Label
 	human_score_panel = get_node_or_null("%HumanScorePanel") as PanelContainer
 	ai_score_panel = get_node_or_null("%AiScorePanel") as PanelContainer
 	turn_indicator = get_node_or_null("%TurnIndicator") as Label
-	# Captured once and before any highlight is applied, so the authored panel
-	# look survives: clearing an override outright would drop the panel back to
-	# the engine default instead of the scene's style.
-	if _base_panel_style == null and human_score_panel != null:
-		_base_panel_style = human_score_panel.get_theme_stylebox("panel")
 	status_label = get_node_or_null("%StatusLabel") as Label
 	floating_scores = get_node_or_null("%FloatingScores") as FloatingScores
 	summary_overlay = get_node_or_null("%SummaryOverlay") as Control
@@ -178,6 +313,9 @@ func _bind_nodes() -> void:
 	recovery_overlay = get_node_or_null("%RecoveryOverlay") as Control
 	recovery_body = get_node_or_null("%RecoveryBody") as Label
 	recovery_restart_button = get_node_or_null("%RecoveryRestartButton") as Button
+	feedback_layer = get_node_or_null("%FeedbackLayer") as Control
+	command_drawer = get_node_or_null("%CommandDrawer") as GameCommandDrawer
+	bottom_navigation = get_node_or_null("%BottomNavigation") as GameBottomNavigation
 
 
 ## Wires the screen to its controller and renders the first frame.
@@ -201,6 +339,8 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 	if not controller.session_started.is_connected(_on_session_started):
 		controller.session_started.connect(_on_session_started)
 		controller.state_changed.connect(_refresh_all)
+		controller.turn_clock_changed.connect(_on_turn_clock_changed)
+		controller.turn_timed_out.connect(_on_turn_timed_out)
 		controller.preview_changed.connect(_refresh_staging)
 		controller.line_committed.connect(_on_line_committed)
 		controller.score_awarded.connect(_on_score_awarded)
@@ -217,6 +357,13 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 ## optional: a screen driven without one still plays, it just does not vibrate.
 func attach_feedback_adapter(adapter: FeedbackAdapter) -> void:
 	feedback = adapter
+
+
+## Keep the shell's existing binding while the game HUD always labels you "You".
+func set_player_display_name(_display_name: String) -> void:
+	_bind_nodes()
+	if human_score_title != null:
+		human_score_title.text = HUMAN_LABEL
 
 
 ## Connects the board's gesture signals. Gestures only ever produce a staging
@@ -247,6 +394,7 @@ func _setup_input() -> void:
 	# gesture that began on a pending tile and ended off the board is recognised as
 	# a removal of that one tile from the line (ADR-011 section 11).
 	_connect_once(board_input.pointer_released, _on_pointer_released)
+	_connect_once(board_input.gesture_canceled, _cancel_board_gesture)
 
 
 ## Connects the action controls and the deck row (ADR-011 sections 6 and 11).
@@ -261,17 +409,52 @@ func _setup_input() -> void:
 ## so it is the one connection the screen cannot do without: wiring it first
 ## means nothing that happens to the controls above it can leave the player
 ## unable to stage a tile or mark a swap.
+func _set_board_zoom(close: bool) -> void:
+	board_input.reset()
+	_cancel_board_gesture()
+	board_view.set_close_view(close)
+
+
+func _cancel_board_gesture() -> void:
+	_end_drag()
+
+
+func _refresh_zoom_buttons() -> void:
+	(get_node("%ZoomInButton") as Button).disabled = board_view.zoom == BoardView.CLOSE_ZOOM
+	(get_node("%ZoomOutButton") as Button).disabled = board_view.zoom == BoardView.OVERVIEW_ZOOM
+
+
 func _setup_buttons() -> void:
+	_connect_button(get_node("%ZoomInButton") as Button, _set_board_zoom.bind(true))
+	_connect_button(get_node("%ZoomOutButton") as Button, _set_board_zoom.bind(false))
+	_connect_once(board_view.zoom_changed, _refresh_zoom_buttons)
+	_refresh_zoom_buttons()
 	_connect_deck_view()
-	_connect_button(rotate_button, _on_rotate_pressed)
-	_connect_button(confirm_button, _on_confirm_pressed)
-	_connect_button(cancel_button, _on_cancel_pressed)
-	_connect_button(swap_button, _on_swap_pressed)
+	if bottom_navigation != null:
+		_connect_once(bottom_navigation.action_requested, _on_navigation_action)
 	_connect_button(swap_confirm_button, _on_swap_confirm_pressed)
 	_connect_button(swap_cancel_button, _on_swap_cancel_pressed)
 	_connect_button(restart_button, _on_restart_pressed)
+	_connect_button(resign_button, _on_resign_pressed)
+	if resign_confirmation_dialog != null:
+		_connect_once(resign_confirmation_dialog.confirmed, _on_resign_confirmed)
+	_connect_button(summary_hub_button, _on_hub_pressed)
+	_connect_button(get_node_or_null("%MenuHubButton") as Button, _on_hub_pressed)
 	_connect_button(recovery_restart_button, _on_recovery_restart_pressed)
 	_setup_difficulty_picker()
+
+
+func _on_navigation_action(action: StringName) -> void:
+	match action:
+		&"Play":
+			_on_confirm_pressed()
+		&"Swap":
+			if not _swap_mode:
+				_on_swap_pressed()
+		&"Quit":
+			_on_hub_pressed()
+		&"Undo":
+			_on_cancel_pressed()
 
 
 ## Connects the deck row's two taps: the selection that names the tile the next
@@ -443,7 +626,10 @@ func _on_deck_tile_rotation_requested(tile_id: StringName) -> void:
 func _on_rotate_pressed() -> void:
 	if controller == null:
 		return
-	controller.rotate_staged()
+	if controller.has_pending():
+		controller.rotate_staged()
+	else:
+		controller.rotate_selected_deck_tile()
 
 
 ## Resolves a board press on release: the release is what decides what became of the
@@ -498,6 +684,7 @@ func _on_confirm_pressed() -> void:
 	var result: LineResult = controller.commit_line()
 	if _line_was_committed(result):
 		_cue_place()
+		command_drawer.set_open(false)
 	else:
 		_cue_refuse()
 
@@ -564,6 +751,7 @@ func _on_cancel_pressed() -> void:
 	if controller == null:
 		return
 	controller.cancel_staged()
+	command_drawer.set_open(false)
 
 
 ## Opens the swap set, clearing the pending line first (ADR-011 section 6).
@@ -580,6 +768,7 @@ func _on_swap_pressed() -> void:
 	_swap_tiles = [] as Array[StringName]
 	deck_view.set_mark_mode(true)
 	_refresh_all()
+	command_drawer.set_open(false)
 
 
 ## Submits the marked set as one swap, which consumes the whole turn
@@ -632,11 +821,8 @@ func _close_swap_mode() -> void:
 
 ## Shows only the swap controls that belong to the current mode.
 ##
-## Swap opens the set and the confirm/cancel pair closes it, so the three are
-## never all on screen at once: one control is open on any mobile viewport.
+## The bottom bar starts a swap; the drawer offers its confirm/cancel pair.
 func _apply_swap_controls() -> void:
-	if swap_button != null:
-		swap_button.visible = not _swap_mode
 	if swap_confirm_button != null:
 		swap_confirm_button.visible = _swap_mode
 	if swap_cancel_button != null:
@@ -665,6 +851,7 @@ func _on_deck_tile_toggled(tile_id: StringName) -> void:
 		_swap_tiles.append(tile_id)
 		deck_view.set_marked(tile_id, true)
 	_refresh_status()
+	_refresh_command_context()
 
 
 ## Arms one of the human's deck tiles (ADR-010 section 12).
@@ -698,7 +885,7 @@ func _on_deck_tile_selected(tile_id: StringName) -> void:
 ##
 ## A drag is refused outright when the human may not act, so an off-turn gesture
 ## cannot stage anything (ADR-008 section 8).
-func _on_deck_tile_drag_started(tile_id: StringName, _pointer: Vector2) -> void:
+func _on_deck_tile_drag_started(tile_id: StringName, pointer: Vector2) -> void:
 	if controller == null or not controller.is_human_turn():
 		_refuse_drag(tile_id)
 		return
@@ -706,29 +893,32 @@ func _on_deck_tile_drag_started(tile_id: StringName, _pointer: Vector2) -> void:
 		_refuse_drag(tile_id)
 		return
 	_drag_tile_id = tile_id
+	if _deck_drag_preview == null:
+		_deck_drag_preview = DeckDragPreviewScript.new()
+		add_child(_deck_drag_preview)
+	var source_rect: Rect2 = deck_view.tile_rect_at(deck_view.dragging_index())
+	var to_screen: Transform2D = get_global_transform().affine_inverse() * deck_view.get_global_transform()
+	_deck_drag_size = (to_screen * source_rect).size * DeckView.DRAG_SCALE
 	if board_view != null:
 		board_view.clear_drag()
+		_on_deck_tile_dragged(tile_id, pointer)
 
 
-## Follows a drag: the tile is drawn snapped to the cell under the pointer, and
-## that cell is marked with a legal or illegal treatment.
-##
-## The cell comes from `BoardMetrics` through the board view, which is the same
-## mapping the board draws with, so the ghost always sits on the cell it will land
-## on. The verdict is the controller's answer for this tile at this cell, so the
-## screen shows a rule result rather than computing one (AGENTS.md section 19).
+## Follows the pointer continuously in screen space. Only the target frame uses
+## grid coordinates; the tile snaps to that cell when an accepted drop is released.
 func _on_deck_tile_dragged(tile_id: StringName, pointer: Vector2) -> void:
 	if controller == null or String(_drag_tile_id).is_empty():
 		return
 	if tile_id != _drag_tile_id:
 		return
 	var cell: Vector2i = board_cell_at(pointer)
+	var center: Vector2 = get_global_transform().affine_inverse() * (deck_view.get_global_transform() * pointer)
+	_deck_drag_preview.show_tile(_drag_snapshot(cell), center, _deck_drag_size)
 	if cell == BoardMetrics.NO_CELL:
-		# Off the board there is no target, so nothing is drawn to mislead the
-		# player about where a release would land.
+		# Keep the tile following the finger, but an off-board release has no target.
 		board_view.clear_drag()
 		return
-	board_view.show_drag(_drag_snapshot(cell), cell, can_drop_at(tile_id, cell))
+	board_view.show_drag(_drag_snapshot(cell), cell, can_drop_at(tile_id, cell), 1.0, false)
 
 
 ## Ends a drag on release: the tile is staged at the cell under the pointer when
@@ -833,6 +1023,8 @@ func _deck_tile(tile_id: StringName) -> TileDefinition:
 ## cannot leave a stale origin behind for a later release to act on.
 func _end_drag() -> void:
 	_drag_tile_id = &""
+	if _deck_drag_preview != null:
+		_deck_drag_preview.clear()
 	_move_from_cell = BoardMetrics.NO_CELL
 	if board_view != null:
 		board_view.clear_drag()
@@ -884,6 +1076,8 @@ func _clear_staged_drag() -> void:
 ## gesture leaves nothing behind and stages nothing.
 func _refuse_drag(_tile_id: StringName) -> void:
 	_drag_tile_id = &""
+	if _deck_drag_preview != null:
+		_deck_drag_preview.clear()
 	if board_view != null:
 		board_view.clear_drag()
 	if deck_view != null:
@@ -891,6 +1085,17 @@ func _refuse_drag(_tile_id: StringName) -> void:
 		deck_view.cancel_drag(false)
 	# The status line is deliberately left alone: `_refresh_status` already says
 	# whose turn it is, and an off-turn drag is refused rather than announced.
+
+
+## Reports the player's wish to leave the match for the hub.
+##
+## Reported, not performed: the screen announces the intent and the composition
+## root releases the match services and reveals the hub, because only the shell
+## owns the session, its autosave, and its release (ADR-008 section 5). Nothing
+## is committed on the way out, so a mid-match exit leaves the autosave - not
+## this handler - as the record of where the player stopped.
+func _on_hub_pressed() -> void:
+	hub_requested.emit()
 
 
 func _on_restart_pressed() -> void:
@@ -902,6 +1107,19 @@ func _on_restart_pressed() -> void:
 	var difficulty: int = controller.ai_difficulty()
 	controller.start_new_match()
 	controller.set_ai_difficulty(difficulty)
+
+
+func _on_resign_pressed() -> void:
+	if controller == null or controller.is_over():
+		return
+	if resign_confirmation_dialog != null:
+		resign_confirmation_dialog.popup_centered()
+
+
+func _on_resign_confirmed() -> void:
+	if controller == null or controller.is_over():
+		return
+	controller.resign()
 
 
 ## Fills the difficulty control and wires it to the opponent policy.
@@ -958,8 +1176,17 @@ func _refresh_difficulty() -> void:
 
 
 func _on_session_started() -> void:
-	if summary_overlay != null:
-		summary_overlay.visible = false
+	_timer_warning_turn = -1
+	_timer_warning_second = -1
+	_stop_timer_warning()
+	if command_drawer != null:
+		command_drawer.set_open(false, false)
+	if summary_overlay is MatchEndPresentation:
+		(summary_overlay as MatchEndPresentation).clear()
+	# A celebration the previous match left running would fall over a match that
+	# has already started again, so a new session clears it.
+	if confetti_layer != null:
+		confetti_layer.clear()
 	# A match that starts (or resumes) supersedes any recovery panel: the player
 	# has resolved the failure, so the panel must not sit over live play.
 	if recovery_overlay != null:
@@ -973,8 +1200,70 @@ func _on_session_started() -> void:
 
 
 func _on_notice(text: String) -> void:
+	if text == GameSessionController.INVALID_POKER_HAND_NOTICE:
+		_set_status("")
+		return
 	if status_label != null:
-		status_label.text = text
+		status_label.text = "" if _is_toast_notice(text) else text
+	if _is_toast_notice(text):
+		_show_toast(text)
+
+
+## Returns true for line-shape notices that are presented by the toast.
+func _is_toast_notice(text: String) -> bool:
+	return (
+		text == TOAST_OPENING_TEXT
+		or text == TOAST_LINE_TEXT
+		or text == TOAST_NO_VALID_MOVE_TEXT
+		or text == GameSessionController.TURN_TIMEOUT_NOTICE
+	)
+
+
+## Shows a full-width notice at the screen's center. The controller's existing
+## rule message supplies the wording; presentation does not recreate validation.
+func _show_toast(message: String) -> void:
+	if feedback_layer == null:
+		return
+	if _toast_panel == null:
+		var toast_layout := VBoxContainer.new()
+		toast_layout.name = "ToastLayout"
+		toast_layout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		toast_layout.alignment = BoxContainer.ALIGNMENT_CENTER
+		toast_layout.z_index = 100
+		feedback_layer.add_child(toast_layout)
+		toast_layout.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_toast_panel = PanelContainer.new()
+		_toast_panel.name = "LineNoticeToast"
+		_toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_toast_panel.custom_minimum_size.y = 60.0
+		var style := StyleBoxTexture.new()
+		style.texture = TOAST_BACKGROUND
+		style.texture_margin_top = 10.0
+		style.texture_margin_bottom = 10.0
+		style.content_margin_left = 16.0
+		style.content_margin_right = 16.0
+		style.content_margin_top = 18.0
+		style.content_margin_bottom = 18.0
+		_toast_panel.add_theme_stylebox_override("panel", style)
+		_toast_label = Label.new()
+		_toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_toast_label.add_theme_color_override("font_color", Color(0.96, 0.97, 1.0))
+		_toast_panel.add_child(_toast_label)
+		toast_layout.add_child(_toast_panel)
+	_toast_label.text = message
+	_toast_panel.visible = true
+	if _toast_tween != null and _toast_tween.is_running():
+		_toast_tween.kill()
+	_toast_panel.modulate.a = 0.0
+	_toast_tween = create_tween()
+	_toast_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	_toast_tween.tween_property(_toast_panel, "modulate:a", 1.0, TOAST_FADE_SECONDS)
+	_toast_tween.tween_interval(TOAST_HOLD_SECONDS)
+	_toast_tween.tween_property(_toast_panel, "modulate:a", 0.0, TOAST_FADE_SECONDS)
+	_toast_tween.tween_callback(func() -> void: _toast_panel.visible = false)
 
 
 ## Shows the recovery panel when a saved match could not be restored
@@ -1024,10 +1313,7 @@ func _on_line_committed(result: LineResult, _turn_phase: int) -> void:
 		return
 	if controller != null:
 		board_view.set_board(controller.get_board())
-		# The committed tiles may have formed or grown a same-colour region, so
-		# the persistent outlines are re-read from the post-commit board here
-		# rather than waiting for the refresh that follows this signal.
-		_refresh_clusters()
+		board_view.clear_clusters()
 	board_view.mark_committed_line(result.staged_cells())
 	# The committed line must not also be drawn as pending. The controller emits
 	# `state_changed` immediately after this signal, which re-renders every HUD
@@ -1035,11 +1321,10 @@ func _on_line_committed(result: LineResult, _turn_phase: int) -> void:
 	board_view.clear_preview()
 
 
-## Plays one popup per committed score event, in the deterministic order the
-## ledger recorded them (ADR-008 section 9).
+## Shows one total for the move, summing only points already awarded by the ledger.
 func _on_score_awarded(events: Array, cell: Vector2i) -> void:
-	# The board marks what actually scored - the matching boundaries and the
-	# paying clusters - from the same event list the popups read, so a mark and
+	# The board briefly marks the scored hands and paying edge clusters
+	# from the same event list the popups read, so a mark and
 	# the points beside it can never describe different awards (AGENTS.md
 	# section 8, Milestone 8).
 	if board_view != null:
@@ -1055,13 +1340,13 @@ func _on_score_awarded(events: Array, cell: Vector2i) -> void:
 		_cue_score()
 	if floating_scores == null:
 		return
-	var anchor: Vector2 = _popup_anchor(cell)
-	for index: int in range(events.size()):
-		var event: ScoreEvent = events[index]
+	var total: int = 0
+	for event: ScoreEvent in events:
 		if event == null:
 			continue
-		var offset: Vector2 = Vector2(0.0, -POPUP_STAGGER * float(index))
-		floating_scores.spawn(anchor + offset, _popup_text(event), _popup_color(event))
+		total += event.points
+	if total > 0:
+		floating_scores.spawn(_popup_anchor(cell), total)
 
 
 ## Shows the final summary panel.
@@ -1071,7 +1356,7 @@ func _on_match_ended(result: MatchResult) -> void:
 	_cue_match_end()
 	summary_title.text = _summary_title(result)
 	summary_body.text = _summary_body(result)
-	summary_overlay.visible = true
+	(summary_overlay as MatchEndPresentation).play(result)
 	_refresh_all()
 
 
@@ -1082,35 +1367,53 @@ func _on_match_ended(result: MatchResult) -> void:
 ## built from the panel's own, so the highlight keeps the panel's shape, padding,
 ## and corner radius instead of restating them here.
 func _apply_turn_highlight(panel: PanelContainer, active: bool) -> void:
-	if panel == null or _base_panel_style == null:
+	if panel == null:
 		return
-	if not active:
-		panel.add_theme_stylebox_override("panel", _base_panel_style)
+	var artwork_outline: PanelContainer = panel.get_node_or_null("HumanScoreBox/TurnOutline") as PanelContainer
+	if artwork_outline == null:
+		artwork_outline = panel.get_node_or_null("AiScoreBox/TurnOutline") as PanelContainer
+	if artwork_outline != null:
+		panel = artwork_outline
+	if panel is TurnTimerOutline:
+		(panel as TurnTimerOutline).set_seconds_left(controller.turn_seconds_left() if active and controller != null else 0)
 		return
-	if _highlight_panel_style == null:
-		_highlight_panel_style = _build_highlight_style()
-	if _highlight_panel_style != null:
-		panel.add_theme_stylebox_override("panel", _highlight_panel_style)
+	if not panel.has_meta("idle_style"):
+		panel.set_meta("idle_style", panel.get_theme_stylebox("panel"))
+	var base: StyleBox = panel.get_meta("idle_style") as StyleBox
+	if not panel.has_meta("turn_style"):
+		var highlighted: StyleBoxFlat = base.duplicate() as StyleBoxFlat
+		if highlighted != null:
+			highlighted.border_color = TURN_HIGHLIGHT_COLOR
+			highlighted.set_border_width_all(TURN_HIGHLIGHT_WIDTH)
+			panel.set_meta("turn_style", highlighted)
+	panel.add_theme_stylebox_override("panel", panel.get_meta("turn_style", base) as StyleBox if active else base)
 
 
-## Returns a copy of the authored panel style carrying the turn outline.
-##
-## A `StyleBoxFlat`'s minimum size includes its border, so the border is taken
-## out of the content margins it replaces. Without that the HUD would nudge a
-## few pixels sideways every time the turn changed hands.
-func _build_highlight_style() -> StyleBox:
-	if _base_panel_style == null:
-		return null
-	var highlighted: StyleBox = _base_panel_style.duplicate() as StyleBox
-	if highlighted is StyleBoxFlat:
-		var flat: StyleBoxFlat = highlighted as StyleBoxFlat
-		flat.border_color = TURN_HIGHLIGHT_COLOR
-		flat.set_border_width_all(TURN_HIGHLIGHT_WIDTH)
-		flat.content_margin_left = maxf(flat.content_margin_left - TURN_HIGHLIGHT_WIDTH, 0.0)
-		flat.content_margin_right = maxf(flat.content_margin_right - TURN_HIGHLIGHT_WIDTH, 0.0)
-		flat.content_margin_top = maxf(flat.content_margin_top - TURN_HIGHLIGHT_WIDTH, 0.0)
-		flat.content_margin_bottom = maxf(flat.content_margin_bottom - TURN_HIGHLIGHT_WIDTH, 0.0)
-	return highlighted
+func _on_turn_clock_changed(player_id: StringName, seconds_left: int) -> void:
+	_apply_turn_highlight(human_score_panel, player_id == TurnEnums.HUMAN_PLAYER_ID)
+	_apply_turn_highlight(ai_score_panel, player_id == TurnEnums.AI_PLAYER_ID)
+	if seconds_left == 0 or seconds_left > 10:
+		_stop_timer_warning()
+	if seconds_left > 0 and seconds_left <= 10 and controller != null:
+		var turn_number: int = controller.get_session().get_turn_state().turn_number
+		if _timer_warning_turn == turn_number and _timer_warning_second == seconds_left:
+			return
+		_timer_warning_turn = turn_number
+		_timer_warning_second = seconds_left
+		var art: Control = human_score_panel.get_node("HumanScoreBox") if player_id == TurnEnums.HUMAN_PLAYER_ID else ai_score_panel.get_node("AiScoreBox")
+		art.call("warn_time_running_out")
+
+
+func _stop_timer_warning() -> void:
+	if human_score_panel != null:
+		human_score_panel.get_node("HumanScoreBox").stop_turn_warning()
+	if ai_score_panel != null:
+		ai_score_panel.get_node("AiScoreBox").stop_turn_warning()
+
+
+func _on_turn_timed_out(_player_id: StringName) -> void:
+	_end_drag()
+	_close_swap_mode()
 
 
 ## Rebuilds every HUD value and the board from authoritative state.
@@ -1125,7 +1428,8 @@ func _refresh_all() -> void:
 	if has_controller:
 		board = controller.get_board()
 	board_view.set_board(board)
-	_refresh_clusters()
+	# Score highlights come only from new awards, never from board refreshes.
+	board_view.clear_clusters()
 	# The development overlay reads the same authoritative state the board draws
 	# (AGENTS.md section 17). It is handed the controller rather than reaching for
 	# one, and it stays hidden unless the debug setting or its toggle key is used.
@@ -1133,6 +1437,8 @@ func _refresh_all() -> void:
 		board_view.debug_overlay.controller = controller
 
 	if not has_controller:
+		if resign_button != null:
+			resign_button.disabled = true
 		board_input.enabled = false
 		deck_view.set_deck([] as Array[TileDefinition])
 		deck_view.set_locked(true)
@@ -1145,6 +1451,8 @@ func _refresh_all() -> void:
 		return
 
 	var human_turn: bool = controller.is_human_turn()
+	if resign_button != null:
+		resign_button.disabled = controller.is_over()
 	board_view.set_human_turn(human_turn)
 	board_input.enabled = human_turn
 	_set_interactive(human_turn)
@@ -1156,9 +1464,11 @@ func _refresh_all() -> void:
 	# always means "this player may act now". A finished match highlights neither
 	# (ADR-008 section 4).
 	var over: bool = controller.is_over()
+	# Hide the pot artwork, count plate and count together on the game-over screen.
+	(get_node("%PotPanel") as Control).visible = not over
 	_apply_turn_highlight(human_score_panel, human_turn and not over)
 	_apply_turn_highlight(ai_score_panel, not human_turn and not over)
-	available_tiles_label.text = "Tiles available: %d" % controller.remaining_tiles()
+	available_tiles_label.text = str(controller.remaining_tiles())
 
 	if controller.is_over():
 		turn_indicator.text = "Match over"
@@ -1249,7 +1559,7 @@ func _deal_new_tiles(deck: Array[TileDefinition]) -> void:
 	deck_view.set_concealed(fresh)
 
 	var tiles: Array[TileDefinition] = []
-	var destinations: Array[Rect2] = []
+	var destinations: Array[Callable] = []
 	for index: int in range(deck.size()):
 		if not fresh.has(deck[index].tile_id):
 			continue
@@ -1261,13 +1571,13 @@ func _deal_new_tiles(deck: Array[TileDefinition]) -> void:
 			# once there is a rectangle to aim at.
 			return
 		tiles.append(deck[index])
-		destinations.append(target)
+		destinations.append(deck_view.tile_global_rect_for.bind(deck[index].tile_id))
 
 	_known_deck_ids.append_array(fresh)
 	_dealing_ids = fresh
 	if not deal_layer.progressed.is_connected(_on_deal_progressed):
 		deal_layer.progressed.connect(_on_deal_progressed)
-	deal_layer.deal(tiles, tile_pile_view.stack_origin_global(), destinations)
+	deal_layer.deal(tiles, tile_pile_view.stack_origin_global, destinations)
 
 
 ## Reveals each dealt tile once the animation reports its turn has finished, so the
@@ -1299,6 +1609,11 @@ func _on_deck_row_resized() -> void:
 func _refresh_staging() -> void:
 	_refresh_deck()
 	_refresh_preview()
+	if controller == null or controller.staged_count() == 0:
+		return
+	var reason: String = controller.line_reason()
+	if reason == TOAST_OPENING_TEXT or reason == TOAST_LINE_TEXT:
+		_show_toast(reason)
 
 
 ## Shows the whole pending line on the board, or clears it
@@ -1308,6 +1623,7 @@ func _refresh_staging() -> void:
 ## the verdict comes from the controller, which got it from `LineValidator`, so
 ## the board never decides legality itself (AGENTS.md section 19).
 func _refresh_preview() -> void:
+	_refresh_command_context()
 	if controller == null or not controller.has_pending():
 		board_view.clear_preview()
 		_refresh_status()
@@ -1319,6 +1635,42 @@ func _refresh_preview() -> void:
 	)
 	_refresh_rotation_hint()
 	_refresh_status()
+
+
+## Show the scorer's totals and enable commands that apply to the current turn.
+func _refresh_command_context() -> void:
+	var human_turn: bool = controller != null and controller.is_human_turn()
+	swap_confirm_button.disabled = not human_turn or _swap_tiles.is_empty()
+	var rack_hint: Label = get_node_or_null("%RackHint") as Label
+	if rack_hint != null:
+		rack_hint.text = "%d selected · Open settings to swap" % _swap_tiles.size() if _swap_mode else "Drag to place · Tap to rotate"
+	_refresh_navigation()
+	var preview: ScoreTransaction = controller.pending_score_preview() if human_turn and not _swap_mode else null
+	var names: Array[String] = ["PokerPreview", "EdgePreview", "ClusterPreview"]
+	var categories: Array[int] = [ScoringEnums.ScoreCategory.POKER_HAND, ScoringEnums.ScoreCategory.EDGE_MATCH, ScoringEnums.ScoreCategory.EDGE_CLUSTER]
+	var api_keys: Array[String] = ["poker", "edge", "cluster"]
+	for index: int in range(names.size()):
+		var label: Label = get_node_or_null("%" + names[index]) as Label
+		if label != null:
+			label.text = str(preview.points_for_category(categories[index])) if preview != null else "—"
+			if preview != null and not _api_score_preview.is_empty():
+				label.text = str(int(_api_score_preview[api_keys[index]]))
+	var total: Label = get_node_or_null("%TotalPreview") as Label
+	if total != null:
+		total.text = str(preview.total_points()) if preview != null else "—"
+		if preview != null and not _api_score_preview.is_empty():
+			total.text = str(int(_api_score_preview["total"]))
+		total.tooltip_text = "Server score preview" if not _api_score_preview.is_empty() else "Local score preview"
+
+
+## Navigation reads availability directly from the current controller state.
+func _refresh_navigation() -> void:
+	if bottom_navigation != null:
+		var human_turn: bool = controller != null and controller.is_human_turn()
+		var pending: bool = human_turn and controller.has_pending() and not _swap_mode
+		bottom_navigation.set_available(&"Play", pending)
+		bottom_navigation.set_available(&"Swap", human_turn and not _swap_mode)
+		bottom_navigation.set_available(&"Undo", pending)
 
 
 ## Marks, on the tile the rotate command acts on, which of its four edges
@@ -1345,20 +1697,6 @@ func _refresh_rotation_hint() -> void:
 	board_view.show_edge_matches(target, controller.staged_edge_matches(target))
 
 
-## Shows the persistent outlines of every same-colour edge region the committed
-## board holds (AGENTS.md section 8, docs/sections/05-mobile-ux.md section 4).
-##
-## The clusters are enumerated by the controller with `EdgeClusterScorer`, so the
-## board outlines the regions the rules recognise instead of detecting them itself
-## (AGENTS.md section 19). Pushed from the same refresh that re-reads the board, so
-## an outline can never describe a placement that is no longer there.
-func _refresh_clusters() -> void:
-	if controller == null:
-		board_view.show_clusters([] as Array)
-		return
-	board_view.show_clusters(controller.current_edge_clusters())
-
-
 ## Chooses the one-line instruction or refusal shown under the tile.
 ##
 ## ADR-011 section 7 removed the explicit end-turn action, so the screen names
@@ -1377,13 +1715,17 @@ func _refresh_status() -> void:
 		return
 	if _swap_mode:
 		if _swap_tiles.is_empty():
-			_set_status("Tap at least one tile to return")
+			_set_status("Select tiles, then open settings to confirm the swap")
 		else:
-			_set_status("Returning %d tile(s)" % _swap_tiles.size())
+			_set_status("Returning %d tile(s) · Open settings to confirm" % _swap_tiles.size())
 		return
 	if controller.has_pending():
 		if controller.is_line_valid():
-			_set_status("Tap Confirm to place the line")
+			_set_status("Use Play in the bottom bar to place the hand")
+		elif controller.line_reason() == GameSessionController.INVALID_POKER_HAND_NOTICE:
+			_set_status("")
+		elif _is_toast_notice(controller.line_reason()):
+			_set_status("")
 		else:
 			_set_status(controller.line_reason())
 		return
@@ -1393,14 +1735,9 @@ func _refresh_status() -> void:
 ## Enables the tile controls only when the human may act.
 ##
 ## ADR-011 section 7 makes a turn one move, so every control here belongs to the
-## single move the turn allows: Rotate, Confirm, and Cancel act on the pending
-## line, and Swap is the alternative move of section 6. All four are gated by the
-## same turn condition, and none of them is a hand-over.
+## single move the turn allows: Play and Undo act on the pending line, while
+## Swap is the alternative move of section 6.
 func _set_interactive(enabled: bool) -> void:
-	rotate_button.disabled = not enabled
-	confirm_button.disabled = not enabled
-	cancel_button.disabled = not enabled
-	swap_button.disabled = not enabled
 	# The swap set belongs to the player's own turn, so it is closed as soon as
 	# they may no longer act: a locked row must never keep collecting marks.
 	if not enabled:
@@ -1414,6 +1751,7 @@ func _set_interactive(enabled: bool) -> void:
 	if swap_cancel_button != null:
 		swap_cancel_button.disabled = not enabled
 	_apply_swap_controls()
+	_refresh_navigation()
 
 
 ## Returns where a popup for `cell` should appear, in this screen's coordinates.
@@ -1422,39 +1760,9 @@ func _popup_anchor(cell: Vector2i) -> Vector2:
 	var cell_global: Vector2 = BoardMetrics.cell_rect(
 		global_rect, cell, BoardEnums.BOARD_WIDTH
 	).get_center()
+	var visible: Rect2 = board_view.global_visible_rect().grow(-24.0)
+	cell_global = cell_global.clamp(visible.position, visible.end)
 	return floating_scores.get_global_transform().affine_inverse() * cell_global
-
-
-## Returns the popup caption for one committed event.
-func _popup_text(event: ScoreEvent) -> String:
-	match event.category:
-		ScoringEnums.ScoreCategory.POKER_HAND:
-			var hand: String = String(event.evidence.get("category", ""))
-			return "+%d %s" % [event.points, _prettify(hand)]
-		ScoringEnums.ScoreCategory.EDGE_MATCH:
-			return "+%d Edge" % event.points
-		ScoringEnums.ScoreCategory.EDGE_CLUSTER:
-			return "+%d Cluster" % event.points
-	return "+%d" % event.points
-
-
-## Returns the popup colour for one committed event.
-func _popup_color(event: ScoreEvent) -> Color:
-	match event.category:
-		ScoringEnums.ScoreCategory.POKER_HAND:
-			return POKER_COLOR
-		ScoringEnums.ScoreCategory.EDGE_MATCH:
-			return EDGE_COLOR
-		ScoringEnums.ScoreCategory.EDGE_CLUSTER:
-			return CLUSTER_COLOR
-	return Color.WHITE
-
-
-## Turns an event's machine-readable category name into a readable caption.
-func _prettify(raw: String) -> String:
-	if raw.is_empty():
-		return "Score"
-	return raw.to_lower().capitalize()
 
 
 ## Returns the summary heading for a finished match (ADR-003 section 8).
@@ -1464,8 +1772,8 @@ func _summary_title(result: MatchResult) -> String:
 	if result.is_draw():
 		return "It's a draw"
 	if result.winner_id() == TurnEnums.HUMAN_PLAYER_ID:
-		return "You win"
-	return "%s wins" % AI_LABEL
+		return "You win!"
+	return "YOU LOSE"
 
 
 ## Returns the summary detail: totals, breakdown, and how the match ended.
@@ -1491,10 +1799,9 @@ func _summary_body(result: MatchResult) -> String:
 		]
 	)
 	lines.append(
-		"%s after %d move(s); %d tiles left" % [
+		"%s after %d move(s)" % [
 			_end_reason_text(result.end_reason),
 			result.move_count,
-			result.tiles_remaining,
 		]
 	)
 	return "\n".join(lines)
@@ -1509,4 +1816,6 @@ func _end_reason_text(reason: int) -> String:
 			return "No tiles remained"
 		TurnEnums.EndReason.RULES_FAILURE:
 			return "A rules error stopped play"
+		TurnEnums.EndReason.RESIGNATION:
+			return "You resigned; Rival wins"
 	return "The match ended"

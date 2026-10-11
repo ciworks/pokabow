@@ -69,9 +69,9 @@ func test_draw_returns_tiles_in_generated_bag_order() -> void:
 func test_remaining_count_tracks_each_draw() -> void:
 	var source: TileSource = _source()
 
-	check_eq(source.remaining_count(), 144, "a fresh bag must offer 144 tiles")
+	check_eq(source.remaining_count(), 52, "a fresh bag must offer 52 tiles")
 
-	for expected_remaining: int in range(143, 139, -1):
+	for expected_remaining: int in range(51, 47, -1):
 		source.draw()
 		check_eq(
 			source.remaining_count(),
@@ -82,38 +82,38 @@ func test_remaining_count_tracks_each_draw() -> void:
 	check_eq(source.get_draw_index(), 4, "the draw index must count every draw")
 
 
-func test_bag_exhausts_after_exactly_144_draws() -> void:
+func test_bag_exhausts_after_exactly_52_draws() -> void:
 	var source: TileSource = _source()
 	var drawn_ids: Dictionary = {}
 
-	for index: int in range(144):
+	for index: int in range(52):
 		var tile: TileDefinition = source.draw()
 		if not check_not_null(tile, "draw %d of a full bag must return a tile" % index):
 			return
 		drawn_ids[tile.tile_id] = true
 
-	check_eq(drawn_ids.size(), 144, "the full bag must yield 144 distinct tiles")
-	check_eq(source.remaining_count(), 0, "the bag must be empty after 144 draws")
+	check_eq(drawn_ids.size(), 52, "the full bag must yield 52 distinct tiles")
+	check_eq(source.remaining_count(), 0, "the bag must be empty after 52 draws")
 	check(source.is_exhausted(), "the source must report exhaustion once the bag is empty")
 
 
 func test_exhausted_source_never_generates_an_extra_tile() -> void:
 	var source: TileSource = _source()
-	for _index: int in range(144):
+	for _index: int in range(52):
 		source.draw()
 
 	check(source.draw() == null, "an exhausted source must return null")
 	check(source.draw() == null, "repeated draws must stay null")
 	check_eq(source.remaining_count(), 0, "an exhausted source must stay empty")
-	check_eq(source.get_draw_index(), 144, "an exhausted source must not advance past the bag")
-	check_eq(source.get_bag_size(), 144, "exhaustion must not change the configured bag size")
+	check_eq(source.get_draw_index(), 52, "an exhausted source must not advance past the bag")
+	check_eq(source.get_bag_size(), 52, "exhaustion must not change the configured bag size")
 
 
 func test_drawing_never_mutates_or_reorders_the_bag() -> void:
 	var source: TileSource = _source()
 	var before: String = _bag_signature(source.debug_bag_snapshot())
 
-	for _index: int in range(144):
+	for _index: int in range(52):
 		source.draw()
 
 	check_eq(
@@ -128,7 +128,7 @@ func test_two_sources_draw_the_same_sequence_independently() -> void:
 	var second: TileSource = _source()
 	var mismatches: int = 0
 
-	for _index: int in range(144):
+	for _index: int in range(52):
 		var first_tile: TileDefinition = first.draw()
 		var second_tile: TileDefinition = second.draw()
 		if first_tile.tile_id != second_tile.tile_id:

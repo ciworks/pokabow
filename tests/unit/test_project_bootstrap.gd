@@ -3,7 +3,7 @@ extends TestCase
 ## Milestone 0 bootstrap smoke test.
 ##
 ## Verifies that the repository scaffold matches its authoritative documents:
-## project settings (landscape 1280x720, GL Compatibility renderer), the AppRoot
+## project settings (portrait 540x960, GL Compatibility renderer), the AppRoot
 ## composition root as the entry scene, the ADR-008 section 4 scene layers, the
 ## ADR-008 section 2 directory layout, and the ADR-008 section 6 autoload policy.
 ##
@@ -38,11 +38,6 @@ const REQUIRED_DIRECTORIES: PackedStringArray = [
 	"res://tests/fixtures",
 ]
 
-const LANDSCAPE_ORIENTATIONS: PackedStringArray = [
-	"landscape",
-	"reverse_landscape",
-	"sensor_landscape",
-]
 
 
 func test_main_scene_is_the_app_root() -> void:
@@ -51,18 +46,22 @@ func test_main_scene_is_the_app_root() -> void:
 	check(ResourceLoader.exists(MAIN_SCENE_PATH), "the AppRoot scene file must exist on disk")
 
 
-func test_viewport_is_landscape_1280x720() -> void:
+func test_viewport_is_locked_portrait_540x960() -> void:
 	var width: int = int(ProjectSettings.get_setting("display/window/size/viewport_width", 0))
 	var height: int = int(ProjectSettings.get_setting("display/window/size/viewport_height", 0))
-	check_eq(width, 1280, "viewport width must be 1280")
-	check_eq(height, 720, "viewport height must be 720")
-	check(width > height, "viewport must be landscape (width greater than height)")
+	check_eq(width, 540, "viewport width must be 540")
+	check_eq(height, 960, "viewport height must be 960")
+	check(width < height, "viewport must be portrait")
 
 	var orientation: String = String(ProjectSettings.get_setting("display/window/handheld/orientation", ""))
 	check(
-		LANDSCAPE_ORIENTATIONS.has(orientation),
-		"display/window/handheld/orientation must allow landscape, got '%s'" % orientation
+		orientation == "portrait",
+		"display/window/handheld/orientation must lock portrait, got '%s'" % orientation
 	)
+
+
+func test_portrait_canvas_preserves_aspect_ratio() -> void:
+	check_eq(String(ProjectSettings.get_setting("display/window/stretch/aspect", "")), "keep", "wide windows must letterbox rather than reshape the portrait canvas")
 
 
 func test_renderer_is_gl_compatibility() -> void:

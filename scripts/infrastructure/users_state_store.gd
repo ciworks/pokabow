@@ -6,8 +6,8 @@ extends RefCounted
 ## Callers own the store and pass a path, so tests can point it at a temporary
 ## file under user:// without touching the player's record.
 ##
-## The file is written only after a successful register response. A later launch
-## treats "terms agreed" plus a username and password as enough to log in again.
+## Registration saves the accepted account and credentials. A successful login
+## adds user_state so a later launch can restore the API user directly.
 
 const DEFAULT_PATH: String = "user://users_state.json"
 const SCHEMA_VERSION: int = 1
@@ -17,6 +17,8 @@ const KEY_TERMS_AGREED: String = "terms_agreed"
 const KEY_USERNAME: String = "username"
 const KEY_PASSWORD: String = "password"
 const KEY_EMAIL: String = "email"
+const KEY_USER_STATE: String = "user_state"
+const KEY_PENDING_ACHIEVEMENTS: String = "pending_achievements"
 
 
 static func load_record(path: String = DEFAULT_PATH) -> Dictionary:
@@ -42,6 +44,85 @@ static func has_accepted_account(path: String = DEFAULT_PATH) -> bool:
 		not String(record.get(KEY_USERNAME, "")).is_empty()
 		and not String(record.get(KEY_PASSWORD, "")).is_empty()
 	)
+
+
+## A login response is usable only when it supplies a token. Keep the complete
+## response too, so later API fields remain available to the current user.
+static func user_state_from_response(response: Dictionary) -> Dictionary:
+	var token: String = String(response.get("token", response.get("access_token", "")))
+	if token.is_empty():
+		return {}
+	var user: Variant = response.get("user", {})
+	var user_details: Dictionary = {}
+	if typeof(user) == TYPE_DICTIONARY:
+		user_details = (user as Dictionary).duplicate(true)
+	if user_details.is_empty():
+		user_details = response.duplicate(true)
+		user_details.erase("token")
+		user_details.erase("access_token")
+	return {
+		"token": token,
+		"user": user_details,
+		"response": response.duplicate(true),
+	}
+
+
+static func load_user_state(path: String = DEFAULT_PATH) -> Dictionary:
+	var state: Variant = load_record(path).get(KEY_USER_STATE, {})
+	if typeof(state) != TYPE_DICTIONARY:
+		return {}
+	var user_state: Dictionary = state
+	if String(user_state.get("token", "")).is_empty():
+		return {}
+	return user_state.duplicate(true)
+
+
+static func has_user_state(path: String = DEFAULT_PATH) -> bool:
+	return not load_user_state(path).is_empty()
+
+
+static func save_user_state(response: Dictionary, path: String = DEFAULT_PATH) -> bool:
+	if not has_accepted_account(path):
+		return false
+	var state: Dictionary = user_state_from_response(response)
+	if state.is_empty():
+		return false
+	var record: Dictionary = load_record(path)
+	record[KEY_USER_STATE] = state
+	return save_record(record, path)
+
+
+static func pending_achievement_ids(path: String = DEFAULT_PATH) -> Array[String]:
+	var raw: Variant = load_record(path).get(KEY_PENDING_ACHIEVEMENTS, [])
+	var ids: Array[String] = []
+	if raw is Array:
+		for value: Variant in raw:
+			var id: String = String(value)
+			if not id.is_empty() and not ids.has(id):
+				ids.append(id)
+	return ids
+
+
+static func queue_achievement_ids(ids: Array[String], path: String = DEFAULT_PATH) -> bool:
+	var record: Dictionary = load_record(path)
+	var pending: Array[String] = pending_achievement_ids(path)
+	for id: String in ids:
+		if not id.is_empty() and not pending.has(id):
+			pending.append(id)
+	record[KEY_PENDING_ACHIEVEMENTS] = pending
+	return save_record(record, path)
+
+
+static func clear_achievement_ids(ids: Array[String], path: String = DEFAULT_PATH) -> bool:
+	var record: Dictionary = load_record(path)
+	var pending: Array[String] = pending_achievement_ids(path)
+	for id: String in ids:
+		pending.erase(id)
+	if pending.is_empty():
+		record.erase(KEY_PENDING_ACHIEVEMENTS)
+	else:
+		record[KEY_PENDING_ACHIEVEMENTS] = pending
+	return save_record(record, path)
 
 
 static func save_accepted_account(

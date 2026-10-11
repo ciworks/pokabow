@@ -1,0 +1,797 @@
+class_name BoardView
+extends Control
+
+## The 12 x 12 board, drawn (ADR-008 sections 4 and 9).
+##
+## `BoardView` is a thin orchestrator: it owns one `BoardRenderState`, keeps it
+## square and centred inside whatever space the layout allots, and asks its four
+## layers to redraw. Each layer reads that shared state, so the layers cannot
+## disagree with each other.
+##
+## It owns no rules. Legal placements come from the session's frontier, legality
+## of a preview arrives from the application layer, and committed tiles come from
+## `BoardState`. `BoardView` never validates, never scores, and never mutates the
+## board.
+##
+## Responsiveness is a pure calculation (`BoardMetrics.fit_square`), so the board
+## stays square and inside safe bounds on any viewport - a 1280x720 desktop
+## window or a landscape phone.
+
+## Space around the grid reserved for its decorative frame.
+const PADDING: float = 14.0
+## Distance from the sprite's outer edge to its clear interior, in source pixels.
+const FRAME_SOURCE_INSET: float = 96.0
+
+var _state: BoardRenderState = BoardRenderState.new()
+var _frame: NinePatchRect = null
+
+@onready var tile_layer: BoardTileLayer = %TileLayer
+@onready var preview_layer: BoardPreviewLayer = %PreviewLayer
+@onready var highlight_layer: BoardHighlightLayer = %HighlightLayer
+@onready var cluster_layer: ClusterDisplayLayer = %ClusterDisplayLayer
+@onready var reveal_layer: ScoreRevealLayer = %ScoreRevealLayer
+@onready var debug_overlay: DebugOverlay = %DebugOverlay
+@onready var effect_layer: BoardEffectLayer = %EffectsLayer
+
+
+func _ready() -> void:
+	# Pointer handling belongs to BoardInputController, which hit-tests the board
+	# itself (ADR-008 section 8), so the board never swallows input.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not resized.is_connected(_on_resized):
+		resized.connect(_on_resized)
+	resync()
+
+
+## Binds the four layers and points them at the shared render state.
+##
+## Resolved lazily rather than only through `@onready`, because the board can be
+## asked to render before its `_ready` has run: `AppRoot` attaches the controller
+## as soon as the screen is in the tree (ADR-008 section 5). Re-running this is
+## harmless, so both paths can call it.
+func _ensure_layers() -> void:
+	if _frame == null:
+		_frame = get_node_or_null("BoardFrame") as NinePatchRect
+	# The resize hook is established here as well as in `_ready`, because this
+	# runs from every redraw path. A board that was asked to render before its
+	# `_ready` ran would otherwise keep the rectangle it fitted at that moment and
+	# draw the pending line against a stale board area, which is the same trap the
+	# layer binding below exists to avoid. Connecting twice is harmless.
+	if not resized.is_connected(_on_resized):
+		resized.connect(_on_resized)
+	if tile_layer == null:
+		tile_layer = get_node_or_null("%TileLayer") as BoardTileLayer
+	if preview_layer == null:
+		preview_layer = get_node_or_null("%PreviewLayer") as BoardPreviewLayer
+	if highlight_layer == null:
+		highlight_layer = get_node_or_null("%HighlightLayer") as BoardHighlightLayer
+	if cluster_layer == null:
+		# Resolved by `%` first and by plain path second, like the layers above:
+		# the cluster node is added under the board with a unique name, but a
+		# board built without one must still bind rather than silently stop
+		# drawing its persistent outlines.
+		cluster_layer = get_node_or_null("%ClusterDisplayLayer") as ClusterDisplayLayer
+	if cluster_layer == null:
+		cluster_layer = get_node_or_null("ClusterDisplayLayer") as ClusterDisplayLayer
+	if reveal_layer == null:
+		reveal_layer = get_node_or_null("%ScoreRevealLayer") as ScoreRevealLayer
+	if debug_overlay == null:
+		debug_overlay = get_node_or_null("%DebugOverlay") as DebugOverlay
+	if effect_layer == null:
+		effect_layer = get_node_or_null("%EffectsLayer") as BoardEffectLayer
+	if tile_layer != null:
+		tile_layer.state = _state
+	if preview_layer != null:
+		preview_layer.state = _state
+	if highlight_layer != null:
+		highlight_layer.state = _state
+	if cluster_layer != null:
+		cluster_layer.state = _state
+	if reveal_layer != null:
+		reveal_layer.state = _state
+		# The bounce moves tiles by writing a draw scale the tile layer reads, so the
+		# board has to repaint while it runs. The layer reports each frame rather
+		# than `BoardView` polling it, which keeps the animation owned by the
+		# layer that started it.
+		if not reveal_layer.redraw_requested.is_connected(_redraw_all):
+			reveal_layer.redraw_requested.connect(_redraw_all)
+	if debug_overlay != null:
+		debug_overlay.state = _state
+	if effect_layer != null:
+		effect_layer.state = _state
+
+
+## Returns the board rectangle in this control's local coordinates.
+func get_board_rect() -> Rect2:
+	return _state.board_rect
+
+
+## Returns the board rectangle in global coordinates, for pointer hit-testing.
+func global_board_rect() -> Rect2:
+	return BoardMetrics.fit_square(Rect2(global_position, size), PADDING)
+
+
+## Returns the cell under a global point, or `BoardMetrics.NO_CELL`.
+func cell_at_global(point: Vector2) -> Vector2i:
+	return BoardMetrics.cell_from_point(global_board_rect(), point, BoardEnums.BOARD_WIDTH)
+
+
+## Points the view at the board it should render.
+func set_board(board: BoardState) -> void:
+	_state.board = board
+	resync()
+
+
+## Gates frontier highlighting on the human action phase (ADR-008 section 8).
+func set_human_turn(enabled: bool) -> void:
+	if _state.human_turn == enabled:
+		return
+	_state.human_turn = enabled
+	_redraw_all()
+
+
+## Shows the ghost of the pending line, legal or not (ADR-011 section 11).
+##
+## `snapshots` is every staged tile in staging order; the last entry is the tile
+## the rotate command acts on, which the preview layer marks. A single-tile call
+## is a valid pending line of one: ADR-011 section 1 requires two tiles for a
+## move, and `valid` says whether the line as it stands satisfies that.
+func show_line(snapshots: Array[TileSnapshot], valid: bool, reason: String) -> void:
+	var line: Array[TileSnapshot] = []
+	for snapshot: TileSnapshot in snapshots:
+		if snapshot != null:
+			line.append(snapshot)
+	_state.pending_line = line
+	var first: TileSnapshot = null
+	if not line.is_empty():
+		first = line[0]
+	_state.pending = first
+	_state.pending_valid = valid
+	_state.pending_reason = reason
+	# A hint belongs to one exact line: it describes the adjacencies around the
+	# tile the rotate command was acting on. Once the line changes - a tile
+	# staged, unstaged, moved, or rotated - those verdicts are stale, so they are
+	# dropped here and the caller republishes them for the new line. Without this
+	# a rotation would leave the previous orientation's marks up.
+	_state.edge_match_cell = BoardMetrics.NO_CELL
+	_state.edge_matches = [] as Array[bool]
+	_redraw_all()
+
+
+## Shows the ghost of a single pending placement.
+##
+## A one-tile pending line. Kept because a caller that previews one tile is still
+## assembling the same staged line (ADR-011 section 1: the first tile of a line
+## starts it).
+func show_preview(snapshot: TileSnapshot, valid: bool, reason: String) -> void:
+	var line: Array[TileSnapshot] = []
+	if snapshot != null:
+		line.append(snapshot)
+	show_line(line, valid, reason)
+
+
+## Removes the preview, leaving committed tiles untouched.
+func clear_preview() -> void:
+	_state.pending_line = []
+	_state.pending = null
+	_state.pending_valid = false
+	_state.pending_reason = ""
+	# No staged line means no tile to hint at, so the marks go with it.
+	_state.edge_match_cell = BoardMetrics.NO_CELL
+	_state.edge_matches = [] as Array[bool]
+	_redraw_all()
+
+
+## Shows the tile being dragged, snapped to `cell`, with the verdict for dropping
+## it there (AGENTS.md section 8, ADR-011 section 11).
+##
+## `cell` is the board cell `BoardMetrics` derives for the pointer, so the ghost is
+## drawn on the grid and a drop lands on the cell it was drawn over. Whether the
+## drop is legal is the application layer's answer for this exact tile and cell, so
+## the board draws a legal target and an illegal one without judging either.
+##
+## `BoardMetrics.NO_CELL` or a null snapshot clears the drag, because a pointer
+## that is not over the board has no target to draw.
+func show_drag(snapshot: TileSnapshot, cell: Vector2i, legal: bool) -> void:
+	if snapshot == null or cell == BoardMetrics.NO_CELL:
+		clear_drag()
+		return
+	if not BoardMetrics.is_valid_cell(cell, _state.grid):
+		clear_drag()
+		return
+	_state.drag_snapshot = snapshot
+	_state.drop_cell = cell
+	_state.drag_legal = legal
+	_redraw_all()
+
+
+## Removes the dragged tile and its target highlight, leaving the pending line and
+## the committed tiles untouched.
+##
+## Called on every kind of drag end, which is what lets a refused release change
+## nothing (ADR-011 section 5): the drag was only ever drawn, never staged.
+func clear_drag() -> void:
+	if _state.drag_snapshot == null and _state.drop_cell == BoardMetrics.NO_CELL:
+		return
+	_state.drag_snapshot = null
+	_state.drop_cell = BoardMetrics.NO_CELL
+	_state.drag_legal = false
+	_redraw_all()
+
+
+## Returns the dragged tile snapped to its cell, or null. For smoke tests.
+func get_drag_snapshot() -> TileSnapshot:
+	return _state.drag_snapshot
+
+
+## Returns the board cell a drop would land on, or `BoardMetrics.NO_CELL`.
+func get_drop_cell() -> Vector2i:
+	return _state.drop_cell
+
+
+## Returns whether dropping the dragged tile at `get_drop_cell()` is legal.
+func is_drop_legal() -> bool:
+	return _state.drag_legal
+
+
+## Returns true while a drag target is being drawn. For smoke tests.
+func has_drag() -> bool:
+	return _state.has_drag()
+
+
+## Marks where the most recent tile landed.
+func mark_committed(cell: Vector2i) -> void:
+	_state.last_committed_cell = cell
+	_state.last_committed_cells = [cell]
+	_redraw_all()
+
+
+## Marks every cell the most recent committed move wrote.
+##
+## ADR-011 section 1 makes a move a whole line, so the highlight marks the line
+## rather than only its anchor; the anchor is still the first cell, so a caller
+## that asks for one cell keeps getting the move's primary cell.
+func mark_committed_line(cells: Array[Vector2i]) -> void:
+	var line: Array[Vector2i] = []
+	for cell: Vector2i in cells:
+		if not line.has(cell):
+			line.append(cell)
+	_state.last_committed_cells = line
+	_state.last_committed_cell = line[0] if not line.is_empty() else BoardMetrics.NO_CELL
+	_redraw_all()
+
+
+## Returns every cell the most recent committed move wrote, as the board is
+## drawing them. For smoke tests and diagnostics.
+func get_last_committed_cells() -> Array[Vector2i]:
+	return _state.last_committed_cells.duplicate()
+
+
+## Briefly reveals scored hands and paying edge clusters from this move's events.
+##
+## `events` is the same authoritative list the score popups read, so a mark and
+## the points beside it always describe one award. Nothing here decides what
+## scored - the events are already committed (ADR-008 section 4).
+func show_score_reveal(events: Array) -> void:
+	_ensure_layers()
+	if reveal_layer != null:
+		reveal_layer.reveal(events)
+
+
+## Drops the reveal immediately, leaving nothing drawn.
+func clear_score_reveal() -> void:
+	_ensure_layers()
+	if reveal_layer != null:
+		reveal_layer.clear_reveal()
+
+
+## Shows the same-colour edge regions the committed board currently holds
+## (AGENTS.md section 8, docs/sections/05-mobile-ux.md section 4).
+##
+## `clusters` arrives ready to draw: `GameSessionController.current_edge_clusters()`
+## enumerated the components with `EdgeClusterScorer`, so the board outlines the
+## regions the rules already recognise rather than deriving them itself (AGENTS.md
+## section 19). An empty list is a valid answer and clears the marks.
+##
+## The regions persist until this is called again, which is what separates them
+## from `show_score_reveal`: that mark answers "what did the move that just
+## committed score" and fades, while this one always describes the board as it
+## stands now.
+func show_clusters(clusters: Array) -> void:
+	_ensure_layers()
+	if cluster_layer == null:
+		return
+	cluster_layer.show_clusters(clusters)
+
+
+## Drops the persistent cluster outlines, leaving committed tiles untouched.
+func clear_clusters() -> void:
+	_ensure_layers()
+	if cluster_layer != null:
+		cluster_layer.clear_clusters()
+
+
+## Shows, for one staged cell, which of its four edges currently matches the
+## committed tile across it (top, right, bottom, left).
+##
+## The verdicts are a factual read-out of current adjacencies that
+## `GameSessionController.staged_edge_matches` derived from `EdgeMatchScorer`;
+## the board carries them and the preview layer draws them, but neither decides
+## them, so the hint cannot become a score prediction (AGENTS.md sections 2 and
+## 19).
+##
+## `BoardMetrics.NO_CELL` clears the hint, because a hint with no cell has
+## nothing to attach its marks to.
+func show_edge_matches(cell: Vector2i, matches: Array[bool]) -> void:
+	_ensure_layers()
+	if cell == BoardMetrics.NO_CELL:
+		clear_edge_matches()
+		return
+	_state.edge_match_cell = cell
+	_state.edge_matches = matches.duplicate()
+	_redraw_all()
+
+
+## Removes the rotation hint, leaving the staged line untouched.
+func clear_edge_matches() -> void:
+	_ensure_layers()
+	if _state.edge_match_cell == BoardMetrics.NO_CELL and _state.edge_matches.is_empty():
+		return
+	_state.edge_match_cell = BoardMetrics.NO_CELL
+	_state.edge_matches = [] as Array[bool]
+	_redraw_all()
+
+
+## Rebuilds every layer from authoritative state.
+##
+## ADR-008 section 9 requires an interrupted or skipped animation to
+## resynchronize immediately: this discards all visual interpolation, because the
+## layers hold no state of their own to unwind.
+func resync() -> void:
+	_recompute_rect()
+	# Tearing the board down drops any reveal with it, so a mark cannot outlive
+	# the match it was drawn for. A rebuild during play keeps the reveal: it is
+	# driven by committed score events, which a redraw does not change.
+	if _state.board == null:
+		clear_score_reveal()
+		# A persistent outline is a statement about a board, so tearing the board
+		# down drops it and the hint with it: neither mark may outlive the match
+		# whose state it described.
+		clear_clusters()
+		clear_edge_matches()
+	_redraw_all()
+
+
+## Returns the previewed snapshot (the pending line's first tile), or null.
+## For smoke tests and diagnostics.
+func get_pending_snapshot() -> TileSnapshot:
+	return _state.pending
+
+
+## Returns every tile of the pending line in staging order, as the board is
+## drawing them. For smoke tests and diagnostics.
+func get_pending_line() -> Array[TileSnapshot]:
+	return _state.pending_line.duplicate()
+
+
+## Returns how many tiles the board is drawing as the pending line. For smoke
+## tests.
+func get_pending_count() -> int:
+	return _state.pending_count()
+
+
+## Returns whether the current preview is legal. For smoke tests.
+func is_pending_valid() -> bool:
+	return _state.pending_valid
+
+
+## Returns why the current preview is illegal. For smoke tests.
+func get_pending_reason() -> String:
+	return _state.pending_reason
+
+
+## Returns the last committed cell. For smoke tests.
+func get_last_committed_cell() -> Vector2i:
+	return _state.last_committed_cell
+
+
+func _on_resized() -> void:
+	resync()
+
+
+## Recomputes the square board area for the current control size.
+func _recompute_rect() -> void:
+	_state.board_rect = BoardMetrics.fit_square(Rect2(Vector2.ZERO, size), PADDING)
+	if _frame != null:
+		var frame_rect: Rect2 = _state.board_rect.grow(PADDING)
+		# Scale the source corners uniformly; nine-patch stretches only the rails.
+		var frame_scale: float = PADDING / FRAME_SOURCE_INSET
+		_frame.scale = Vector2.ONE * frame_scale
+		_frame.position = frame_rect.position
+		_frame.size = frame_rect.size / frame_scale
+		_frame.visible = _state.board != null and _state.board_rect.has_area()
+
+
+func _redraw_all() -> void:
+	# Binding here as well as in `_ready` keeps a render request made before the
+	# view is ready from dereferencing a null layer.
+	_ensure_layers()
+	# The rect is refitted on every redraw, so the drawn board follows the size
+	# the layout has actually given this control. Fitting it only in `_ready` and
+	# on `resized` means a board that was drawn before its `_ready` ran keeps the
+	# rectangle it fitted at that moment and draws its tiles against a stale area,
+	# while `global_board_rect()` - which hit-tests every gesture - recomputes from
+	# the live size. Refitting here keeps the drawn board and the tappable board
+	# the same rectangle.
+	_recompute_rect()
+	if tile_layer != null:
+		tile_layer.queue_redraw()
+	if preview_layer != null:
+		preview_layer.queue_redraw()
+	if highlight_layer != null:
+		highlight_layer.queue_redraw()
+	if cluster_layer != null:
+		# Repainted on every redraw rather than only when the clusters are
+		# republished: the marks resolve their geometry from the board rectangle,
+		# so a refit or a resize has to move them with the tiles they outline.
+		cluster_layer.queue_redraw()
+	if reveal_layer != null:
+		reveal_layer.queue_redraw()
+	if debug_overlay != null:
+		debug_overlay.queue_redraw()
+	if effect_layer != null:
+		effect_layer.queue_redraw()
+
+class_name BoardInputController
+extends Node
+
+## Turns pointer gestures over the board into placement intents
+## (ADR-008 section 8).
+##
+## Responsibilities, and only these:
+## - convert a pointer position to a board cell, using `BoardMetrics`;
+## - treat tap and drag as the same placement-preview intent;
+## - route mouse and touch through one path, so desktop development input
+##   exercises exactly the code touch screens use;
+## - stay silent unless the human owns the action phase.
+##
+## It never commits a move. Committing is an explicit confirm handled by the
+## application layer, so a stray tap can never end a turn (ADR-008 section 8:
+## never commit a move directly from input).
+
+## A press landed on a board cell.
+signal cell_tapped(cell: Vector2i)
+
+## A press moved onto a different board cell while held.
+signal cell_dragged(cell: Vector2i)
+
+## A press was released, anywhere. Carries the cell under the pointer, or
+## `BoardMetrics.NO_CELL` when the release happened off the board.
+signal pointer_released(cell: Vector2i)
+
+## The board this controller hit-tests. Injected by the screen that owns both.
+var board_view: BoardView = null
+
+## True only while the human may place a tile (ADR-008 section 8).
+var enabled: bool = false
+
+## True between a press and its release.
+var _pressing: bool = false
+
+## The cell where the current press started.
+var _press_cell: Vector2i = BoardMetrics.NO_CELL
+
+## The cell the most recent press landed on, or `BoardMetrics.NO_CELL` when that
+## press started off the board.
+##
+## `_press_cell` is re-targeted while a drag moves and is cleared on release, so it
+## cannot answer "where did this gesture start". This keeps the origin readable
+## until the next press, which is what lets the screen pair a release against the
+## tile the gesture began on. Reading it is how a press on a pending tile that is
+## released off the board is recognised as a removal rather than a placement.
+var _press_origin_cell: Vector2i = BoardMetrics.NO_CELL
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not enabled or board_view == null:
+		return
+	if event is InputEventScreenTouch:
+		_handle_press(event.position, event.pressed)
+		return
+	if event is InputEventMouseButton:
+		var button: InputEventMouseButton = event
+		if button.button_index == MOUSE_BUTTON_LEFT:
+			_handle_press(button.position, button.pressed)
+		return
+	if event is InputEventScreenDrag:
+		_handle_move(event.position)
+		return
+	if event is InputEventMouseMotion:
+		var motion: InputEventMouseMotion = event
+		if _pressing:
+			_handle_move(motion.position)
+
+
+## Begins or ends a press at `position`.
+## `pressed` is the raw button/touch state.
+func _handle_press(position: Vector2, pressed: bool) -> void:
+	if pressed:
+		var cell: Vector2i = board_view.cell_at_global(position)
+		if cell == BoardMetrics.NO_CELL:
+			# A press that starts off the board is not a placement gesture, and it
+			# forgets the previous origin so a release cannot be paired with a
+			# press that started somewhere else.
+			_press_origin_cell = BoardMetrics.NO_CELL
+			return
+		_pressing = true
+		_press_cell = cell
+		_press_origin_cell = cell
+		cell_tapped.emit(cell)
+		_consume()
+		return
+
+	var released_cell: Vector2i = board_view.cell_at_global(position)
+	_pressing = false
+	_press_cell = BoardMetrics.NO_CELL
+	pointer_released.emit(released_cell)
+	_consume()
+
+
+## Returns the cell the current or most recent press landed on, or
+## `BoardMetrics.NO_CELL` when that press started off the board.
+##
+## The release report carries only where the pointer was let go, so a caller that
+## has to reason about the gesture as a whole - "this press began on a pending tile
+## and ended off the board" - reads the origin from here. The gesture controller
+## never interprets that pairing itself: it reports the two ends and lets the screen
+## route them (ADR-008 section 4).
+func press_origin_cell() -> Vector2i:
+	return _press_origin_cell
+
+
+## Reports a drag onto a new cell, once per cell change.
+func _handle_move(position: Vector2) -> void:
+	var cell: Vector2i = board_view.cell_at_global(position)
+	if cell == BoardMetrics.NO_CELL or cell == _press_cell:
+		return
+	_press_cell = cell
+	cell_dragged.emit(cell)
+	_consume()
+
+
+## Stops the handled gesture from reaching anything else.
+func _consume() -> void:
+	var viewport: Viewport = get_viewport()
+	if viewport != null:
+		viewport.set_input_as_handled()
+
+
+## Clears any in-flight press, so disabling input cannot leave a stuck gesture.
+func reset() -> void:
+	_pressing = false
+	_press_cell = BoardMetrics.NO_CELL
+	_press_origin_cell = BoardMetrics.NO_CELL
+
+class_name BoardMetrics
+extends RefCounted
+
+## Pure board-to-pixel geometry for presentation (ADR-008 sections 4 and 8).
+##
+## The board is a centred square inside whatever rectangle the layout gives it,
+## so the same arithmetic works on a 1280 x 720 desktop window and on a
+## landscape phone. Nothing here reads a node, the scene tree, or a game rule:
+## `BoardView` and `BoardInputController` both call these functions, which is
+## what keeps pointer-to-cell conversion in exactly one place
+## (ADR-008 section 8).
+##
+## Cell (0, 0) is the top-left cell (ADR-006 section 1), so cell coordinates
+## increase left to right and top to bottom exactly as board coordinates do.
+##
+## These functions are pure and scene-free, so the responsive-fit and
+## pointer-mapping behaviour ADR-008 section 13 asks scene smoke tests to cover
+## can also be unit tested headlessly.
+
+const DEFAULT_GRID: int = BoardEnums.BOARD_WIDTH
+
+## Returned by `cell_from_point` for a point that is not on the board.
+const NO_CELL: Vector2i = Vector2i(-1, -1)
+
+
+## Returns the largest centred square that fits inside `available` once
+## `padding` has been removed from every side.
+##
+## A centred square stops the 12 x 12 grid from stretching on a wide landscape
+## display and keeps every tile square at any viewport size.
+static func fit_square(available: Rect2, padding: float = 0.0) -> Rect2:
+	var safe_padding: float = maxf(padding, 0.0)
+	var inner: Vector2 = Vector2(
+		maxf(available.size.x - safe_padding * 2.0, 0.0),
+		maxf(available.size.y - safe_padding * 2.0, 0.0)
+	)
+	var side: float = minf(inner.x, inner.y)
+	var square_size: Vector2 = Vector2(side, side)
+	var centred: Vector2 = available.position + (available.size - square_size) * 0.5
+	return Rect2(centred, square_size)
+
+
+## Returns the side length of one cell on a `grid` x `grid` board.
+static func cell_size(board_rect: Rect2, grid: int = DEFAULT_GRID) -> float:
+	if grid <= 0:
+		return 0.0
+	return board_rect.size.x / float(grid)
+
+
+## Returns the pixel rectangle of one cell.
+static func cell_rect(board_rect: Rect2, cell: Vector2i, grid: int = DEFAULT_GRID) -> Rect2:
+	var side: float = cell_size(board_rect, grid)
+	var origin: Vector2 = board_rect.position + Vector2(cell.x, cell.y) * side
+	return Rect2(origin, Vector2(side, side))
+
+
+## Returns the centre point of one cell.
+static func cell_center(board_rect: Rect2, cell: Vector2i, grid: int = DEFAULT_GRID) -> Vector2:
+	var side: float = cell_size(board_rect, grid)
+	return cell_rect(board_rect, cell, grid).position + Vector2(side, side) * 0.5
+
+
+## Returns the cell containing `point`, or `NO_CELL` when the point is outside.
+##
+## The check uses the board rectangle's own bounds rather than `Rect2.has_point`
+## so a point exactly on the far edge is treated as outside; the last cell ends
+## just before it.
+static func cell_from_point(
+	board_rect: Rect2, point: Vector2, grid: int = DEFAULT_GRID
+) -> Vector2i:
+	if grid <= 0:
+		return NO_CELL
+	var side: float = cell_size(board_rect, grid)
+	if side <= 0.0:
+		return NO_CELL
+	var local: Vector2 = point - board_rect.position
+	if local.x < 0.0 or local.y < 0.0:
+		return NO_CELL
+	var cell: Vector2i = Vector2i(int(floor(local.x / side)), int(floor(local.y / side)))
+	if not is_valid_cell(cell, grid):
+		return NO_CELL
+	return cell
+
+
+## Returns true when `cell` lies on a `grid` x `grid` board.
+static func is_valid_cell(cell: Vector2i, grid: int = DEFAULT_GRID) -> bool:
+	return cell.x >= 0 and cell.x < grid and cell.y >= 0 and cell.y < grid
+
+theme_override_font_sizes/font_size = 36
+text = "0"
+horizontal_alignment = 1
+
+[node name="Body" type="HBoxContainer" parent="Root/Column" unique_id=1846455183]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="BoardViewport" type="MarginContainer" parent="Root/Column/Body" unique_id=2128557702]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="BoardView" type="Control" parent="Root/Column/Body/BoardViewport" unique_id=847133380]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+script = ExtResource("2_board")
+
+[node name="TileLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1192569401]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_tile_layer")
+
+[node name="BoardFrame" type="NinePatchRect" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1509824097]
+layout_mode = 0
+texture = ExtResource("20_board_frame")
+draw_center = false
+patch_margin_left = 128
+patch_margin_top = 128
+patch_margin_right = 128
+patch_margin_bottom = 128
+
+[node name="HighlightLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=716925728]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+rg: scripts/presentation/board*gd: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+scripts/presentation/game_screen.gd:123:## Identity of the deck tile currently being dragged onto the board, or an empty
+scripts/presentation/game_screen.gd:124:## name when no drag is in flight (AGENTS.md section 8).
+scripts/presentation/game_screen.gd:126:## Presentation-only: a drag stages nothing until it is released over a cell the
+scripts/presentation/game_screen.gd:129:var _drag_tile_id: StringName = &""
+scripts/presentation/game_screen.gd:210:	var board_width: float = board_view.global_board_rect().size.x
+scripts/presentation/game_screen.gd:342:	# A board drag repositions a tile the line already holds; it never pulls a tile
+scripts/presentation/game_screen.gd:343:	# out of the hand, so the only way a deck tile reaches the board is still a drag
+scripts/presentation/game_screen.gd:345:	_connect_once(board_input.cell_dragged, _on_cell_dragged)
+scripts/presentation/game_screen.gd:403:	# The drag path (AGENTS.md section 8) is additive: it reaches the same
+scripts/presentation/game_screen.gd:406:	_connect_once(deck_view.tile_drag_started, _on_deck_tile_drag_started)
+scripts/presentation/game_screen.gd:407:	_connect_once(deck_view.tile_dragged, _on_deck_tile_dragged)
+scripts/presentation/game_screen.gd:409:	_connect_once(deck_view.tile_drag_cancelled, _on_deck_tile_drag_cancelled)
+scripts/presentation/game_screen.gd:435:## hand is a gesture that starts on the hand - the player drags a deck tile onto the
+scripts/presentation/game_screen.gd:449:## A deck drag owns the pointer while it is in flight, so a board press that arrives
+scripts/presentation/game_screen.gd:450:## mid-drag is ignored.
+scripts/presentation/game_screen.gd:454:	if not String(_drag_tile_id).is_empty():
+scripts/presentation/game_screen.gd:462:## A deck drag owns the pointer while it is in flight, so a board drag that arrives
+scripts/presentation/game_screen.gd:463:## mid-drag is ignored. A gesture that began on a staged tile previews that tile
+scripts/presentation/game_screen.gd:467:func _on_cell_dragged(cell: Vector2i) -> void:
+scripts/presentation/game_screen.gd:470:	if not String(_drag_tile_id).is_empty():
+scripts/presentation/game_screen.gd:474:	_refresh_staged_drag(cell)
+scripts/presentation/game_screen.gd:486:## overwritten. A tile leaves the line only by being dragged off the board or by
+scripts/presentation/game_screen.gd:575:## ends a deck drag: a deck drag owns the pointer and its own drop decides what
+scripts/presentation/game_screen.gd:581:	if not String(_drag_tile_id).is_empty():
+scripts/presentation/game_screen.gd:582:		# A deck drag owns the pointer, and its own drop decides what happens.
+scripts/presentation/game_screen.gd:586:	_clear_staged_drag()
+scripts/presentation/game_screen.gd:807:# --- Deck drag onto the board (AGENTS.md section 8) -------------------------
+scripts/presentation/game_screen.gd:810:## Begins a drag of one deck tile onto the board.
+scripts/presentation/game_screen.gd:812:## AGENTS.md section 8 asks for drag as a first-class mobile gesture. The drag is
+scripts/presentation/game_screen.gd:816:## A drag is refused outright when the human may not act, so an off-turn gesture
+scripts/presentation/game_screen.gd:818:func _on_deck_tile_drag_started(tile_id: StringName, _pointer: Vector2) -> void:
+scripts/presentation/game_screen.gd:820:		_refuse_drag(tile_id)
+scripts/presentation/game_screen.gd:823:		_refuse_drag(tile_id)
+scripts/presentation/game_screen.gd:825:	_drag_tile_id = tile_id
+scripts/presentation/game_screen.gd:827:		board_view.clear_drag()
+scripts/presentation/game_screen.gd:830:## Follows a drag: the tile is drawn snapped to the cell under the pointer, and
+scripts/presentation/game_screen.gd:837:func _on_deck_tile_dragged(tile_id: StringName, pointer: Vector2) -> void:
+scripts/presentation/game_screen.gd:838:	if controller == null or String(_drag_tile_id).is_empty():
+scripts/presentation/game_screen.gd:840:	if tile_id != _drag_tile_id:
+scripts/presentation/game_screen.gd:842:	var cell: Vector2i = board_cell_at(pointer)
+scripts/presentation/game_screen.gd:846:		board_view.clear_drag()
+scripts/presentation/game_screen.gd:848:	board_view.show_drag(_drag_snapshot(cell), cell, can_drop_at(tile_id, cell))
+scripts/presentation/game_screen.gd:851:## Ends a drag on release: the tile is staged at the cell under the pointer when
+scripts/presentation/game_screen.gd:856:## pending line exactly as they were, because a drag never staged anything on the
+scripts/presentation/game_screen.gd:860:	if controller == null or String(_drag_tile_id).is_empty():
+scripts/presentation/game_screen.gd:862:	if tile_id != _drag_tile_id:
+scripts/presentation/game_screen.gd:864:	var cell: Vector2i = board_cell_at(pointer)
+scripts/presentation/game_screen.gd:866:	_end_drag()
+scripts/presentation/game_screen.gd:872:	# drag, so the tile is normally armed already; arming is only needed when a
+scripts/presentation/game_screen.gd:873:	# drag arrives without one. Neither call happens twice, so a drop cannot clear
+scripts/presentation/game_screen.gd:883:## Ends a drag that was abandoned before a release, leaving everything unchanged.
+scripts/presentation/game_screen.gd:884:func _on_deck_tile_drag_cancelled(tile_id: StringName) -> void:
+scripts/presentation/game_screen.gd:885:	if String(_drag_tile_id).is_empty():
+scripts/presentation/game_screen.gd:887:	if tile_id != _drag_tile_id:
+scripts/presentation/game_screen.gd:889:	_end_drag()
+scripts/presentation/game_screen.gd:898:func board_cell_at(pointer: Vector2) -> Vector2i:
+scripts/presentation/game_screen.gd:902:		return board_view.cell_at_global(pointer)
+scripts/presentation/game_screen.gd:903:	return board_view.cell_at_global(deck_view.get_global_transform() * pointer)
+scripts/presentation/game_screen.gd:920:## Returns the deck tile the row is dragging, as a snapshot at `cell`, or null
+scripts/presentation/game_screen.gd:926:func _drag_snapshot(cell: Vector2i) -> TileSnapshot:
+scripts/presentation/game_screen.gd:929:	var tile: TileDefinition = _deck_tile(_drag_tile_id)
+scripts/presentation/game_screen.gd:947:## Ends the drag in thought and on screen, leaving the deck and the board alone.
+scripts/presentation/game_screen.gd:951:func _end_drag() -> void:
+scripts/presentation/game_screen.gd:952:	_drag_tile_id = &""
+scripts/presentation/game_screen.gd:955:		board_view.clear_drag()
+scripts/presentation/game_screen.gd:959:		deck_view.set_dragging(false, false)
+scripts/presentation/game_screen.gd:978:func _refresh_staged_drag(cell: Vector2i) -> void:
+scripts/presentation/game_screen.gd:983:		board_view.clear_drag()
+scripts/presentation/game_screen.gd:988:	board_view.show_drag(moved, cell, controller.can_move_staged_at(_move_from_cell, cell))
+scripts/presentation/game_screen.gd:992:func _clear_staged_drag() -> void:
+scripts/presentation/game_screen.gd:994:		board_view.clear_drag()
+scripts/presentation/game_screen.gd:997:## Refuses a drag that started when the human may not act, clearing any drag the
+scripts/presentation/game_screen.gd:1000:## The drag is ended in thought, on the board, and in the row, so an off-turn
+scripts/presentation/game_screen.gd:1002:func _refuse_drag(_tile_id: StringName) -> void:
+scripts/presentation/game_screen.gd:1003:	_drag_tile_id = &""
+scripts/presentation/game_screen.gd:1005:		board_view.clear_drag()
+scripts/presentation/game_screen.gd:1007:		deck_view.set_dragging(false, false)
+scripts/presentation/game_screen.gd:1008:		deck_view.cancel_drag(false)
+scripts/presentation/game_screen.gd:1010:	# whose turn it is, and an off-turn drag is refused rather than announced.
+scripts/presentation/game_screen.gd:1329:	_end_drag()
+scripts/presentation/game_screen.gd:1335:## A drag in flight is abandoned first: an authoritative change means the deck or
+scripts/presentation/game_screen.gd:1339:	_end_drag()
+scripts/presentation/game_screen.gd:1653:		# A drag belongs to the player's own turn too, so it is abandoned when
+scripts/presentation/game_screen.gd:1656:		_end_drag()
+scripts/presentation/game_screen.gd:1667:	var global_rect: Rect2 = board_view.global_board_rect()
+scripts/presentation/game_screen.gd:1668:	var cell_global: Vector2 = BoardMetrics.cell_rect(

@@ -31,6 +31,17 @@ var _board_revision: int = 0
 var _match_id: StringName = &""
 var _match_seed: int = 0
 
+## The two held decks, in deal order (ADR-010 section 2).
+##
+## ADR-011 section 12 makes the AI's move generation line-shaped, and a line is
+## built from the tiles a player HOLDS, so the deck is part of the state the
+## analysis needs. The AI's own deck is legitimately owned information, and the
+## opponent's deck is public in Phase 1 because a deck tile is placed face up
+## when it is committed (ADR-011 section 1). The undrawn pot is still absent:
+## only the two decks are carried, and they are copies.
+var _ai_deck: Array[TileDefinition] = []
+var _human_deck: Array[TileDefinition] = []
+
 
 ## Builds a snapshot from the authoritative session for one AI player.
 ##
@@ -69,12 +80,17 @@ static func create(session: GameSessionState, ai_player_id: StringName) -> AiGam
 	snapshot._board_revision = snapshot._board.get_revision()
 	snapshot._match_id = session.get_match_id()
 	snapshot._match_seed = session.get_seed()
+	snapshot._ai_deck = session.deck_for(ai_player_id)
+	snapshot._human_deck = session.deck_for(human_player_id)
 	return snapshot
 
 
 ## Builds a snapshot from explicit values, for tests and hypothetical views.
 ##
 ## The board and the scored set are copied, exactly as `create()` copies them.
+## `ai_deck` and `human_deck` are the two held decks; a caller that leaves them
+## out gets a snapshot whose decks are empty, which is the honest answer for a
+## view that does not know what either player holds (and yields no candidates).
 static func from_parts(
 	board: BoardState,
 	scored_hand_set: ScoredHandSet,
@@ -85,7 +101,9 @@ static func from_parts(
 	human_total: int,
 	turn_number: int,
 	match_id: StringName,
-	match_seed: int
+	match_seed: int,
+	ai_deck: Array[TileDefinition] = [],
+	human_deck: Array[TileDefinition] = []
 ) -> AiGameSnapshot:
 	var snapshot: AiGameSnapshot = AiGameSnapshot.new()
 	snapshot._board = null if board == null else board.copy()
@@ -101,6 +119,14 @@ static func from_parts(
 	snapshot._board_revision = 0 if snapshot._board == null else snapshot._board.get_revision()
 	snapshot._match_id = match_id
 	snapshot._match_seed = match_seed
+	if ai_deck != null:
+		for tile: TileDefinition in ai_deck:
+			if tile != null and tile.is_valid():
+				snapshot._ai_deck.append(tile)
+	if human_deck != null:
+		for tile: TileDefinition in human_deck:
+			if tile != null and tile.is_valid():
+				snapshot._human_deck.append(tile)
 	return snapshot
 
 
@@ -122,6 +148,32 @@ func get_rules() -> ScoringRules:
 ## Returns the AI player this snapshot was built for.
 func ai_player_id() -> StringName:
 	return _ai_player_id
+
+
+## Returns the deck the AI holds, in deal order (ADR-010 section 2).
+##
+## A copy, so a strategy can never disturb the analysis state it was handed.
+func ai_deck() -> Array[TileDefinition]:
+	return _ai_deck.duplicate()
+
+
+## Returns the deck the opponent holds, in deal order.
+func human_deck() -> Array[TileDefinition]:
+	return _human_deck.duplicate()
+
+
+## Returns one player's deck, or an empty array for an unknown player.
+func deck_for(player_id: StringName) -> Array[TileDefinition]:
+	if player_id == _ai_player_id:
+		return ai_deck()
+	if player_id == _human_player_id:
+		return human_deck()
+	return [] as Array[TileDefinition]
+
+
+## Returns true when both held decks are present, which line generation needs.
+func has_decks() -> bool:
+	return not _ai_deck.is_empty() and not _human_deck.is_empty()
 
 
 ## Returns the other Phase 1 player (ADR-003 constraint 1).
@@ -177,9 +229,24 @@ func hypothetical_board(tile_snapshot: TileSnapshot) -> BoardState:
 	return _board.with_tile(tile_snapshot)
 
 
-## Returns true when the snapshot carries everything a decision needs.
+## Returns a detached board with a whole hypothetical line added.
+##
+## The line-shaped counterpart of `hypothetical_board` (ADR-011 sections 2 and
+## 5): the board a two-ply reply is evaluated against is the board this line
+## would leave behind. It copies, so the snapshot's own board is never touched.
+func hypothetical_board_for_line(line: Array[TileSnapshot]) -> BoardState:
+	if _board == null:
+		return null
+	if line == null or line.is_empty():
+		return _board.copy()
+	return _board.with_tiles(line)
+
+
+## Returns true when the snapshot carries everything a line decision needs.
 func is_valid() -> bool:
 	if _board == null or _scored_hand_set == null:
+		return false
+	if _ai_deck.is_empty():
 		return false
 	if _rules == null or not _rules.is_valid():
 		return false
@@ -203,6 +270,8 @@ func validate() -> PackedStringArray:
 		problems.append("scoring rules are required")
 	elif not _rules.is_valid():
 		problems.append("the scoring rules are invalid")
+	if _ai_deck.is_empty():
+		problems.append("the AI's held deck is required to generate lines (ADR-011 section 12)")
 	if not TurnEnums.is_valid_player_id(_ai_player_id):
 		problems.append("a valid AI player identity is required")
 	if _human_player_id == _ai_player_id:

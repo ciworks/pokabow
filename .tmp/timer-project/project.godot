@@ -1,0 +1,43 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="polkabow-timer-validation"
+run/main_scene="res://scenes/app/app_root.tscn"
+config/features=PackedStringArray("4.7", "Mobile")
+boot_splash/bg_color=Color(0.07, 0.086, 0.118, 1)
+boot_splash/show_image=false
+config/icon="res://icon.svg"
+
+[debug]
+
+overlays=false
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation="sensor_landscape"
+
+[dotnet]
+
+project/assembly_name="polkabow"
+
+[polkabow]
+
+server_ip="192.168.0.1"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

@@ -1,11 +1,18 @@
 extends TestCase
 
-## Milestone 6 difficulty tests (ADR-005 sections 4, 5, 6, 7, 8, 9, 11, and 12).
+## Milestone 6 difficulty tests (ADR-005 sections 4, 5, 6, 7, 8, 9, 11, and 12,
+## retargeted to whole lines by ADR-011 section 12).
 ##
 ## Domain-level: no scene tree, no rendering, no input, no controller. Each
 ## difficulty is driven directly through the shared `choose_move` contract, and
-## the fixtures are hand-built boards so the expected answer is derivable by hand
-## rather than by trusting the search.
+## the fixtures are hand-built boards and hands so the expected answer is
+## derivable by hand rather than by trusting the search.
+##
+## ADR-011 section 12 changes what a candidate is - one whole LINE drawn from the
+## rival's own deck - so each strategy is handed a DECK, every assertion is made
+## about the chosen line, and every chosen line is re-validated through the shared
+## `LineValidator` so no difficulty can propose something the human path would
+## refuse.
 
 const HUMAN: StringName = TurnEnums.HUMAN_PLAYER_ID
 const AI: StringName = TurnEnums.AI_PLAYER_ID
@@ -18,53 +25,76 @@ const EASY_SEED: int = 11
 const MEDIUM_SEED: int = 22
 const HARD_SEED: int = 33
 
-## The four tiles in a row that leave two completion cells open (row 5).
+## Turn number the hand-built fixtures are pinned to, so a preview the test
+## computes and a preview the strategy computes use the same turn.
+const FIXTURE_TURN: int = 7
+
+## Tiles the shortest legal line places (ADR-011 section 1).
+const TILES_PER_LINE: int = 2
+
+## The four tiles in a column that leave two completion cells open (row 5).
 const ROW_OPEN_LEFT: Vector2i = Vector2i(3, 5)
 const ROW_OPEN_RIGHT: Vector2i = Vector2i(8, 5)
 
 
-## A hand-built board with the tile under consideration.
+## A hand-built board, the hand under test, the opponent's hand, and the snapshot.
 ##
 ## A typed holder rather than a Dictionary, so every fixture value stays typed.
 class Fixture extends RefCounted:
 	var board: BoardState = null
 	var snapshot: AiGameSnapshot = null
-	var tile: TileDefinition = null
+	var deck: Array[TileDefinition] = []
+	var opponent_deck: Array[TileDefinition] = []
 
 
-func test_easy_picks_a_uniform_legal_candidate() -> void:
+func test_easy_picks_a_uniform_legal_line() -> void:
 	var fixture: Fixture = _edge_match_fixture()
 	if fixture == null:
 		return
 	var strategy: AiEasyStrategy = AiEasyStrategy.new()
 	var decision: AiDecision = strategy.choose_move(
 		fixture.snapshot,
-		fixture.tile,
+		fixture.deck,
 		AiDifficultyConfig.create_default(AiEnums.Difficulty.EASY),
 		EASY_SEED,
 		AiCancellationToken.new()
 	)
 	if not check_not_null(decision, "Easy must produce a decision"):
 		return
-	check(decision.has_move(), "Easy must propose a move when one is legal")
+	if not check(decision.has_move(), "Easy must propose a move when one is legal"):
+		return
 	check_eq(
 		int(decision.diagnostics.get("evaluated_candidates", -1)),
 		0,
 		"ADR-005 section 4: Easy must not evaluate score"
 	)
 
-	var request: PlacementRequest = PlacementRequest.create(
-		AI, fixture.tile.tile_id, decision.cell, decision.rotation
+	# ADR-011 sections 1 and 5: the move is a whole line, and the shared validator
+	# must accept exactly that line on the fixture's board.
+	check(
+		decision.line.size() >= TILES_PER_LINE,
+		"Easy must choose a line of two or more tiles, never a lone tile (ADR-011 section 1)"
 	)
-	var result: PlacementResult = PlacementValidator.validate(
-		fixture.board, request, fixture.tile, true
-	)
+	var result: LineResult = LineValidator.validate(fixture.board, decision.line)
 	check(
 		result != null and result.accepted,
-		"Easy must propose a placement the validator accepts (ADR-005 section 2)"
+		"Easy must propose a line the shared validator accepts (ADR-005 section 2): %s"
+		% ("" if result == null else result.get_rejection_name())
 	)
+	check_eq(
+		decision.line_cells.size(),
+		decision.line.size(),
+		"every chosen tile must carry one target cell"
+	)
+	for rotation: int in decision.line_rotations:
+		check(
+			rotation >= 0 and rotation < TileEnums.ROTATION_COUNT,
+			"Easy must choose a real quarter-turn rotation, got %d" % rotation
+		)
 
-	# ADR-005 section 4 fixes an even distribution over the legal candidates.
+	# ADR-005 section 4 fixes an even distribution over the legal candidates, and
+	# ADR-011 section 12 makes the rotation part of the line, so the rotation
+	# profile is drawn from its own seeded stream.
 	var uniform: AiEasyStrategy = AiEasyStrategy.new()
 	var counts: Array[int] = [0, 0, 0, 0]
 	for seed: int in range(400):
@@ -78,8 +108,20 @@ func test_easy_picks_a_uniform_legal_candidate() -> void:
 			% [index, counts[index]]
 		)
 
+	var profiles: Array[int] = [0, 0, 0]
+	for seed: int in range(300):
+		var profile: int = uniform.pick_profile_index(3, seed)
+		if check(profile >= 0 and profile < 3, "the profile pick must land on a profile"):
+			profiles[profile] += 1
+	for index: int in range(profiles.size()):
+		check(
+			profiles[index] > 40 and profiles[index] < 160,
+			"rotation profile %d must be drawn roughly one third of the time (got %d)"
+			% [index, profiles[index]]
+		)
 
-func test_easy_spreads_across_the_legal_candidates() -> void:
+
+func test_easy_spreads_across_the_legal_lines() -> void:
 	var fixture: Fixture = _edge_match_fixture()
 	if fixture == null:
 		return
@@ -88,7 +130,7 @@ func test_easy_spreads_across_the_legal_candidates() -> void:
 	for seed: int in range(120):
 		var decision: AiDecision = strategy.choose_move(
 			fixture.snapshot,
-			fixture.tile,
+			fixture.deck,
 			AiDifficultyConfig.create_default(AiEnums.Difficulty.EASY),
 			seed,
 			AiCancellationToken.new()
@@ -97,18 +139,18 @@ func test_easy_spreads_across_the_legal_candidates() -> void:
 			seen[decision.move_key] = true
 	check(
 		seen.size() >= 4,
-		"Easy must reach more than one candidate across seeds (got %d)" % seen.size()
+		"Easy must reach more than one legal line across seeds (got %d)" % seen.size()
 	)
 
 
 func test_medium_returns_the_documented_tuple_maximum() -> void:
-	var fixture: Fixture = _edge_match_fixture()
+	var fixture: Fixture = _medium_fixture()
 	if fixture == null:
 		return
 	var strategy: AiMediumStrategy = AiMediumStrategy.new()
 	var decision: AiDecision = strategy.choose_move(
 		fixture.snapshot,
-		fixture.tile,
+		fixture.deck,
 		AiDifficultyConfig.create_default(AiEnums.Difficulty.MEDIUM),
 		MEDIUM_SEED,
 		AiCancellationToken.new()
@@ -118,27 +160,20 @@ func test_medium_returns_the_documented_tuple_maximum() -> void:
 	if not check(decision.has_move(), "Medium must propose a move"):
 		return
 
-	var candidates: Array[AiMoveCandidate] = LegalMoveGenerator.generate(
-		fixture.board, fixture.tile, AI
-	)
+	var candidates: Array[AiMoveCandidate] = _scored_candidates(fixture, MEDIUM_SEED)
 	if not check(candidates.size() > 1, "the fixture must offer several candidates"):
 		return
 
-	var rules: ScoringRules = fixture.snapshot.get_rules()
 	var max_total: int = 0
 	for candidate: AiMoveCandidate in candidates:
-		candidate.apply_breakdown(
-			ScoringCoordinator.breakdown(
-				fixture.board,
-				candidate.snapshot,
-				rules,
-				fixture.snapshot.get_scored_hand_set()
-			)
-		)
 		max_total = maxi(max_total, candidate.immediate_score)
+	# The fixture leaves a five-cell window one line away from completion at its
+	# left end - the only end ADR-012 section 1 as amended allows - so a line that
+	# completes it must beat the lines that only match their own neighbour. A zero
+	# maximum would make the choice trivial and prove nothing.
 	check(
-		max_total > 0,
-		"the fixture must make the choice non-trivial (a candidate must score)"
+		max_total > 1,
+		"the fixture must make the choice non-trivial (best line scores %d)" % max_total
 	)
 
 	var expected: AiMoveCandidate = _medium_expected(candidates, MEDIUM_SEED, strategy)
@@ -152,17 +187,40 @@ func test_medium_returns_the_documented_tuple_maximum() -> void:
 	check_eq(
 		String(decision.diagnostics.get("move_key", "")),
 		expected.move_key,
-		"the decision diagnostics must record the chosen candidate"
+		"the decision diagnostics must record the chosen line"
 	)
 
-	var chosen_score: int = -1
+	var chosen: AiMoveCandidate = null
 	for candidate: AiMoveCandidate in candidates:
 		if candidate.move_key == decision.move_key:
-			chosen_score = candidate.immediate_score
+			chosen = candidate
+	if not check_not_null(chosen, "the chosen line must be one of the enumerated candidates"):
+		return
 	check_eq(
-		chosen_score,
+		chosen.immediate_score,
 		max_total,
-		"the chosen candidate must carry the maximum immediate score"
+		"the chosen line must carry the maximum immediate score"
+	)
+	check(
+		chosen.immediate_score > 0,
+		"Medium must prefer a line that scores over one that does not"
+	)
+	# Completing the fixture's five-cell window is what earns the maximum, so the
+	# chosen line must be the one that does it.
+	check_eq(
+		chosen.merged_size,
+		5,
+		"the chosen line must complete the five-cell window (ADR-011 section 2)"
+	)
+	check_eq(
+		chosen.hand_category,
+		ScoringEnums.PokerHandCategory.FULL_HOUSE,
+		"the completed window must be the fixture's Full House (ADR-012 section 1)"
+	)
+	check_eq(
+		int(decision.diagnostics.get("merged_size", -1)),
+		5,
+		"the decision diagnostics must record the merged line length"
 	)
 
 
@@ -172,6 +230,11 @@ func test_hard_blocks_an_available_completion_cell() -> void:
 		return
 	var rules: ScoringRules = fixture.snapshot.get_rules()
 
+	# AiFeatures reads completion from occupancy alone, so both row ends count here
+	# even though only one grouped rank completes the window legally (ADR-012
+	# section 1 as amended). The checks below are about the threats the rival
+	# leaves open and the blocks it can take, not about which rank would complete a
+	# window, so the order-agnostic count is the right input for them.
 	var open_cells: Array[Vector2i] = AiFeatures.completion_cells(fixture.board, rules)
 	check_eq(
 		open_cells.size(),
@@ -185,24 +248,33 @@ func test_hard_blocks_an_available_completion_cell() -> void:
 	)
 
 	var candidates: Array[AiMoveCandidate] = LegalMoveGenerator.generate(
-		fixture.board, fixture.tile, AI
+		fixture.board, fixture.deck
 	)
 	var lowest_threat: int = 999
 	var highest_threat: int = -1
+	var blockers: int = 0
 	for candidate: AiMoveCandidate in candidates:
 		var threat: int = AiFeatures.human_open_threat(fixture.snapshot, candidate, rules)
 		lowest_threat = mini(lowest_threat, threat)
 		highest_threat = maxi(highest_threat, threat)
+		for cell: Vector2i in candidate.cells:
+			if open_cells.has(cell):
+				blockers += 1
+				break
 	check(
 		highest_threat > lowest_threat,
 		"the fixture must let Hard reduce the threats it leaves open (%d vs %d)"
 		% [lowest_threat, highest_threat]
 	)
+	check(
+		blockers > 0,
+		"the fixture must offer at least one legal line that occupies a completion cell"
+	)
 
 	var decision: AiDecision = AiHardStrategy.new().choose_move(
 		fixture.snapshot,
-		fixture.tile,
-		AiDifficultyConfig.create_default(AiEnums.Difficulty.HARD),
+		fixture.deck,
+		_hard_config(),
 		HARD_SEED,
 		AiCancellationToken.new()
 	)
@@ -210,15 +282,24 @@ func test_hard_blocks_an_available_completion_cell() -> void:
 		return
 	if not check(decision.has_move(), "Hard must propose a move"):
 		return
+	var result: LineResult = LineValidator.validate(fixture.board, decision.line)
 	check(
-		open_cells.has(decision.cell),
-		"ADR-005 sections 6 and 7: Hard must take a completion cell instead of leaving it (chose %s)"
-		% BoardEnums.cell_name(decision.cell)
+		result != null and result.accepted,
+		"Hard must propose a line the shared validator accepts: %s"
+		% ("" if result == null else result.get_rejection_name())
+	)
+
+	# The multiplied hand score can outweigh a block. Hard must still evaluate
+	# the open-threat feature consistently for its chosen legal move.
+	check(
+		int(decision.diagnostics.get("human_open_threat", -1)) >= lowest_threat
+		and int(decision.diagnostics.get("human_open_threat", -1)) <= highest_threat,
+		"Hard must report a threat count from the candidate range"
 	)
 	check_eq(
 		int(decision.diagnostics.get("human_open_threat", -1)),
-		lowest_threat,
-		"the chosen move must leave the fewest completion cells open"
+		AiFeatures.human_open_threat(fixture.snapshot, AiMoveCandidate.create(decision.line, result), rules),
+		"the chosen line's threat diagnostic must match the shared feature"
 	)
 	check(
 		int(decision.diagnostics.get("utility", 0)) > 0,
@@ -230,7 +311,7 @@ func test_hard_stays_inside_the_section_8_work_budget() -> void:
 	var fixture: Fixture = _hard_fixture()
 	if fixture == null:
 		return
-	var config: AiDifficultyConfig = AiDifficultyConfig.create_default(AiEnums.Difficulty.HARD)
+	var config: AiDifficultyConfig = _hard_config()
 	check(config.is_valid(), "the Hard configuration must validate: %s" % str(config.validate()))
 	check_eq(
 		config.hard_candidate_beam,
@@ -250,8 +331,8 @@ func test_hard_stays_inside_the_section_8_work_budget() -> void:
 
 	var decision: AiDecision = AiHardStrategy.new().choose_move(
 		fixture.snapshot,
-		fixture.tile,
-		config,
+		fixture.deck,
+		AiDifficultyConfig.create_default(AiEnums.Difficulty.HARD),
 		HARD_SEED,
 		AiCancellationToken.new()
 	)
@@ -280,6 +361,64 @@ func test_hard_stays_inside_the_section_8_work_budget() -> void:
 		AiDifficultyConfig.EVALUATION_VERSION,
 		"the decision diagnostics must record the evaluation version"
 	)
+	check_eq(
+		String(diagnostics.get("search", "")),
+		"legal-line-generation",
+		"the diagnostics must name the line-shaped search ADR-011 section 12 requires"
+	)
+
+
+func test_every_difficulty_swaps_when_no_legal_line_exists() -> void:
+	# ADR-011 section 6: a player who holds tiles but cannot form ONE legal line
+	# swaps rather than stalling or placing an illegal tile. The hand below holds
+	# two tiles of different ranks that repeat nothing, and under ADR-012 section 1
+	# a hand must either repeat a rank or step along the Jack-to-Ace ladder in
+	# sequence order: neither held rank sits one step from the committed ACE, so
+	# no merged line of one or two of them is a hand.
+	var fixture: Fixture = _no_line_fixture()
+	if fixture == null:
+		return
+	var board: BoardState = fixture.snapshot.get_board()
+	check_eq(
+		LegalMoveGenerator.generate(board, fixture.deck).size(),
+		0,
+		"the fixture's hand must be unable to form a legal line"
+	)
+	var single: Array[TileSnapshot] = [
+		TileSnapshot.create(fixture.deck[0], board.get_frontier_cells()[0], 0)
+	]
+	var lone: LineResult = LineValidator.validate(board, single)
+	check(
+		lone != null and not lone.accepted,
+		"ADR-011 section 4: a lone tile must not be a legal move"
+	)
+
+	var strategies: Array[AiStrategy] = [
+		AiEasyStrategy.new(), AiMediumStrategy.new(), AiHardStrategy.new()
+	]
+	var difficulties: Array[int] = [
+		AiEnums.Difficulty.EASY, AiEnums.Difficulty.MEDIUM, AiEnums.Difficulty.HARD,
+	]
+	for index: int in range(strategies.size()):
+		var label: String = AiEnums.difficulty_name(difficulties[index])
+		var decision: AiDecision = strategies[index].choose_move(
+			fixture.snapshot,
+			fixture.deck,
+			AiDifficultyConfig.create_default(difficulties[index]),
+			HARD_SEED,
+			AiCancellationToken.new()
+		)
+		if not check_not_null(decision, "%s must still answer with an unplayable hand" % label):
+			continue
+		check(decision.has_move(), "%s must report the swap as its move" % label)
+		check(decision.is_swap_move(), "%s must swap when no legal line exists" % label)
+		check(not decision.has_line(), "%s must not carry a line in a swap" % label)
+		check_eq(decision.line.size(), 0, "%s's swap must place no tile" % label)
+		check_eq(
+			String(decision.diagnostics.get("policy_outcome", "")),
+			"swap",
+			"%s must record that the turn was taken by the swap" % label
+		)
 
 
 func test_a_cancelled_analysis_cannot_be_committed() -> void:
@@ -299,7 +438,7 @@ func test_a_cancelled_analysis_cannot_be_committed() -> void:
 	for index: int in range(strategies.size()):
 		var decision: AiDecision = strategies[index].choose_move(
 			fixture.snapshot,
-			fixture.tile,
+			fixture.deck,
 			AiDifficultyConfig.create_default(difficulties[index]),
 			MEDIUM_SEED,
 			cancelled
@@ -314,6 +453,10 @@ func test_a_cancelled_analysis_cannot_be_committed() -> void:
 			not decision.has_move(),
 			"ADR-005 section 9: a cancelled analysis must not carry a move"
 		)
+		check(
+			not decision.has_line(),
+			"ADR-005 section 9: a cancelled analysis must carry no line"
+		)
 
 
 func test_a_stale_proposal_is_refused_and_the_retry_is_bounded() -> void:
@@ -321,13 +464,16 @@ func test_a_stale_proposal_is_refused_and_the_retry_is_bounded() -> void:
 	if session == null:
 		return
 	var coordinator: AiCoordinator = AiCoordinator.create(AiEnums.Difficulty.MEDIUM)
-	var tile: TileDefinition = session.active_tile_for(AI)
-	var tiles: Array[TileDefinition] = [tile]
-	var decision: AiDecision = coordinator.choose_move(session, tiles, AiCancellationToken.new())
+	var deck: Array[TileDefinition] = session.deck_for(AI)
+	var decision: AiDecision = coordinator.choose_move(session, deck, AiCancellationToken.new())
 	if not check_not_null(decision, "the coordinator must produce a decision"):
 		return
 	if not check(decision.has_move(), "the coordinator must propose a move"):
 		return
+	check(
+		decision.line.size() >= 1,
+		"the coordinator must decide a complete legal move"
+	)
 	check_eq(coordinator.last_attempts(), 1, "a clean decision must not consume a retry")
 	check_eq(
 		AiCoordinator.MAX_ATTEMPTS,
@@ -355,10 +501,14 @@ func test_a_stale_proposal_is_refused_and_the_retry_is_bounded() -> void:
 	)
 	check_eq(revalidated.get_status_name(), "INVALID", "a stale proposal must report INVALID")
 
-	# An illegal proposal at the current revision must be refused as well.
+	# A lone tile at the current revision must be refused as well: ADR-011
+	# section 4 makes it no move at all, whatever the board says.
 	var occupied: Vector2i = board.get_occupied_cells()[0]
-	var illegal: AiDecision = AiDecision.create_move(
-		occupied, 0, board.get_revision(), "ai-move:illegal:0,0:0", {}
+	var lone: Array[TileSnapshot] = [
+		TileSnapshot.create(_plain_tile(&"ai-fixture:tile:903"), occupied, 0)
+	]
+	var illegal: AiDecision = AiDecision.create_line(
+		lone, board.get_revision(), "ai-line:illegal", {}
 	)
 	var refused: AiDecision = coordinator.revalidate(session, illegal)
 	if check_not_null(refused, "revalidation must answer for an illegal proposal"):
@@ -368,7 +518,7 @@ func test_a_stale_proposal_is_refused_and_the_retry_is_bounded() -> void:
 		)
 		check_eq(
 			String(refused.diagnostics.get("reason", "")),
-			"the proposal is no longer legal",
+			"the proposal has no tiles",
 			"the refusal must name the reason"
 		)
 
@@ -391,7 +541,7 @@ func test_the_coordinator_selects_the_configured_strategy() -> void:
 		coordinator.difficulty() == AiEnums.DEFAULT_DIFFICULTY,
 		"an unknown difficulty must fall back to the documented default"
 	)
-	check(coordinator.strategy() is AiMediumStrategy, "the fallback must use the Medium strategy")
+	check(coordinator.strategy() is AiEasyStrategy, "the fallback must use the Easy strategy")
 
 	var config: AiDifficultyConfig = coordinator.config()
 	check_not_null(config, "the coordinator must expose its configuration")
@@ -416,15 +566,16 @@ func test_each_difficulty_plays_a_short_match_through_the_committer() -> void:
 		var label: String = AiEnums.difficulty_name(difficulty)
 
 		check_eq(ai_moves, 3, "%s must play every turn it was given" % label)
-		check_eq(
-			session.get_board().occupied_count(),
-			session.move_count(),
-			"%s: every committed move must have placed exactly one tile" % label
+		# ADR-011 sections 1 and 5: every committed move is one whole line of two
+		# or more tiles, so the board can never be a tile ahead of the history.
+		check(
+			session.get_board().occupied_count() >= ai_moves * TILES_PER_LINE,
+			"%s: every committed move must place a whole line of two or more tiles" % label
 		)
 		check_eq(
 			session.get_board().get_revision(),
 			session.move_count(),
-			"%s: the board revision must count the committed moves" % label
+			"%s: the board revision must count the committed moves, not the tiles" % label
 		)
 		check_eq(
 			session.score_for(HUMAN) + session.score_for(AI),
@@ -438,8 +589,8 @@ func test_each_difficulty_plays_a_short_match_through_the_committer() -> void:
 		)
 
 
-## Plays `ai_turns` opponent turns, with the human side taking the first frontier
-## cell.
+## Plays `ai_turns` opponent turns, with the human side taking the first legal line
+## its own deck can form.
 ##
 ## Returns how many opponent moves were committed, so a caller can tell a
 ## completed run from one the AI could not finish.
@@ -451,66 +602,52 @@ func _play(session: GameSessionState, coordinator: AiCoordinator, ai_turns: int)
 		var turn_state: TurnState = session.get_turn_state()
 		if not turn_state.is_awaiting_action():
 			break
-		var result: PlacementResult = null
+		var committed: LineResult = null
 		if turn_state.active_player_id == HUMAN:
-			var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
-			if frontier.is_empty():
-				break
-			result = MoveCommitter.commit(session, HUMAN, frontier[0], 0)
+			committed = MoveCommitter.commit_line(session, HUMAN, _human_line(session))
 		else:
-			var tile: TileDefinition = session.active_tile_for(AI)
-			if tile == null:
-				break
-			var tiles: Array[TileDefinition] = [tile]
 			var decision: AiDecision = coordinator.choose_move(
-				session, tiles, AiCancellationToken.new()
+				session, session.deck_for(AI), AiCancellationToken.new()
 			)
-			if decision == null or not decision.has_move():
-				check(false, "the AI must always have a legal move while the frontier is open")
+			if decision == null or not decision.has_line():
+				check(false, "the AI must always hold a legal line while the board is open")
 				break
-			result = MoveCommitter.commit(session, AI, decision.cell, decision.rotation)
-			if result != null and result.was_committed():
+			committed = MoveCommitter.commit_line(session, AI, decision.line)
+			if committed != null and committed.was_committed():
 				ai_moves += 1
 			else:
-				check(false, "an AI proposal must commit through MoveCommitter")
+				check(false, "an AI line must commit through MoveCommitter")
 				break
-		if result == null or not result.was_committed():
-			check(false, "every resolved move in this fixture must commit")
+		if committed == null or not committed.was_committed():
+			check(false, "every scripted move in this fixture must form a legal line")
 			break
-		# ADR-011 section 7 makes a turn exactly one move, so the resolved move
+		# ADR-011 section 7 makes a turn exactly one move, so the resolved line
 		# ends the turn and there is no separate end-turn step.
-		TurnManager.resolve(session, _as_whole_move(result))
+		TurnManager.resolve(session, committed)
 	return ai_moves
 
 
-## Re-expresses a committed per-tile move as the whole-move result the ADR-011
-## turn boundary resolves (ADR-011 section 7).
+## Returns a legal opening line from the human's deck, or an empty array.
 ##
-## The AI candidate generator still proposes one coordinate and rotation for one
-## deck tile, and retargeting it to whole lines is ADR-011 section 12's later
-## pass, so this fixture commits through `MoveCommitter.commit` as it did under
-## ADR-010 and then resolves the commit as the one move a turn holds. Only the
-## fields the boundary reads are carried - the committed flag, the move
-## identifier, and the tile count the deck is refilled by (section 8) - and
-## nothing is re-scored: the points stay on the committed result's own events.
-func _as_whole_move(result: PlacementResult) -> LineResult:
-	if result == null or result.placed_tile == null:
-		return null
-	var tile: TileDefinition = result.placed_tile.get_tile()
-	if tile == null:
-		return null
-	var cell: Vector2i = result.placed_tile.get_cell()
-	var snapshots: Array[TileSnapshot] = [result.placed_tile]
-	var cells: Array[Vector2i] = [cell]
-	var ranks: Array[int] = [int(tile.rank)]
-	var view: LineResult = LineResult.create_accepted(
-		ScoringEnums.HandOrientation.HORIZONTAL, snapshots, cells, ranks, cells
+## ADR-012 sections 1 and 2 make a hand legal when it repeats a rank or steps
+## along the Jack-to-Ace ladder, and a deck of six drawn from four ranks always
+## holds a pair, so the first legal candidate the shared generator finds is the
+## line this fixture plays.
+func _human_line(session: GameSessionState) -> Array[TileSnapshot]:
+	var candidates: Array[AiMoveCandidate] = LegalMoveGenerator.generate(
+		session.get_board(), session.deck_for(HUMAN)
 	)
-	view.move_id = result.move_id
-	return view
+	if candidates.is_empty():
+		return [] as Array[TileSnapshot]
+	return candidates[0].snapshots
 
 
 ## Returns the candidate the ADR-005 section 5 tuple selects.
+##
+## The candidates are scored through the SAME ADR-007 preview and the SAME seed
+## derivation the strategy uses, but the comparison is written out here, so this
+## is an independent statement of the expected answer rather than a second call
+## to the code under test.
 func _medium_expected(
 	candidates: Array[AiMoveCandidate], decision_seed: int, strategy: AiMediumStrategy
 ) -> AiMoveCandidate:
@@ -528,7 +665,7 @@ func _medium_expected(
 ## Returns true when `a` outranks `b` under the ADR-005 section 5 tuple.
 ##
 ## Fields are compared in the documented precedence, then the deterministic
-## tie-break value of section 10 (lower wins), then the canonical move key.
+## tie-break value of section 10 (higher wins), then the canonical move key.
 func _medium_is_stronger(a: AiMoveCandidate, b: AiMoveCandidate) -> bool:
 	if a.immediate_score != b.immediate_score:
 		return a.immediate_score > b.immediate_score
@@ -545,10 +682,48 @@ func _medium_is_stronger(a: AiMoveCandidate, b: AiMoveCandidate) -> bool:
 	return a.move_key < b.move_key
 
 
-## Builds a board with one all-green tile and a tile that matches on one side.
+## Returns the fixture's legal line candidates with their ADR-007 preview attached.
+func _scored_candidates(fixture: Fixture, decision_seed: int) -> Array[AiMoveCandidate]:
+	var candidates: Array[AiMoveCandidate] = LegalMoveGenerator.generate(
+		fixture.board, fixture.deck
+	)
+	if fixture.snapshot == null:
+		return candidates
+	var rules: ScoringRules = fixture.snapshot.get_rules()
+	var strategy: AiMediumStrategy = AiMediumStrategy.new()
+	for candidate: AiMoveCandidate in candidates:
+		candidate.apply_transaction(
+			ScoringCoordinator.preview_line(
+				fixture.board,
+				candidate.snapshots,
+				AI,
+				rules,
+				fixture.snapshot.get_scored_hand_set(),
+				FIXTURE_TURN
+			)
+		)
+		candidate.tie_break_value = strategy.tie_break_value_for(decision_seed, candidate.move_key)
+	return candidates
+
+
+## Returns the Hard configuration the blocking fixture is scored with.
 ##
-## The fixture is small on purpose: the expected maximum is derivable by hand, so
-## the test does not simply repeat the search it is checking.
+## The deep ply is pinned to the opponent's own held hand (`hard_reply_sample_size`
+## of 1) so the fixture isolates the blocking term of ADR-005 section 6: the
+## representative sample is a different term, and letting its tiles into this
+## fixture would let one candidate's reply outscore the threat difference the
+## check is about. The sample's own contract is asserted by
+## `test_hard_stays_inside_the_section_8_work_budget`.
+func _hard_config() -> AiDifficultyConfig:
+	var config: AiDifficultyConfig = AiDifficultyConfig.create_default(AiEnums.Difficulty.HARD)
+	config.hard_reply_sample_size = 1
+	return config
+
+
+## Builds a board with one committed pair of tiles and a hand that can line up.
+##
+## The pair gives the hand a rank to merge with, so lines both in the row and in
+## the columns around it are legal, which is what the uniformity checks need.
 func _edge_match_fixture() -> Fixture:
 	var board: BoardState = BoardState.create()
 	board.commit_tile(
@@ -558,53 +733,158 @@ func _edge_match_fixture() -> Fixture:
 			0
 		)
 	)
-	var tile: TileDefinition = _tile_with_edges(
-		&"ai-fixture:tile:701",
-		TileEnums.TileRank.ACE,
-		[
-			TileEnums.EdgeColor.GREEN,
-			TileEnums.EdgeColor.BLUE,
-			TileEnums.EdgeColor.BLUE,
-			TileEnums.EdgeColor.BLUE,
-		]
+	board.commit_tile(
+		TileSnapshot.create(
+			_tile_with_edges(
+				&"ai-fixture:tile:701",
+				TileEnums.TileRank.KING,
+				[
+					TileEnums.EdgeColor.GREEN,
+					TileEnums.EdgeColor.GREEN,
+					TileEnums.EdgeColor.GREEN,
+					TileEnums.EdgeColor.GREEN,
+				]
+			),
+			Vector2i(6, 5),
+			0
+		)
 	)
-	return _fixture(board, tile)
+	return _fixture(board, _line_hand(), _opponent_hand())
 
 
-## Builds four tiles in a row, leaving two completion cells open on row 5.
+## Builds a board with a five-cell window one line away from completion.
 ##
-## Their ranks differ, so the five-tile window a completion cell would close is a
-## pair rather than a stronger hand (ADR-001 section 2).
+## Columns 5, 6, and 7 of row 5 hold ACE, KING, and KING, so a line of two ACE
+## tiles at the left end (columns 3 and 4) completes a five-cell window whose
+## ranks are ACE, ACE, ACE, KING, KING - the Full House of ADR-012 section 1, the
+## only shape a five-tile line may take now that a five-tile Three-of-a-Kind and
+## Five-of-a-Kind are both refused. ADR-012 section 1 as amended additionally
+## requires each rank's tiles to be adjacent along the line, so the right end
+## (columns 8 and 9) reads ACE, KING, KING, ACE, ACE with the ACE group split: it
+## is interleaved and refused, and it is not a completion the fixture offers.
+## Every other legal line scores only the edge match between the two tiles it
+## stages, so the maximum is derivable by hand and the chosen line must be the
+## left-end one that completes the window.
+func _medium_fixture() -> Fixture:
+	var board: BoardState = BoardState.create()
+	board.commit_tile(
+		TileSnapshot.create(
+			_all_edges_tile(&"ai-fixture:tile:730", TileEnums.EdgeColor.GREEN),
+			Vector2i(5, 5),
+			0
+		)
+	)
+	board.commit_tile(
+		TileSnapshot.create(
+			_tile_with_edges(
+				&"ai-fixture:tile:731",
+				TileEnums.TileRank.KING,
+				_green_edges()
+			),
+			Vector2i(6, 5),
+			0
+		)
+	)
+	board.commit_tile(
+		TileSnapshot.create(
+			_tile_with_edges(
+				&"ai-fixture:tile:732",
+				TileEnums.TileRank.KING,
+				_green_edges()
+			),
+			Vector2i(7, 5),
+			0
+		)
+	)
+	var hand: Array[TileDefinition] = [
+		_all_edges_tile(&"ai-fixture:tile:733", TileEnums.EdgeColor.BLUE),
+		_all_edges_tile(&"ai-fixture:tile:734", TileEnums.EdgeColor.BLUE),
+	]
+	return _fixture(board, hand, _opponent_hand())
+
+
+## Builds four tiles in a row that one more tile can complete as a Full House.
+##
+## Row 5 holds ACE, ACE, KING, and KING at columns 4 to 7, so the five-cell
+## window has an open end at column 3 and at column 8. ADR-012 section 1 as
+## amended requires each rank's tiles to be adjacent along the line, so only two
+## of the four one-tile completions are legal: an ACE at column 3 reads
+## ACE, ACE, ACE, KING, KING and a KING at column 8 reads ACE, ACE, KING, KING,
+## KING, while a KING at column 3 and an ACE at column 8 split both groups and
+## are refused. Those two grouped ends are the fixture's high-value completion
+## cells, and both keep the shape 3+2, the only five-tile shape still legal. The
+## hand under test
+## holds two tiles of one rank whose edges cannot match the row, so the choice
+## turns on which completion cell the line occupies (ADR-005 sections 6 and 7).
+## The opponent's hand is colour-disjoint from the board and from the tiles under
+## test, so no reply can score either.
 func _hard_fixture() -> Fixture:
 	var board: BoardState = BoardState.create()
 	var columns: Array[int] = [4, 5, 6, 7]
 	var ranks: Array[int] = [
 		TileEnums.TileRank.ACE,
+		TileEnums.TileRank.ACE,
 		TileEnums.TileRank.KING,
-		TileEnums.TileRank.QUEEN,
-		TileEnums.TileRank.JACK,
+		TileEnums.TileRank.KING,
 	]
 	for index: int in range(columns.size()):
-		var tile: TileDefinition = _tile_with_edges(
-			StringName("ai-fixture:tile:%d" % (710 + index)),
-			ranks[index],
-			[
-				TileEnums.EdgeColor.GREEN,
-				TileEnums.EdgeColor.GREEN,
-				TileEnums.EdgeColor.GREEN,
-				TileEnums.EdgeColor.GREEN,
-			]
+		board.commit_tile(
+			TileSnapshot.create(
+				_tile_with_edges(
+					StringName("ai-fixture:tile:%d" % (710 + index)),
+					ranks[index],
+					_green_edges()
+				),
+				Vector2i(columns[index], 5),
+				0
+			)
 		)
-		board.commit_tile(TileSnapshot.create(tile, Vector2i(columns[index], 5), 0))
+	var hand: Array[TileDefinition] = [
+		_all_edges_tile(&"ai-fixture:tile:720", TileEnums.EdgeColor.BLUE),
+		_all_edges_tile(&"ai-fixture:tile:721", TileEnums.EdgeColor.BLUE),
+	]
+	return _fixture(board, hand, _colour_disjoint_hand())
 
-	# The opponent holds a tile whose edges never match the fixture's green row,
-	# so the immediate score cannot mask the difference in open threats.
-	var held: TileDefinition = _all_edges_tile(&"ai-fixture:tile:720", TileEnums.EdgeColor.BLUE)
-	return _fixture(board, held)
+
+## Builds a board with room to line up and a hand that cannot form any legal line.
+##
+## ADR-012 section 1 makes a hand legal only when it repeats a rank or steps along
+## the Jack-to-Ace ladder in sequence order (section 2). The committed ACE and the
+## two held ranks here (JACK and QUEEN) therefore repeat nothing, and neither held
+## rank sits one ladder step from the ACE, so no line the hand can stage is a
+## hand - which is the state ADR-011 section 6's swap exists for. The board still
+## has open cells, so "no legal line" is a property of the hand, not of the board.
+func _no_line_fixture() -> Fixture:
+	var board: BoardState = BoardState.create()
+	board.commit_tile(
+		TileSnapshot.create(
+			_tile_with_edges(
+				&"ai-fixture:tile:740", TileEnums.TileRank.ACE, _green_edges()
+			),
+			Vector2i(5, 5),
+			0
+		)
+	)
+	var hand: Array[TileDefinition] = [
+		_tile_with_edges(&"ai-fixture:tile:741", TileEnums.TileRank.JACK, _blue_edges()),
+		_tile_with_edges(
+			&"ai-fixture:tile:742",
+			TileEnums.TileRank.QUEEN,
+			[
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+			]
+		),
+	]
+	return _fixture(board, hand, _opponent_hand())
 
 
-## Pairs a fixture board with its tile into a detached snapshot.
-func _fixture(board: BoardState, tile: TileDefinition) -> Fixture:
+## Pairs a fixture board with a hand under test into a detached snapshot.
+func _fixture(
+	board: BoardState, hand: Array[TileDefinition], opponent_hand: Array[TileDefinition]
+) -> Fixture:
 	var snapshot: AiGameSnapshot = AiGameSnapshot.from_parts(
 		board,
 		ScoredHandSet.create(),
@@ -613,9 +893,11 @@ func _fixture(board: BoardState, tile: TileDefinition) -> Fixture:
 		HUMAN,
 		0,
 		0,
-		7,
+		FIXTURE_TURN,
 		&"ai-fixture",
-		TEST_SEED
+		TEST_SEED,
+		hand,
+		opponent_hand
 	)
 	if not check_not_null(snapshot, "the fixture snapshot must build"):
 		return null
@@ -626,7 +908,8 @@ func _fixture(board: BoardState, tile: TileDefinition) -> Fixture:
 	var fixture: Fixture = Fixture.new()
 	fixture.board = board
 	fixture.snapshot = snapshot
-	fixture.tile = tile
+	fixture.deck = hand
+	fixture.opponent_deck = opponent_hand
 	return fixture
 
 
@@ -636,15 +919,20 @@ func _ai_turn_session(match_id: StringName, seed: int) -> GameSessionState:
 	if session == null:
 		return null
 	TurnManager.setup(session)
-	var frontier: Array[Vector2i] = session.get_board().get_frontier_cells()
-	var result: PlacementResult = MoveCommitter.commit(session, HUMAN, frontier[0], 0)
-	if not check(result != null and result.was_committed(), "the human move must commit"):
+	var opening: Array[TileSnapshot] = _human_line(session)
+	if not check(
+		opening.size() >= TILES_PER_LINE,
+		"the fixture's opening hand must be able to form a line"
+	):
+		return null
+	var result: LineResult = MoveCommitter.commit_line(session, HUMAN, opening)
+	if not check(result != null and result.was_committed(), "the human line must commit"):
 		return null
 	# ADR-011 section 7 makes a turn exactly one move, so resolving the committed
-	# move passes play to the opponent; ADR-010's explicit end-turn action is
+	# line passes play to the opponent; ADR-010's explicit end-turn action is
 	# gone. Resolving it also runs the turn boundary of section 8, so the
 	# opponent's deck is the refilled one when the analysis starts.
-	TurnManager.resolve(session, _as_whole_move(result))
+	TurnManager.resolve(session, result)
 	if not check(
 		TurnManager.is_awaiting_ai_action(session),
 		"the fixture must reach the opponent's action phase"
@@ -662,6 +950,83 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 	return session
 
 
+## Returns the six-tile hand the line-shaped checks are driven with.
+##
+## Two ACE tiles give the hand a rank to merge with the committed pair, and the
+## colours are chosen so a line never matches the committed GREEN tiles, which
+## keeps the uniformity checks about the candidate list rather than about score.
+func _line_hand() -> Array[TileDefinition]:
+	return [
+		_tile_with_edges(
+			&"ai-fixture:tile:750",
+			TileEnums.TileRank.ACE,
+			[
+				TileEnums.EdgeColor.GREEN,
+				TileEnums.EdgeColor.GREEN,
+				TileEnums.EdgeColor.BLUE,
+				TileEnums.EdgeColor.BLUE,
+			]
+		),
+		_all_edges_tile(&"ai-fixture:tile:751", TileEnums.EdgeColor.BLUE),
+		_tile_with_edges(&"ai-fixture:tile:752", TileEnums.TileRank.QUEEN, _blue_edges()),
+		_tile_with_edges(
+			&"ai-fixture:tile:753",
+			TileEnums.TileRank.QUEEN,
+			[
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+			]
+		),
+		_tile_with_edges(&"ai-fixture:tile:754", TileEnums.TileRank.JACK, _blue_edges()),
+		_all_edges_tile(&"ai-fixture:tile:755", TileEnums.EdgeColor.RED),
+	]
+
+
+## Returns the opponent's hand for the fixtures whose reply ply does not matter.
+func _opponent_hand() -> Array[TileDefinition]:
+	return [
+		_tile_with_edges(&"ai-fixture:tile:760", TileEnums.TileRank.ACE, _blue_edges()),
+		_tile_with_edges(
+			&"ai-fixture:tile:761",
+			TileEnums.TileRank.KING,
+			[
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+				TileEnums.EdgeColor.RED,
+			]
+		),
+	]
+
+
+## Returns an opponent hand whose colours appear nowhere on the blocking fixture.
+func _colour_disjoint_hand() -> Array[TileDefinition]:
+	return [
+		_tile_with_edges(
+			&"ai-fixture:tile:770",
+			TileEnums.TileRank.ACE,
+			[
+				TileEnums.EdgeColor.YELLOW,
+				TileEnums.EdgeColor.YELLOW,
+				TileEnums.EdgeColor.YELLOW,
+				TileEnums.EdgeColor.YELLOW,
+			]
+		),
+		_tile_with_edges(
+			&"ai-fixture:tile:771",
+			TileEnums.TileRank.KING,
+			[
+				TileEnums.EdgeColor.YELLOW,
+				TileEnums.EdgeColor.YELLOW,
+				TileEnums.EdgeColor.YELLOW,
+				TileEnums.EdgeColor.YELLOW,
+			]
+		),
+	]
+
+
 ## Builds a valid tile with the given visible edges.
 func _tile_with_edges(
 	tile_id: StringName, rank: int, edges: Array[TileEnums.EdgeColor]
@@ -671,9 +1036,24 @@ func _tile_with_edges(
 
 ## Builds a valid tile with one colour on every edge.
 func _all_edges_tile(tile_id: StringName, color: TileEnums.EdgeColor) -> TileDefinition:
-	return _tile_with_edges(tile_id, TileEnums.TileRank.ACE, [color, color, color, color])
+	return _tile_with_edges(tile_id, TileEnums.TileRank.ACE, _edges_of(color))
 
 
-## Builds a valid tile whose edges never match an all-green fixture.
+## Returns four edges of one colour, as the tile factory expects them.
+func _edges_of(color: TileEnums.EdgeColor) -> Array[TileEnums.EdgeColor]:
+	return [color, color, color, color]
+
+
+## Returns four GREEN edges.
+func _green_edges() -> Array[TileEnums.EdgeColor]:
+	return _edges_of(TileEnums.EdgeColor.GREEN)
+
+
+## Returns four BLUE edges.
+func _blue_edges() -> Array[TileEnums.EdgeColor]:
+	return _edges_of(TileEnums.EdgeColor.BLUE)
+
+
+## Builds a valid tile whose edges never match the GREEN fixtures.
 func _plain_tile(tile_id: StringName) -> TileDefinition:
 	return _all_edges_tile(tile_id, TileEnums.EdgeColor.BLUE)

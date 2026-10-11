@@ -1,4 +1,4 @@
-# Polkabow marketing site
+# Pokabow marketing site
 
 A static landing page for the game, kept in the repo beside it but completely
 outside the Godot project. `res://website/.gdignore` makes the engine skip this

@@ -126,7 +126,7 @@ static func build_events_for_line(
 	var hypothetical: BoardState = board.with_tiles(snapshots)
 
 	var poker_results: Array[PokerHandResult] = []
-	for window: Variant in PokerHandEvaluator.windows_through_cells(hypothetical, staged_cells):
+	for window: Variant in PokerHandEvaluator.hands_through_cells(hypothetical, staged_cells):
 		var cells: Array[Vector2i] = window
 		var result: PokerHandResult = PokerHandEvaluator.evaluate_window(
 			hypothetical, cells, rules.poker
@@ -142,10 +142,27 @@ static func build_events_for_line(
 	)
 
 	for result: PokerHandResult in poker_results:
+		var boundary_ids: Array[StringName] = HandMultiplierScorer.new_boundary_ids(
+			hypothetical, result.cells, staged_cells
+		)
+		var card_points: int = HandMultiplierScorer.card_points(hypothetical, result.cells)
+		var card_multiplier: int = HandMultiplierScorer.card_multiplier(hypothetical, result.cells)
+		var edge_multiplier: int = HandMultiplierScorer.edge_multiplier_from_ids(
+			hypothetical, result.cells, boundary_ids
+		)
+		var hand_points: int = (result.points + card_points) * card_multiplier * edge_multiplier
+		var boundary_labels: Array[String] = []
+		for boundary_id: StringName in boundary_ids:
+			boundary_labels.append(String(boundary_id))
 		var evidence: Dictionary = {
 			"hand_id": String(result.hand_id),
 			"category": result.get_category_name(),
 			"cells": ScoringEnums.cells_label(result.cells),
+			"category_points": result.points,
+			"card_points": card_points,
+			"card_multiplier": card_multiplier,
+			"edge_multiplier": edge_multiplier,
+			"new_hand_boundaries": boundary_labels,
 		}
 		events.append(
 			ScoreEvent.create(
@@ -157,7 +174,7 @@ static func build_events_for_line(
 				move_id,
 				player_id,
 				ScoringEnums.ScoreCategory.POKER_HAND,
-				result.points,
+				hand_points,
 				result.cells,
 				evidence,
 				turn_number,

@@ -1,6 +1,52 @@
 class_name TurnManager
 extends RefCounted
 
+const TURN_SECONDS: float = 60.0
+
+
+## Ends an active match when `resigning_player_id` gives up. The other player
+## wins regardless of the score, and the stopped turn cannot time out later.
+static func resign(session: GameSessionState, resigning_player_id: StringName) -> bool:
+	if session == null or session.is_over():
+		return false
+	if not TurnEnums.is_valid_player_id(resigning_player_id):
+		return false
+	var winner_id: StringName = TurnEnums.opponent_of(resigning_player_id)
+	var outcome: int = (
+		TurnEnums.MatchOutcome.HUMAN_WIN
+		if winner_id == TurnEnums.HUMAN_PLAYER_ID
+		else TurnEnums.MatchOutcome.AI_WIN
+	)
+	if not session.finish(outcome, TurnEnums.EndReason.RESIGNATION):
+		return false
+	var turn: TurnState = session.get_turn_state()
+	turn.phase = TurnEnums.MatchPhase.GAME_OVER
+	turn.remaining_seconds = 0.0
+	turn.deadline_unix_seconds = 0.0
+	return true
+
+
+## Advance only the current action phase. Excess elapsed time never consumes
+## the next player's time. The application clears previews before handing over.
+static func elapse_turn(session: GameSessionState, seconds: float) -> bool:
+	if session == null or not session.get_turn_state().is_awaiting_action():
+		return false
+	if not is_finite(seconds) or seconds < 0.0:
+		return false
+	var turn: TurnState = session.get_turn_state()
+	turn.remaining_seconds = maxf(0.0, turn.remaining_seconds - seconds)
+	return turn.remaining_seconds <= 0.0
+
+
+## A timeout consumes no tiles and awards no points (ADR-017).
+static func resolve_timeout(session: GameSessionState) -> int:
+	if session == null:
+		return TurnEnums.MatchPhase.MATCH_SETUP
+	var turn: TurnState = session.get_turn_state()
+	if not turn.is_awaiting_action() or turn.remaining_seconds > 0.0:
+		return turn.phase
+	return _complete_turn(session, 0)
+
 ## The Phase 1 match lifecycle state machine (ADR-003 sections 1, 2, 6, and 8;
 ## ADR-010 sections 2, 5, 6, and 7 as ADR-011 section 8 records them; ADR-011
 ## sections 6, 7, and 8).
@@ -140,9 +186,10 @@ static func resolve(session: GameSessionState, result: LineResult) -> int:
 ## the turn open, because ADR-011 section 6 requires a refused swap to leave the
 ## player with their tiles.
 ##
-## A swap cannot place a tile and cannot score (section 6): nothing is written to
-## the board, the ledger, or the history by this function, and only a positive
-## `swapped_count` closes the turn.
+## A swap cannot place a tile and cannot score, and it records NO move in the
+## history (section 6). Only a positive `swapped_count` closes the turn, and the
+## history is checked afterwards so that half of the rule cannot be lost: a swap
+## that recorded a move would make the replay of a swap differ from the swap.
 static func resolve_swap(session: GameSessionState, swapped_count: int) -> int:
 	if session == null:
 		push_error("TurnManager.resolve_swap: a session is required.")
@@ -161,7 +208,52 @@ static func resolve_swap(session: GameSessionState, swapped_count: int) -> int:
 		return TurnEnums.MatchPhase.AWAIT_ACTION
 
 	turn_state.phase = TurnEnums.MatchPhase.RESOLVE_MOVE
-	return _complete_turn(session, swapped_count)
+	var recorded_before: int = session.move_count()
+	var phase: int = _complete_turn(session, swap_consumed_tiles())
+	if session.move_count() != recorded_before:
+		push_error(
+			"TurnManager.resolve_swap: a swap recorded a move; ADR-011 section 6 records none."
+		)
+		return fail_recovery(session, TurnEnums.EndReason.RULES_FAILURE)
+	return phase
+
+
+## Closes a turn whose current deck has no legal placement and cannot be swapped.
+## The application verifies both facts with the shared move generator before
+## calling this transition.
+static func resolve_no_valid_move(session: GameSessionState) -> int:
+	if session == null:
+		push_error("TurnManager.resolve_no_valid_move: a session is required.")
+		return TurnEnums.MatchPhase.MATCH_SETUP
+	var turn_state: TurnState = session.get_turn_state()
+	if not turn_state.is_awaiting_action():
+		return turn_state.phase
+	var player_id: StringName = turn_state.active_player_id
+	if not TurnEnums.is_valid_player_id(player_id):
+		return fail_recovery(session, TurnEnums.EndReason.RULES_FAILURE)
+	if not LegalMoveGenerator.generate(
+		session.get_board(), session.deck_for(player_id)
+	).is_empty():
+		return turn_state.phase
+	if session.remaining_tile_count() >= session.deck_count(player_id):
+		return turn_state.phase
+	turn_state.last_skip_reason = TurnEnums.SkipReason.NO_VALID_MOVE
+	return _complete_turn(session, 0)
+
+
+## Returns how many deck tiles the turn boundary refills after a swap
+## (ADR-011 section 6).
+##
+## Always zero, and deliberately so. ADR-011 section 6's swap is an
+## equal-replacement: the returned tiles go back to the pot and the same number of
+## replacements is drawn straight away, so by the time the turn boundary runs the
+## deck already holds what the swap gave it and drawing again from the pot would
+## hand the swapping player tiles the rules never granted. ADR-011 section 8's
+## "refilled by the number of tiles the move used" is about a committed LINE; a
+## swap used none. The value lives in this named function rather than as a literal
+## so the boundary has one place to read the rule from.
+static func swap_consumed_tiles() -> int:
+	return 0
 
 
 ## Applies the turn boundary of ADR-010 sections 5 to 7 and ADR-011 section 8.
@@ -240,12 +332,13 @@ static func fail_recovery(session: GameSessionState, reason: int) -> int:
 ## placement, at every turn boundary, and while opening a turn:
 ##
 ## 1. the board is full (all 144 cells hold a committed tile);
-## 2. nothing is left to play: neither player holds a tile and the pot cannot
-##    supply one.
+## 2. neither player holds a tile and the pot cannot supply one;
+## 3. neither player's current deck can form a legal line.
 ##
 ## ADR-010 section 7 replaces ADR-003 section 7's two-consecutive-skip rule; no
 ## skip counter is read here, because a player who cannot be supplied ends their
-## turn and the match continues until both players are out of tiles.
+## turn. The later ADR-011 amendment also ends a match when both current decks
+## have no legal placement, even if tiles remain in the pot.
 static func detect_end_reason(session: GameSessionState) -> int:
 	if session == null:
 		return TurnEnums.EndReason.NONE
@@ -255,14 +348,20 @@ static func detect_end_reason(session: GameSessionState) -> int:
 		return TurnEnums.EndReason.BOARD_FULL
 
 	# Condition 2: neither player holds a tile and the pot cannot supply one.
-	if session.holds_any_tile():
-		return TurnEnums.EndReason.NONE
 	var source: TileSource = session.get_tile_source()
 	var source_exhausted: bool = source != null and source.is_exhausted()
-	if source_exhausted:
+	if not session.holds_any_tile() and source_exhausted:
 		return TurnEnums.EndReason.TILE_SOURCE_EXHAUSTED
 
-	return TurnEnums.EndReason.NONE
+	# Condition 3: neither current deck has a legal placement.
+	var board: BoardState = session.get_board()
+	for player_id: StringName in TurnEnums.player_ids():
+		if not LegalMoveGenerator.generate_with_report(
+			board, session.deck_for(player_id), {}, 1
+		).is_empty():
+			return TurnEnums.EndReason.NONE
+	return TurnEnums.EndReason.NO_LEGAL_MOVES
+
 
 
 ## Returns true when the human may act: `AWAIT_ACTION` on the human's turn.
@@ -334,6 +433,8 @@ static func _enter_turn_start(session: GameSessionState) -> int:
 			turn_state.consecutive_no_tile_skips = 0
 			turn_state.last_skip_reason = TurnEnums.SkipReason.NONE
 			turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
+			turn_state.remaining_seconds = TURN_SECONDS
+			turn_state.deadline_unix_seconds = 0.0
 			return TurnEnums.MatchPhase.AWAIT_ACTION
 
 		# ADR-010 section 4: no tile could be supplied, so this turn ends here.

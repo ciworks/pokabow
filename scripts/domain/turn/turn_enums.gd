@@ -20,10 +20,9 @@ extends RefCounted
 ##   human's deck first for the same reason: a fixed order makes a replay
 ##   reproduce the same decks from the same seed, and `deck_deal_order()` is that
 ##   order.
-## - ADR-010 section 7 replaces ADR-003 section 5's "two consecutive automatic
-##   skips" with two end conditions: the board is full, or neither player holds a
-##   tile while the pot cannot supply one. `MAX_CONSECUTIVE_SKIPS` therefore
-##   survives as vocabulary for the superseded rule only; no rule reads it.
+## - ADR-011's later amendment also ends a match when neither current deck has
+##   a legal placement. `MAX_CONSECUTIVE_SKIPS` survives as vocabulary for a
+##   superseded rule only; no rule reads it.
 
 ## Rules phases of a Phase 1 match (ADR-003 section 1).
 enum MatchPhase {
@@ -54,6 +53,10 @@ enum EndReason {
 	TILE_SOURCE_EXHAUSTED = 2,
 	## Development and recovery only: an implementation error stopped the match.
 	RULES_FAILURE = 3,
+	## Neither player's current deck can form a legal placement on the board.
+	NO_LEGAL_MOVES = 4,
+	## The human player resigned; the rival is awarded the win.
+	RESIGNATION = 5,
 }
 
 ## Why a turn was given up without a placement (ADR-010 section 4).
@@ -63,6 +66,8 @@ enum SkipReason {
 	## The active player holds no tiles and the pot cannot supply one, so the
 	## turn ends automatically because that player has no legal placement.
 	NO_TILE_AVAILABLE = 1,
+	## The player's held deck cannot make any legal placement on the board.
+	NO_VALID_MOVE = 2,
 }
 
 ## Final result of a match (ADR-003 section 8).

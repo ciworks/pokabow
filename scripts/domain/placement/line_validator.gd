@@ -4,11 +4,12 @@ extends RefCounted
 ## Pure line legality reader (ADR-011 sections 1 to 4).
 ##
 ## ADR-011 section 1 replaces the per-tile placement model with one line per move:
-## two or more tiles of the active player's deck, all in one row or one column,
-## contiguous, growing from the first tile placed. Section 2 lets that line
-## include tiles already committed to the board, and judges the hand over the
-## whole merged line. Section 3 makes the merged line legal only when its ranks
-## contain a repeated rank.
+## two or more tiles of the active player's deck, all in one row or one column.
+## Section 2 lets that line include tiles already committed to the board, and
+## judges the hand over the whole merged line. Section 1's no-gap rule is judged
+## over that merged line too (owner amendment, 2026-09-23), so the staged tiles may
+## sit on both sides of a committed tile as long as the merged line is gapless.
+## Section 3 makes the merged line legal only when it is a ranked hand.
 ##
 ## The validator reads a `BoardState` and the line a player has staged and returns
 ## a structured `LineResult`. It never mutates the board, the tiles, or a scene
@@ -16,26 +17,29 @@ extends RefCounted
 ## all obtain identical answers from this function.
 ##
 ## Rules applied, in this fixed precedence:
-## 1. `LONE_TILE` - a move stages two or more tiles (sections 1 and 4). Checked
-##    first because every later rule is about a line.
+## 1. `LONE_TILE` - a move stages at least one tile, and an opening stages two
+##    or more (sections 1 and 4).
 ## 2. `TILE_NOT_AVAILABLE` - every staged snapshot must wrap a valid tile.
 ## 3. `OUT_OF_BOUNDS` / `CELL_OCCUPIED` - every staged cell must be on the board
 ##    and empty, and no two staged tiles may share a cell.
 ## 4. `MIXED_ORIENTATION` - all staged tiles lie in one row or one column
 ##    (section 1). A diagonal-only continuation lands here.
-## 5. `LINE_GAP` - the staged tiles are contiguous and the merged line has no hole
-##    (sections 1 and 2).
+## 5. `LINE_GAP` - the merged line has no hole once the staged tiles are joined to
+##    the committed tiles they touch (sections 1 and 2, as amended).
 ## 6. `OPENING_CELL_REQUIRED` / `NOT_CONNECTED` - ADR-006 sections 2 and 3 still
 ##    decide where a line may start and what it must touch; ADR-011 section 5
 ##    leaves those untouched.
-## 7. `NO_REPEATED_RANK` - the merged line's ranks contain a repeated rank
-##    (section 3).
+## 7. `HAND_TOO_LONG` - no connected run through a staged tile may exceed five.
+## 8. `NO_REPEATED_RANK` - the merged line must classify as a ranked hand.
 ##
-## Step 7 is section 3's table exactly, judged by rank frequency:
+## Hand classification is the exact closed list of ADR-012 section 1, judged over
+## the merged line in the order its tiles sit along it:
 ## - a two-cell line is legal only as a pair (`A A`), so `A K` is refused;
-## - a three- or four-cell line needs a repeated rank (`A A K`, `A A K Q`);
-## - five or more cells are always legal, because four ranks cannot fill five
-##    cells, which is why the check is `ranks.size() >= 5` before the count.
+## - a three-cell line is a three-of-a-kind (`A A A`) or a 3-straight (`J Q K`);
+## - a four-cell line is a four-of-a-kind, a two pair, or a 4-straight;
+## - a five-cell line is legal only as a full house (`A A A K K`).
+## A hand carrying an unmatched tile, or one whose equal ranks interleave, is
+## refused, and `is_legal_hand` below is the single reader of that rule.
 ##
 ## Edge colours never appear here: ADR-011 section 10 leaves scoring rules alone,
 ## so a line is never required to match a neighbour's colour.
@@ -55,9 +59,13 @@ static func validate(board: BoardState, staged: Array[TileSnapshot]) -> LineResu
 		push_error("LineValidator.validate: a staged line is required.")
 		return null
 
-	if staged.size() < 2:
+	if staged.is_empty() or (staged.size() == 1 and not board.has_any_tile()):
 		return LineResult.create_rejected(
 			PlacementEnums.PlacementRejection.LONE_TILE, _cell_or_origin(staged)
+		)
+	if staged.size() > ScoringEnums.WINDOW_SIZE:
+		return LineResult.create_rejected(
+			PlacementEnums.PlacementRejection.HAND_TOO_LONG, _cell_or_origin(staged)
 		)
 
 	for snapshot: TileSnapshot in staged:
@@ -81,13 +89,19 @@ static func validate(board: BoardState, staged: Array[TileSnapshot]) -> LineResu
 
 	var staged_cells: Array[Vector2i] = cells_of(staged)
 	var orientation: int = orientation_of(staged_cells)
+	if staged.size() == 1:
+		orientation = _single_tile_orientation(board, staged)
 	if orientation < 0:
 		return LineResult.create_rejected(
 			PlacementEnums.PlacementRejection.MIXED_ORIENTATION, staged_cells[0]
 		)
 
-	if not is_contiguous_line(staged_cells, orientation):
-		return LineResult.create_rejected(PlacementEnums.PlacementRejection.LINE_GAP, staged_cells[0])
+	# The no-gap rule is judged over the MERGED line, not over the staged tiles
+	# alone (ADR-011 section 1 as amended by the owner's 2026-09-23 note). A move
+	# may place tiles on both sides of a committed tile: the staged set then holds
+	# a hole, but the committed tile fills that hole and the merged line is still
+	# gapless. `merged_cells_for` below walks the whole span and rejects it when
+	# any cell in it is empty, so a genuinely gapped line is still refused.
 
 	var opening_move: bool = not board.has_any_tile()
 	if opening_move:
@@ -100,9 +114,21 @@ static func validate(board: BoardState, staged: Array[TileSnapshot]) -> LineResu
 			PlacementEnums.PlacementRejection.NOT_CONNECTED, staged_cells[0]
 		)
 
-	var merged_cells: Array[Vector2i] = merged_cells_for(board, staged)
+	var merged_cells: Array[Vector2i] = merged_cells_for(board, staged, orientation)
 	if merged_cells.is_empty():
 		return LineResult.create_rejected(PlacementEnums.PlacementRejection.LINE_GAP, staged_cells[0])
+	if merged_cells.size() > ScoringEnums.WINDOW_SIZE:
+		return LineResult.create_rejected(
+			PlacementEnums.PlacementRejection.HAND_TOO_LONG, staged_cells[0]
+		)
+	for cell: Vector2i in staged_cells:
+		if (
+			_run_length_through(board, staged_cells, cell, Vector2i.RIGHT) > ScoringEnums.WINDOW_SIZE
+			or _run_length_through(board, staged_cells, cell, Vector2i.DOWN) > ScoringEnums.WINDOW_SIZE
+		):
+			return LineResult.create_rejected(
+				PlacementEnums.PlacementRejection.HAND_TOO_LONG, cell
+			)
 
 	var merged_ranks: Array[int] = merged_ranks_for(board, staged, merged_cells)
 	if merged_ranks.size() != merged_cells.size():
@@ -112,6 +138,18 @@ static func validate(board: BoardState, staged: Array[TileSnapshot]) -> LineResu
 		return LineResult.create_rejected(
 			PlacementEnums.PlacementRejection.NO_REPEATED_RANK, staged_cells[0]
 		)
+	var hypothetical: BoardState = board.with_tiles(staged)
+	for cell: Vector2i in staged_cells:
+		for horizontal: bool in [true, false]:
+			var run: Array[Vector2i] = _occupied_run_through(
+				hypothetical, cell, Vector2i.RIGHT if horizontal else Vector2i.DOWN
+			)
+			if run.size() >= 2 and PokerHandEvaluator.classify_window(
+				hypothetical, run
+			) == ScoringEnums.PokerHandCategory.NONE:
+				return LineResult.create_rejected(
+					PlacementEnums.PlacementRejection.NO_REPEATED_RANK, cell
+				)
 
 	var ordered: Array[TileSnapshot] = sort_into_line_order(staged, orientation)
 	return LineResult.create_accepted(
@@ -158,10 +196,12 @@ static func orientation_of(cells: Array[Vector2i]) -> int:
 
 ## Returns true when the cells form a gapless run in the given orientation.
 static func is_contiguous_line(cells: Array[Vector2i], orientation: int) -> bool:
-	if cells.size() < 2:
+	if cells.is_empty():
 		return false
 	if not ScoringEnums.is_valid_orientation(orientation):
 		return false
+	if cells.size() == 1:
+		return true
 	var horizontal: bool = orientation == ScoringEnums.HandOrientation.HORIZONTAL
 	var values: Array[int] = []
 	for cell: Vector2i in cells:
@@ -177,18 +217,26 @@ static func is_contiguous_line(cells: Array[Vector2i], orientation: int) -> bool
 ##
 ## The merged line is the staged tiles plus every committed tile they join in the
 ## same row or column (ADR-011 section 2). It is grown outward from the staged
-## range through adjacent committed tiles and then verified to be gapless, so a
-## staged line that would leave a hole next to committed tiles far away on the
-## same row is reported rather than silently judged over a partial line.
-static func merged_cells_for(board: BoardState, staged: Array[TileSnapshot]) -> Array[Vector2i]:
+## range through adjacent committed tiles, and then every cell across the span
+## must be filled by a staged or a committed tile, so a span holding a real hole
+## is reported rather than silently judged over a partial line.
+##
+## The staged cells themselves need not be contiguous (ADR-011 section 1 as
+## amended): placing tiles on both sides of a committed tile leaves a hole in the
+## staged set that the committed tile fills, and that is a legal flanking move.
+static func merged_cells_for(
+	board: BoardState, staged: Array[TileSnapshot], chosen_orientation: int = -1
+) -> Array[Vector2i]:
 	var merged: Array[Vector2i] = []
 	if board == null or staged.is_empty():
 		return merged
 	var staged_cells: Array[Vector2i] = cells_of(staged)
 	if staged_cells.size() != staged.size():
 		return merged
-	var orientation: int = orientation_of(staged_cells)
-	if orientation < 0 or not is_contiguous_line(staged_cells, orientation):
+	var orientation: int = chosen_orientation
+	if orientation < 0:
+		orientation = orientation_of(staged_cells)
+	if orientation < 0:
 		return merged
 
 	var horizontal: bool = orientation == ScoringEnums.HandOrientation.HORIZONTAL
@@ -256,23 +304,57 @@ static func contains_repeated_rank(ranks: Array[int]) -> bool:
 
 ## Returns true when the merged ranks are a legal hand (ADR-011 section 3).
 ##
-## Five or more cells are always legal: with four ranks, at least one rank must
-## repeat (section 3's table). Shorter lines must contain a repeated rank, so a
-## two-cell line is legal only as a pair.
+## Only two- to five-tile ranked hands are legal. The validator rejects longer
+## runs before calling this helper.
 static func is_legal_hand(ranks: Array[int]) -> bool:
-	if ranks.size() >= ScoringEnums.WINDOW_SIZE:
-		return true
-	return contains_repeated_rank(ranks)
+	return PokerHandEvaluator.classify_ranks(ranks) != ScoringEnums.PokerHandCategory.NONE
 
 
-## Returns the merged line's poker category, or `NONE` when it is not five cells.
+## Chooses a ranked merged hand for a one-tile move, horizontal before vertical.
+static func _single_tile_orientation(board: BoardState, staged: Array[TileSnapshot]) -> int:
+	for orientation: int in [
+		ScoringEnums.HandOrientation.HORIZONTAL,
+		ScoringEnums.HandOrientation.VERTICAL,
+	]:
+		var cells: Array[Vector2i] = merged_cells_for(board, staged, orientation)
+		if is_legal_hand(merged_ranks_for(board, staged, cells)):
+			return orientation
+	# Continue through normal connectivity and hand rejection with a stable axis.
+	return ScoringEnums.HandOrientation.HORIZONTAL
+
+
+## Counts the post-move connected run through a staged cell on one axis.
+static func _run_length_through(
+	board: BoardState, staged_cells: Array[Vector2i], cell: Vector2i, step: Vector2i
+) -> int:
+	var count: int = 1
+	for direction: Vector2i in [step, -step]:
+		var cursor: Vector2i = cell + direction
+		while board.is_in_bounds(cursor) and _is_filled(board, staged_cells, cursor):
+			count += 1
+			cursor += direction
+	return count
+
+
+## Returns the complete occupied run through a cell on one axis.
+static func _occupied_run_through(
+	board: BoardState, cell: Vector2i, step: Vector2i
+) -> Array[Vector2i]:
+	var run: Array[Vector2i] = []
+	var start: Vector2i = cell
+	while board.is_in_bounds(start - step) and board.is_occupied(start - step):
+		start -= step
+	var cursor: Vector2i = start
+	while board.is_in_bounds(cursor) and board.is_occupied(cursor):
+		run.append(cursor)
+		cursor += step
+	return run
+
+
+## Returns the merged line's poker category, or `NONE` when invalid.
 ##
-## ADR-001 section 2 classifies exactly the five-cell windows, and ADR-011
-## section 10 leaves that vocabulary unchanged, so this delegates to the existing
-## evaluator rather than defining a second set of categories for short lines.
+## The evaluator classifies every scored hand length from two through five.
 static func hand_category_for(ranks: Array[int]) -> int:
-	if ranks.size() != ScoringEnums.WINDOW_SIZE:
-		return ScoringEnums.PokerHandCategory.NONE
 	return PokerHandEvaluator.classify_ranks(ranks)
 
 

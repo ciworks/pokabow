@@ -53,12 +53,13 @@ enum PlacementRejection {
 	## The line has a hole in it: the staged tiles are not contiguous, or the
 	## merged line they join is not (ADR-011 sections 1 and 2).
 	LINE_GAP = 11,
-	## The move stages fewer than two tiles. A single tile cannot form a hand, so
-	## a lone tile is not a move (ADR-011 sections 1 and 4).
+	## The move stages no tiles, or opens an empty board with only one tile.
 	LONE_TILE = 12,
 	## The merged line's ranks hold no repeated rank, so it is not at least a pair
 	## (ADR-011 section 3).
 	NO_REPEATED_RANK = 13,
+	## A staged line or an affected connected run exceeds five tiles.
+	HAND_TOO_LONG = 14,
 }
 
 

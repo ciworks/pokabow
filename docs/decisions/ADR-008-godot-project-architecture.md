@@ -32,8 +32,8 @@ Use four conceptual layers:
 
 ```text
 Presentation -> Application -> Domain
-       |             |
-       +-------> Infrastructure
+	   |             |
+	   +-------> Infrastructure
 ```
 
 - **Domain:** deterministic game data and rules; no dependency on scenes, controls, animation, audio, or device APIs.
@@ -51,35 +51,35 @@ Use a feature-aware structure with clear layer boundaries:
 res://
   project.godot
   assets/
-    audio/
-    fonts/
-    textures/
+	audio/
+	fonts/
+	textures/
   resources/
-    rules/
-    themes/
+	rules/
+	themes/
   scenes/
-    app/
-    splash/
-    game/
-    components/
-    debug/
+	app/
+	splash/
+	game/
+	components/
+	debug/
   scripts/
-    domain/
-      tile/
-      board/
-      placement/
-      scoring/
-      turn/
-      ai/
-    application/
-    infrastructure/
-    presentation/
+	domain/
+	  tile/
+	  board/
+	  placement/
+	  scoring/
+	  turn/
+	  ai/
+	application/
+	infrastructure/
+	presentation/
   tests/
-    unit/
-    integration/
-    fixtures/
+	unit/
+	integration/
+	fixtures/
   docs/
-    decisions/
+	decisions/
 ```
 
 Do not organize all scripts into one large generic folder or mirror every scene with a manager singleton.
@@ -113,20 +113,19 @@ The initial runtime scene hierarchy is:
 ```text
 AppRoot
   SceneHost
-    SplashScreen | GameScreen
+	SplashScreen | HubScreen | OpponentSelectionScreen | GameScreen | ProfileScreen
   OverlayLayer
-    TransitionOverlay
-    ErrorDialog
+	TransitionOverlay
+	ErrorDialog
   AccessibilityLayer
 ```
 
 The `AppRoot` boot sequence is: the engine's own boot splash shows first, set
 from `application/boot_splash` to the same background colour as the scene
-splash, with the default image disabled, so the engine splash, the scene splash,
-and the first drawn frame of the match are one continuous colour rather than a
-flash between them. `AppRoot._ready()` then holds the authored `SplashScreen`
-for `SPLASH_HOLD_SECONDS` before calling `boot_game_screen()`, which swaps the
-splash for `GameScreen`.
+splash, with the default image disabled. `AppRoot._ready()` then holds the
+authored `SplashScreen` for `SPLASH_HOLD_SECONDS` before showing the hub. A new
+match moves from the hub through `OpponentSelectionScreen` to `GameScreen`; a
+saved match resumes directly into `GameScreen`.
 
 The hold is branding, not a loading wait - nothing is loaded during it. It is a
 `Timer` child rather than an awaited coroutine, so a tree torn down mid-hold
@@ -138,36 +137,50 @@ the hold lives in the composition root and not in the turn manager. Booting
 remains callable directly and synchronously, so the integration test can drive it
 without waiting a real second.
 
-The `GameScreen` scene contains:
+The `GameScreen` scene contains (layout revised from the owner's reference on
+2026-09-29):
 
 ```text
 GameScreen
-  BoardViewport
-    BoardView
-      TileLayer
-      PreviewLayer
-      HighlightLayer
-      ScoreRevealLayer
-      EffectsLayer
-      DebugOverlay
-  Hud
-    HumanScorePanel
-    AiScorePanel
-    TurnIndicator
-    DifficultyPicker
-    DifficultyPicker
-  ActiveTilePanel
-    AvailableTilesLabel
-    RotateButton
-    ConfirmButton
-    CancelButton
+  Root / Column
+	HeaderTools
+	Hud
+	  HumanScorePanel
+	  PotPanel (TilePileView, AvailableTilesLabel)
+	  AiScorePanel
+	Body / BoardViewport / BoardView
+	  TileLayer
+	  PreviewLayer
+	  HighlightLayer
+	  ClusterDisplayLayer
+	  ScoreRevealLayer
+	  EffectsLayer
+	  DebugOverlay
+	DeckBar / DeckPanel / RackColumn / DeckRow / DeckView
+  CommandDrawer
+	DrawerScrim
+	DrawerPanel
+	  DrawerColumn
+		DrawerHeader (TurnIndicator, CloseMenuButton)
+		CommandScroll / Commands
+		  ConfirmButton, RotateButton, SwapButton, CancelButton
+		  SwapConfirmButton, SwapCancelButton
+		  PreviewPanel, StatusLabel
+		  MatchToggle, MatchOptions (DifficultyPicker, RestartButton, ResignButton, MenuHubButton)
+	MenuTab
   FeedbackLayer
-    FloatingScores
-    MatchSummary
-    RecoveryOverlay
+	FloatingScores
+	DealLayer
+	SummaryOverlay
+	RecoveryOverlay
 ```
 
 Node names communicate presentation responsibilities only. `BoardView` renders `BoardState`; it does not own placement legality or scores.
+
+`GameCommandDrawer` owns animation, dismissal, responsive bounds, and its Match
+settings accordion. `GameScreen` wires its commands and renders a read-only
+`ScoreTransaction` supplied by `GameSessionController.pending_score_preview()`.
+The pot is a single shared count, and the drawer never computes a game rule.
 
 ### 5. Application composition root
 
@@ -465,6 +478,14 @@ Once the approval questions are resolved:
   drives that animation itself, so it can pause on the last frame instead of
   being cut off by the fade, and it still reads only the committed `ScoreEvent`
   cells, so it can never show an award that was not made.
+- 2026-09-29: The owner requested that played poker hands leave no board
+  highlights. The regular last-move outline was removed, and `ScoreRevealLayer`
+  now skips poker-hand outlines while retaining the requested tile bounce;
+  floating score feedback remains. The owner then requested that edge matches
+  not be marked on the board. `ScoreRevealLayer` skips edge-match outlines and
+  `BoardPreviewLayer` no longer draws match ticks on staged tiles. Edge-match
+  scoring remains unchanged, as does cluster feedback. These changes supersede
+  the corresponding visual details described in the 2026-09-24 note above.
 - 2026-09-25: Added the rival difficulty picker, closing the gap that made
   Milestone 6's exit criterion unreachable (all three AI difficulties existed and
   were tested, but nothing let the player select one). `GameScreen` gained a
@@ -489,8 +510,8 @@ Once the approval questions are resolved:
      after a failure, so it cannot block input in a normal session.
   2. *Development overlays.* A new `DebugOverlay` control, last child of
      `BoardView` so it draws above every board layer, rendering cell coordinates,
-     the legal frontier from `BoardState`, the last move's committed cells, and a
-     panel of board revision, pot, move count, difficulty, and the latest award's
+	 the legal frontier from `BoardState`, the last move's committed cells, and a
+	 panel of board revision, pot, move count, difficulty, and the latest award's
      score events. It is off unless the `debug/overlays` project setting is on,
      toggled with F3, and it never calls `set_input_as_handled`, so it cannot
      swallow a board gesture (AGENTS.md section 17 keeps debug tooling out of the
@@ -504,7 +525,7 @@ Once the approval questions are resolved:
      summary of the match, so a fixture cannot describe a position the rules could
      not produce, and loading it back exercises the same restore path a saved
      match uses. The location is a `fixture_path` property defaulting to that
-     constant, so a test does not overwrite a developer's export.
+	 constant, so a test does not overwrite a developer's export.
 - 2026-09-25: Implemented the platform feedback adapter's second and third
   channels, closing Milestone 8's audio-and-haptics deliverable. `AppRoot` now
   creates a `FeedbackAdapter` and injects it into the screen with

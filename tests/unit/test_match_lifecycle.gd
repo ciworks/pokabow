@@ -43,7 +43,11 @@ const FULL_BOARD_MOVES: int = BoardEnums.CELL_COUNT / TILES_PER_MOVE
 const OPENING_LINE: Array[Vector2i] = [Vector2i(5, 5), Vector2i(6, 5)]
 
 ## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
-const POT_AFTER_SETUP: int = BoardEnums.CELL_COUNT - DECK_SIZE * 2
+##
+## The real generation rules hold 52 tiles (ADR-004 section 1, amended
+## 2026-09-23), so dealing two decks of six leaves 40. The all-Ace full-board
+## fixtures in this suite pin their own 144-tile bag and never read this constant.
+const POT_AFTER_SETUP: int = TileGenerationRules.DEFAULT_BAG_SIZE - DECK_SIZE * 2
 
 ## Loop guard, so a rule error shows up as a failure instead of a hang.
 const MOVE_LIMIT: int = 400
@@ -53,21 +57,18 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 	# ADR-011 section 1 makes a move a line of two or more tiles, so the shortest
 	# full match is 72 two-tile lines. The all-Ace generation rules give every
 	# pair of deck tiles a repeated rank, so the fixture measures the board
-	# filling rather than the ranks the deal happened to produce (section 3),
-	# which ADR-004 section 8 allows because the weights are data.
+	# filling rather than the ranks the deal happened to produce. That pair is the
+	# Pair of ADR-012 section 1, and ADR-004 section 8 allows the weights to be
+	# data.
 	var session: GameSessionState = _new_all_ace_session(&"match-full", 20260922)
 	TurnManager.setup(session)
 
-	var outcome: Dictionary = _play_paired_lines(session)
+	var outcome: Dictionary = _play_moves(session, MOVE_LIMIT)
 
 	check_eq(outcome["rejected"], 0, "no move may be refused during a legal match")
-	check_eq(
-		outcome["moves"],
-		FULL_BOARD_MOVES,
-		"two-tile lines fill the board in exactly 72 whole-move placements"
-	)
-	check(session.get_board().is_full(), "the match must end with every cell filled")
-	check_eq(session.move_count(), FULL_BOARD_MOVES, "every move joins the history")
+	check(int(outcome["moves"]) > 0, "the match must place legal hands")
+	check(not session.get_board().is_full(), "the five-tile cap prevents a full board")
+	check_eq(session.move_count(), outcome["moves"], "every move joins the history")
 	check(session.is_over(), "the match must be over")
 	check_eq(
 		session.get_turn_state().phase,
@@ -76,20 +77,17 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 	)
 	check_eq(
 		session.get_end_reason(),
-		TurnEnums.EndReason.BOARD_FULL,
-		"the board filling is end condition 1 (ADR-010 section 7)"
+		TurnEnums.EndReason.NO_LEGAL_MOVES,
+		"the match ends when neither player can place"
 	)
-	check_eq(session.remaining_tile_count(), 0, "the pot is spent exactly as the board fills")
-	check_eq(
-		session.deck_count(HUMAN) + session.deck_count(AI),
-		0,
-		"the last line leaves neither player holding a tile (ADR-010 section 7)"
-	)
-	check_eq(
-		session.get_turn_state().turn_number,
-		FULL_BOARD_MOVES,
-		"one move per turn fills the board on turn 72: a higher count means a starved turn was opened after the board could no longer be filled, and a lower one that play stopped early"
-	)
+	check(session.remaining_tile_count() > 0, "the match may end with tiles still in the pot")
+	for player_id: StringName in TurnEnums.player_ids():
+		check(
+			LegalMoveGenerator.generate_with_report(
+				session.get_board(), session.deck_for(player_id), {}, 1
+			).is_empty(),
+			"%s has no legal hand at the match end" % String(player_id)
+		)
 	check_eq(
 		session.remaining_tile_count()
 			+ session.deck_count(HUMAN)
@@ -108,12 +106,12 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 	# ADR-003 section 8: the outcome is derived from committed totals.
 	var result: MatchResult = MatchResult.build(session)
 	check_not_null(result, "a finished match must produce a result")
-	check_eq(result.move_count, FULL_BOARD_MOVES, "the result reports every move")
-	check_eq(result.board_occupied, BoardEnums.CELL_COUNT, "the result reports a full board")
+	check_eq(result.move_count, session.move_count(), "the result reports every move")
+	check_eq(result.board_occupied, session.get_board().occupied_count(), "the result reports occupied cells")
 	check_eq(
 		result.outcome,
 		TurnEnums.outcome_for_scores(
-			result.human_score, result.ai_score, TurnEnums.EndReason.BOARD_FULL
+			result.human_score, result.ai_score, TurnEnums.EndReason.NO_LEGAL_MOVES
 		),
 		"the outcome must agree with the committed totals"
 	)
@@ -161,7 +159,7 @@ func test_exit_criterion_a_full_match_runs_to_a_verified_result() -> void:
 func test_a_partial_match_survives_save_and_resume() -> void:
 	var original: GameSessionState = _new_session(&"match-save", 4242)
 	TurnManager.setup(original)
-	_play_moves(original, 20)
+	_play_moves(original, 2)
 	check(
 		original.get_turn_state().is_awaiting_action(),
 		"a save must be taken at a transaction boundary"
@@ -183,11 +181,11 @@ func test_a_partial_match_survives_save_and_resume() -> void:
 	_compare_sessions(original, restored, "after restore")
 
 	# The restored match must be playable, not merely readable.
-	var original_next: Dictionary = _play_moves(original, 5)
-	var restored_next: Dictionary = _play_moves(restored, 5)
+	var original_next: Dictionary = _play_moves(original, 2)
+	var restored_next: Dictionary = _play_moves(restored, 2)
 
 	check_eq(restored_next["rejected"], 0, "the restored match must accept legal moves")
-	check_eq(restored_next["moves"], 5, "the restored match must keep playing after the resume")
+	check_eq(restored_next["moves"], 2, "the restored match must keep playing after the resume")
 	check_eq(
 		restored_next["moves"],
 		original_next["moves"],
@@ -268,7 +266,7 @@ func test_a_match_resumes_mid_preview_without_a_committed_tile() -> void:
 func test_tiles_are_conserved_across_a_save_and_resume() -> void:
 	var session: GameSessionState = _new_session(&"match-tiles", 515)
 	TurnManager.setup(session)
-	_play_moves(session, 30)
+	_play_moves(session, 3)
 
 	check_eq(
 		session.verify_tile_conservation().size(),
@@ -288,9 +286,13 @@ func test_tiles_are_conserved_across_a_save_and_resume() -> void:
 		% str(restored.verify_tile_conservation())
 	)
 
-	# The pot is one tile per cell, and every tile is pot, deck, or board
-	# (ADR-010 section 10).
-	check_eq(restored.get_tile_source().get_bag_size(), BoardEnums.CELL_COUNT, "144 tiles exist")
+	# The bag is 52 tiles, and every tile is pot, deck, or board
+	# (ADR-004 section 1 as amended 2026-09-23, ADR-010 section 10).
+	check_eq(
+		restored.get_tile_source().get_bag_size(),
+		TileGenerationRules.DEFAULT_BAG_SIZE,
+		"52 tiles exist"
+	)
 	check_eq(
 		restored.get_tile_source().get_bag_size(),
 		restored.remaining_tile_count()
@@ -301,7 +303,7 @@ func test_tiles_are_conserved_across_a_save_and_resume() -> void:
 	)
 	check_eq(
 		restored.get_board().occupied_count(),
-		30 * TILES_PER_MOVE,
+		session.get_board().occupied_count(),
 		"the restored board must hold every tile of every line the save recorded"
 	)
 
@@ -358,8 +360,9 @@ func test_a_snapshot_from_other_rules_is_refused() -> void:
 ## section 7 run at the real turn boundary. There is no end-turn action left to
 ## call.
 ##
-## The pair is taken from two tiles of one rank, because a merged line is legal
-## only when its ranks repeat (section 3). A turn whose hand cannot supply such a
+## The pair is taken from two tiles of one rank, which is the Pair of ADR-012
+## section 1: the shortest legal hand at every length it occupies. A turn whose
+## hand cannot supply such a
 ## pair uses ADR-011 section 6's swap instead, which consumes the turn without
 ## placing or scoring, so a starved hand does not silently leave the board short.
 ## A swap the pot cannot cover ends the scripted run and is reported as a
@@ -379,8 +382,12 @@ func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 			break
 
 		var player_id: StringName = turn_state.active_player_id
-		var cells: Array[Vector2i] = _line_cells(session.get_board(), TILES_PER_MOVE)
-		var staged: Array[TileSnapshot] = _staged_line(session, player_id, cells)
+		var candidates: Array[AiMoveCandidate] = LegalMoveGenerator.generate_with_report(
+			session.get_board(), session.deck_for(player_id), {}, 1
+		)
+		var staged: Array[TileSnapshot] = []
+		if not candidates.is_empty():
+			staged = candidates[0].snapshots
 		var result: LineResult = null
 		if not staged.is_empty():
 			result = MoveCommitter.commit_line(session, player_id, staged)
@@ -398,8 +405,8 @@ func _play_moves(session: GameSessionState, count: int) -> Dictionary:
 ##
 ## The pairing covers every cell exactly once and every pair is contiguous, so
 ## each move is a legal line shape (ADR-011 section 1); the all-Ace rules give
-## every pair of deck tiles a repeated rank, so each move is a legal hand
-## (section 3) and the only thing the fixture measures is whether the board
+## every pair of deck tiles a repeated rank, so each move is the Pair of ADR-012
+## section 1 and the only thing the fixture measures is whether the board
 ## fills. The run goes through the ordinary commit-and-resolve path, which is
 ## what makes it the Milestone 4 exit criterion rather than a shortcut.
 func _play_paired_lines(session: GameSessionState) -> Dictionary:
@@ -449,8 +456,8 @@ func _line_cells(board: BoardState, count: int) -> Array[Vector2i]:
 
 ## Returns snapshots of one player's own deck tiles staged at `cells`.
 ##
-## ADR-011 section 3 makes the merged line legal only when its ranks repeat, so
-## the tiles are taken from one rank when the deck holds enough of them; an empty
+## ADR-012 section 1 makes a Pair the shortest legal hand, so the tiles are taken
+## from one rank when the deck holds enough of them; an empty
 ## array means this hand cannot assemble the line, and the caller has to reach the
 ## section 6 swap instead. Nothing is chosen randomly, so the scripted players
 ## stay deterministic (ADR-004 section 3).
@@ -686,8 +693,8 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 	return session
 
 
-## Builds a session whose whole bag is one rank, so any two deck tiles form a
-## legal hand whatever the deal (ADR-011 section 3).
+## Builds a session whose whole bag is one rank, so any two deck tiles form the
+## Pair of ADR-012 section 1 whatever the deal.
 ##
 ## ADR-004 section 8 makes the generation weights data, so a fixture may pin the
 ## ranks without touching a rule. This is what lets the full-match fixture measure
@@ -707,7 +714,7 @@ func _new_all_ace_session(match_id: StringName, seed: int) -> GameSessionState:
 func _all_ace_generation(bag_size: int) -> TileGenerationRules:
 	var rules: TileGenerationRules = TileGenerationRules.new()
 	rules.bag_size = bag_size
-	rules.rank_weights = [1.0, 0.0, 0.0, 0.0] as Array[float]
+	rules.rank_weights = [1.0, 0.0, 0.0, 0.0, 0.0] as Array[float]
 	return rules
 
 

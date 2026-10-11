@@ -17,10 +17,20 @@ extends Control
 ## stays square and inside safe bounds on any viewport - a 1280x720 desktop
 ## window or a landscape phone.
 
-## Gap in pixels kept between the board and the edge of the allotted space.
+## Space around the grid reserved for its decorative frame.
 const PADDING: float = 14.0
+## Distance from the sprite's outer edge to its clear interior, in source pixels.
+const FRAME_SOURCE_INSET: float = 96.0
+
+signal zoom_changed
+const CLOSE_ZOOM: float = 2.0
+const OVERVIEW_ZOOM: float = 1.0
+var zoom: float = CLOSE_ZOOM
+var _camera_center := Vector2(0.5, 0.5)
+var _canvas: Control
 
 var _state: BoardRenderState = BoardRenderState.new()
+var _frame: NinePatchRect = null
 
 @onready var tile_layer: BoardTileLayer = %TileLayer
 @onready var preview_layer: BoardPreviewLayer = %PreviewLayer
@@ -47,6 +57,10 @@ func _ready() -> void:
 ## as soon as the screen is in the tree (ADR-008 section 5). Re-running this is
 ## harmless, so both paths can call it.
 func _ensure_layers() -> void:
+	if _canvas == null:
+		_canvas = get_node_or_null("BoardCanvas") as Control
+	if _frame == null:
+		_frame = get_node_or_null("BoardFrame") as NinePatchRect
 	# The resize hook is established here as well as in `_ready`, because this
 	# runs from every redraw path. A board that was asked to render before its
 	# `_ready` ran would otherwise keep the rectangle it fitted at that moment and
@@ -103,16 +117,73 @@ func get_board_rect() -> Rect2:
 
 ## Returns the board rectangle in global coordinates, for pointer hit-testing.
 func global_board_rect() -> Rect2:
+	var visible_rect: Rect2 = global_visible_rect()
+	var camera: Rect2 = BoardMetrics.camera_rect(visible_rect.size, zoom, _camera_center)
+	return Rect2(visible_rect.position + camera.position, camera.size)
+
+
+## The stationary, clipped play area. UI sizing must use this, not the enlarged grid.
+func global_visible_rect() -> Rect2:
 	return BoardMetrics.fit_square(Rect2(global_position, size), PADDING)
+
+
+func set_close_view(close: bool) -> void:
+	var target: float = CLOSE_ZOOM if close else OVERVIEW_ZOOM
+	if zoom == target:
+		return
+	zoom = target
+	clear_drag()
+	_redraw_all()
+	zoom_changed.emit()
+
+
+## Keeps the board point beneath the old midpoint under the moving fingers.
+func pinch_by(factor: float, previous_midpoint: Vector2, midpoint: Vector2) -> void:
+	var visible_rect: Rect2 = global_visible_rect()
+	if visible_rect.size.x <= 0.0 or factor <= 0.0:
+		return
+	var old_rect: Rect2 = global_board_rect()
+	var anchor: Vector2 = (previous_midpoint - old_rect.position) / old_rect.size
+	var previous_zoom: float = zoom
+	zoom = clampf(zoom * factor, OVERVIEW_ZOOM, CLOSE_ZOOM)
+	var half_visible: float = 0.5 / zoom
+	_camera_center = (anchor - (midpoint - visible_rect.get_center()) / (visible_rect.size * zoom)).clamp(
+		Vector2.ONE * half_visible, Vector2.ONE * (1.0 - half_visible))
+	_redraw_all()
+	if zoom != previous_zoom:
+		zoom_changed.emit()
+
+
+func pan_by(delta: Vector2) -> void:
+	var side: float = global_visible_rect().size.x * zoom
+	if zoom == OVERVIEW_ZOOM or side <= 0.0:
+		return
+	var half_visible: float = 0.5 / zoom
+	_camera_center = (_camera_center - delta / side).clamp(
+		Vector2.ONE * half_visible, Vector2.ONE * (1.0 - half_visible))
+	_redraw_all()
+
+
+func is_staged_cell(cell: Vector2i) -> bool:
+	for tile: TileSnapshot in _state.pending_line:
+		if tile.get_cell() == cell:
+			return true
+	return false
 
 
 ## Returns the cell under a global point, or `BoardMetrics.NO_CELL`.
 func cell_at_global(point: Vector2) -> Vector2i:
+	if not global_visible_rect().has_point(point):
+		return BoardMetrics.NO_CELL
 	return BoardMetrics.cell_from_point(global_board_rect(), point, BoardEnums.BOARD_WIDTH)
 
 
 ## Points the view at the board it should render.
 func set_board(board: BoardState) -> void:
+	if _state.board != board:
+		zoom = CLOSE_ZOOM
+		_camera_center = Vector2(0.5, 0.5)
+		zoom_changed.emit()
 	_state.board = board
 	resync()
 
@@ -187,7 +258,9 @@ func clear_preview() -> void:
 ##
 ## `BoardMetrics.NO_CELL` or a null snapshot clears the drag, because a pointer
 ## that is not over the board has no target to draw.
-func show_drag(snapshot: TileSnapshot, cell: Vector2i, legal: bool) -> void:
+## `draw_tile` is false for deck drags: their freely moving screen overlay draws
+## the tile while these board layers draw the drop-cell highlight artwork.
+func show_drag(snapshot: TileSnapshot, cell: Vector2i, legal: bool, draw_scale: float = 1.0, draw_tile: bool = true) -> void:
 	if snapshot == null or cell == BoardMetrics.NO_CELL:
 		clear_drag()
 		return
@@ -197,6 +270,8 @@ func show_drag(snapshot: TileSnapshot, cell: Vector2i, legal: bool) -> void:
 	_state.drag_snapshot = snapshot
 	_state.drop_cell = cell
 	_state.drag_legal = legal
+	_state.drag_scale = draw_scale
+	_state.drag_tile_visible = draw_tile
 	_redraw_all()
 
 
@@ -211,6 +286,8 @@ func clear_drag() -> void:
 	_state.drag_snapshot = null
 	_state.drop_cell = BoardMetrics.NO_CELL
 	_state.drag_legal = false
+	_state.drag_scale = 1.0
+	_state.drag_tile_visible = true
 	_redraw_all()
 
 
@@ -262,8 +339,7 @@ func get_last_committed_cells() -> Array[Vector2i]:
 	return _state.last_committed_cells.duplicate()
 
 
-## Reveals what the given committed score events awarded: the matching edge
-## boundaries and the paying colour clusters (AGENTS.md section 8, Milestone 8).
+## Briefly reveals scored hands and paying edge clusters from this move's events.
 ##
 ## `events` is the same authoritative list the score popups read, so a mark and
 ## the points beside it always describe one award. Nothing here decides what
@@ -397,7 +473,19 @@ func _on_resized() -> void:
 
 ## Recomputes the square board area for the current control size.
 func _recompute_rect() -> void:
-	_state.board_rect = BoardMetrics.fit_square(Rect2(Vector2.ZERO, size), PADDING)
+	var viewport_rect: Rect2 = BoardMetrics.fit_square(Rect2(Vector2.ZERO, size), PADDING)
+	_state.board_rect = BoardMetrics.camera_rect(viewport_rect.size, zoom, _camera_center)
+	if _canvas != null:
+		_canvas.position = viewport_rect.position
+		_canvas.size = viewport_rect.size
+	if _frame != null:
+		var frame_rect: Rect2 = viewport_rect.grow(PADDING)
+		# Scale the source corners uniformly; nine-patch stretches only the rails.
+		var frame_scale: float = PADDING / FRAME_SOURCE_INSET
+		_frame.scale = Vector2.ONE * frame_scale
+		_frame.position = frame_rect.position
+		_frame.size = frame_rect.size / frame_scale
+		_frame.visible = _state.board != null and _state.board_rect.has_area()
 
 
 func _redraw_all() -> void:

@@ -1,0 +1,11 @@
+Welcome to Summer Engine (c) built on the awesome work by Godot 2007-present Juan Linietsky, Ariel Manzur & Godot Contributors.
+OpenGL API 3.3.0 NVIDIA 610.88 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 2060
+
+[SE] AuthManager: CLI credential found; desktop session exchange required
+res://navigation-540x960-closed.png screen=(540.0, 960.0) board=[P: (30.0, 218.0), S: (480.0, 480.0)] deck=[P: (88.25877, 754.48), S: (363.0, 75.0)] drawer=[P: (548.0, 196.0), S: (350.0, 748.0)]
+res://navigation-540x960-open.png screen=(540.0, 960.0) board=[P: (30.0, 218.0), S: (480.0, 480.0)] deck=[P: (88.25877, 754.48), S: (363.0, 75.0)] drawer=[P: (178.0, 196.0), S: (350.0001, 748.0)]
+res://navigation-360x800-closed.png screen=(360.0, 800.0) board=[P: (30.0, 228.0), S: (300.0, 300.0)] deck=[P: (42.0, 605.9171), S: (276.0, 56.0)] drawer=[P: (368.0, 196.0), S: (260.0, 588.0)]
+res://navigation-360x800-open.png screen=(360.0, 800.0) board=[P: (30.0, 228.0), S: (300.0, 300.0)] deck=[P: (42.0, 605.9171), S: (276.0, 56.0)] drawer=[P: (88.0, 196.0), S: (260.0, 588.0)]
+res://navigation-1280x720-closed.png screen=(1280.0, 720.0) board=[P: (466.0, 134.0), S: (348.0, 348.0)] deck=[P: (480.288, 528.24), S: (319.0, 65.0)] drawer=[P: (1288.0, 120.0), S: (350.0, 584.0)]
+res://navigation-1280x720-open.png screen=(1280.0, 720.0) board=[P: (466.0, 134.0), S: (348.0, 348.0)] deck=[P: (480.288, 528.24), S: (319.0, 65.0)] drawer=[P: (918.0, 120.0), S: (350.0001, 584.0)]
+POINTER CHECK: close=true tab=true outside_consumed=true

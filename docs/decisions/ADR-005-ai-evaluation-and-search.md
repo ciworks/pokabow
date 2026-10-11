@@ -177,6 +177,8 @@ If fewer candidates exist, evaluate all of them. Configuration may reduce budget
 * A presentation delay may make an immediate decision feel natural, but it is not part of search correctness.
 
 Hard and Medium fall back to the best fully evaluated candidate if an application-level safety limit stops analysis. The deterministic rules test profile does not use wall-clock interruption.
+ADR-017 adds a distinct match-rule deadline: after the 60-second turn expires,
+discard the proposal and pass instead of committing any fallback move.
 
 ### 10. Tie-breaking
 
@@ -332,3 +334,11 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 
 * 2026-09-21: The initial proposal was accepted without changes.
 * 2026-09-22: Amended by ADR-010. The AI now chooses among every tile in its deck rather than a single active tile, and it plays out its deck before ending its turn. Sections 1 to 6 stand, applied per tile considered; the section 8 budgets apply per placement.
+* 2026-09-27: Owner set the starting difficulty for a new game to Easy. This
+  ADR defines what each difficulty does but deliberately did not fix which one a
+  fresh match begins with, so this is a selection default, not a change to any
+  difficulty's behaviour: sections 4, 5, and 6 stand unchanged. The default lives
+  in one place, `AiEnums.DEFAULT_DIFFICULTY`, and `GameSessionController`,
+  `AiCoordinator`, and `AiDifficultyConfig` all read it from there, so a match
+  still starts on the policy the HUD picker shows and the player can still switch
+  to Medium or Hard at any time.

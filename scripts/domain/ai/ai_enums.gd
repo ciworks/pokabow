@@ -28,12 +28,14 @@ enum Difficulty {
 	HARD = 2,
 }
 
-## What an AI decision reports (ADR-005 sections 2, 9, and 11).
+## What an AI decision reports (ADR-005 sections 2, 9, and 11; ADR-011 section 6).
 enum AiDecisionStatus {
-	## A legal proposal is available.
+	## A move is available: a legal line (ADR-011 section 1) or the swap the rival
+	## takes when no line is legal (ADR-011 section 6).
 	OK = 0,
-	## No legal candidate exists for the active tile (ADR-005 section 2).
-	## ADR-003 decides what the turn does next.
+	## No legal candidate exists for the rival's deck (ADR-005 section 2). The
+	## live strategies report the ADR-011 section 6 swap instead, so this remains
+	## the structured refusal for callers that ask for it.
 	NO_LEGAL_MOVE = 1,
 	## The analysis was cancelled before it finished, so nothing may be committed
 	## (ADR-005 section 9).
@@ -43,8 +45,15 @@ enum AiDecisionStatus {
 	INVALID = 3,
 }
 
-## The difficulty used when a caller does not choose one (ADR-005 section 5).
-const DEFAULT_DIFFICULTY: int = Difficulty.MEDIUM
+## The difficulty a new game starts on, and the one used when a caller does not
+## choose (ADR-005 section 5).
+##
+## This is the only place the starting difficulty is stated. `AiCoordinator`,
+## `AiDifficultyConfig.create_default`, and `GameSessionController` all read this
+## constant rather than naming a difficulty themselves, so changing it here
+## changes the default for a fresh match and nothing else - the picker still
+## shows whatever the controller reports, and a mid-match selection is untouched.
+const DEFAULT_DIFFICULTY: int = Difficulty.EASY
 
 
 ## Returns true when `value` is one of the three Phase 1 difficulties.

@@ -1,0 +1,23 @@
+526:[node name="BottomNavigation" type="PanelContainer" parent="Root/Column" unique_id=298598923]
+[SUMMER_FS_SNAPSHOT] headless editor: the project filesystem is a BOOT-TIME SNAPSHOT. There is no filesystem watching in this mode (rescan is focus-driven and no focus event can fire without a window), so files written to this project after boot by any other process will NOT be detected for the lifetime of this process. Trigger a rescan explicitly, or use a short-lived boot->act->exit invocation (`--headless --import`) per batch of writes.
+WARNING: res://scenes/hub/hub_screen.tscn:5 - ext_resource, invalid UID: uid://dq0uwn4sl7qbd - using text path instead: res://assets/hub/settings_icon.png
+   at: ResourceLoaderText::load (scene\resources\resource_format_text.cpp:516)
+[SUMMER_STARTUP_WORK] status=complete phase=settled imports_pending=0 imports_done=210 imports_total=210 truncated=0 site=shutdown uptime_ms=17877 project="C:/Users/chima/development/polkabow"
+ERROR: EditorSettings not instantiated yet when getting setting "export/android/shutdown_adb_on_exit".
+   at: _EDITOR_GET (editor\settings\editor_settings.cpp:1689)
+WARNING: 1 RID of type "CanvasItem" was leaked.
+   at: RendererCanvasCull::_free_rids (servers\rendering\renderer_canvas_cull.cpp:2733)
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: ObjectDB::cleanup (core\object\object.cpp:2536)
+[   0% ] loading_editor_layout | Started Loading editor (5 steps)
+[   0% ] loading_editor_layout | Loading editor layout...
+[  16% ] loading_editor_layout | Loading docks...
+[WebView2] set_cookie: webview not ready, skipping
+[  33% ] loading_editor_layout | Reopening scenes...
+[  50% ] loading_editor_layout | Loading central editor layout...
+[  66% ] loading_editor_layout | Loading plugin window layout...
+[  83% ] loading_editor_layout | Editor layout ready.
+[ DONE ] loading_editor_layout
+
+[WebView2] Failed to get parent window
+[SE] LocalApiServer: Stopped

@@ -210,11 +210,11 @@ func test_tile_validation_rejects_out_of_range_values() -> void:
 		TileEnums.EdgeColor.BLUE,
 		TileEnums.EdgeColor.RED,
 		TileEnums.EdgeColor.GREEN,
-		99,
+		4,
 	]
 	check(
 		not TileDefinition.create(&"a:tile:000", TileEnums.TileRank.ACE, TileEnums.FaceColor.RED, bad_edges).is_valid(),
-		"an undefined edge colour must be rejected"
+		"an edge value outside blue, red, green, and yellow must be rejected"
 	)
 
 

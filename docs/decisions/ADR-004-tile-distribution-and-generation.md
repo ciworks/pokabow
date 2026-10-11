@@ -283,3 +283,15 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
   the fields, immutability, canonical `[top, right, bottom, left]` edge order,
   and `get_rotated_edges(rotation)` behaviour are as specified. Where this ADR,
   ADR-005, or ADR-008 write `TileData`, read `TileDefinition`.
+- 2026-09-23: Owner reduced the bag from 144 tiles to 52. Section 1's "exactly
+  144 tiles ... one tile for every board cell" is superseded: the bag is no
+  longer sized to the board, so a match is bounded by tile supply rather than by
+  the 144 cells, and every derived 144 in this ADR reads as 52. The figure in
+  force is the `bag_size` stored in
+  `resources/rules/tile_generation_rules.tres`, because the exported value in
+  that resource overrides the script constant; `TileGenerationRules.DEFAULT_BAG_SIZE`
+  is only the fallback used when the resource is missing or invalid, and the two
+  are kept in step. `TileGenerationRules.SCHEMA_VERSION` is unchanged, so a match
+  already in progress is unaffected. With two six-tile decks dealt at setup, the
+  pot opens at 40. Section 1's finite shared bag, section 3's fixed consumption
+  order, and section 7's information hiding all stand.

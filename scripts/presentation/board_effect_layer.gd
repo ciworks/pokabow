@@ -17,6 +17,10 @@ const FRAME_COLOR: Color = Color(0.32, 0.36, 0.44, 1.0)
 
 ## Refusal text colour.
 const REASON_COLOR: Color = Color(0.98, 0.62, 0.60, 1.0)
+const TOAST_ONLY_REASONS: Array[String] = [
+	"The opening hand needs at least two tiles",
+	"A line goes in one row or one column",
+]
 
 ## Current render state, assigned by `BoardView`.
 var state: BoardRenderState = null
@@ -47,6 +51,8 @@ func _draw_reason() -> void:
 	if state.has_pending() and state.pending_valid:
 		return
 	if state.pending_reason.is_empty():
+		return
+	if TOAST_ONLY_REASONS.has(state.pending_reason):
 		return
 
 	var font: Font = ThemeDB.fallback_font

@@ -1,0 +1,1 @@
+text(await tools.exec_command({cmd:"Get-Content scenes/game/game_screen.tscn -TotalCount 4; $s=Get-Content scenes/game/game_screen.tscn; $s[818..844]; $g=Get-Content scripts/presentation/game_screen.gd; $g[1271..1290]; $g[1684..1697]","workdir":"C:\\Users\\chima\\development\\polkabow","max_output_tokens":600}));

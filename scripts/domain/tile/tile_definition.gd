@@ -26,6 +26,8 @@ extends Resource
 ## Red/black face property. Not consumed by Phase 1 scoring (ADR-001 section 3).
 @export var face_color: TileEnums.FaceColor = TileEnums.FaceColor.RED
 
+@export var suit: TileEnums.Suit = TileEnums.Suit.HEARTS
+
 ## Canonical unrotated edges in [top, right, bottom, left] order.
 @export var base_edges: Array[TileEnums.EdgeColor] = []
 
@@ -36,12 +38,19 @@ static func create(
 	tile_id: StringName,
 	rank: int,
 	face_color: int,
-	base_edges: Array[TileEnums.EdgeColor]
+	base_edges: Array[TileEnums.EdgeColor],
+	suit: int = -1
 ) -> TileDefinition:
 	var tile: TileDefinition = TileDefinition.new()
 	tile.tile_id = tile_id
 	tile.rank = rank
 	tile.face_color = face_color
+	if suit < 0:
+		tile.suit = TileEnums.Suit.NONE if rank == TileEnums.TileRank.JOKER else (
+			TileEnums.Suit.HEARTS if face_color == TileEnums.FaceColor.RED else TileEnums.Suit.CLUBS
+		)
+	else:
+		tile.suit = suit
 	tile.base_edges = base_edges.duplicate()
 	return tile
 
@@ -103,6 +112,13 @@ func is_valid() -> bool:
 		return false
 	if not TileEnums.is_valid_face_color(int(face_color)):
 		return false
+	if not TileEnums.is_valid_suit(int(suit)):
+		return false
+	if rank == TileEnums.TileRank.JOKER:
+		if suit != TileEnums.Suit.NONE or face_color != TileEnums.FaceColor.NONE:
+			return false
+	elif suit == TileEnums.Suit.NONE or TileEnums.color_for_suit(suit) != face_color:
+		return false
 	if base_edges.size() != TileEnums.EDGE_COUNT:
 		return false
 	for edge in base_edges:
@@ -117,6 +133,7 @@ func to_dto() -> TileDto:
 	dto.tile_id = tile_id
 	dto.rank = int(rank)
 	dto.face_color = int(face_color)
+	dto.suit = int(suit)
 	dto.edges = []
 	for edge in base_edges:
 		dto.edges.append(int(edge))
@@ -130,4 +147,4 @@ static func from_dto(dto: TileDto) -> TileDefinition:
 	var edges: Array[TileEnums.EdgeColor] = []
 	for edge in dto.edges:
 		edges.append(int(edge))
-	return TileDefinition.create(dto.tile_id, dto.rank, dto.face_color, edges)
+	return TileDefinition.create(dto.tile_id, dto.rank, dto.face_color, edges, dto.suit)

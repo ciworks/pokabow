@@ -125,6 +125,16 @@ func is_valid() -> bool:
 	var turn_number: int = int(turn.get("turn_number", 0))
 	if turn_number < 0:
 		return false
+	var remaining: Variant = turn.get("remaining_seconds", TurnManager.TURN_SECONDS)
+	if not (remaining is float or remaining is int):
+		return false
+	if not is_finite(float(remaining)) or float(remaining) < 0.0 or float(remaining) > TurnManager.TURN_SECONDS:
+		return false
+	var deadline: Variant = turn.get("deadline_unix_seconds", 0.0)
+	if not (deadline is float or deadline is int):
+		return false
+	if not is_finite(float(deadline)) or float(deadline) < 0.0:
+		return false
 	var skips: int = int(turn.get("consecutive_no_tile_skips", 0))
 	if skips < 0 or skips > TurnEnums.MAX_CONSECUTIVE_SKIPS:
 		return false

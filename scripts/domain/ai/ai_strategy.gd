@@ -1,41 +1,46 @@
 class_name AiStrategy
 extends RefCounted
 
-## The shared AI decision contract (ADR-005 sections 1, 3, 7, 10, and 11).
+## The shared AI decision contract (ADR-005 sections 1, 3, 7, 10, and 11;
+## ADR-011 section 12).
 ##
-## ADR-005 section 1 fixes the seam every difficulty implements:
+## ADR-011 section 12 fixes the seam every difficulty implements: a candidate is
+## a whole LINE, not one placement, so the contract was retargeted from "one
+## active tile" to "the rival's held deck":
 ##
-##     choose_move(snapshot, active_tile, config, decision_seed, cancellation)
+##     choose_move(snapshot, deck, config, decision_seed, cancellation)
 ##         -> AiDecision
 ##
 ## This base class owns everything the three difficulties share, so no rule is
 ## written twice (AGENTS.md section 15):
 ##
-## - generating and preparing the legal candidate list
+## - generating and preparing the legal line candidate list
 ##   (`LegalMoveGenerator`, ADR-005 section 2);
 ## - attaching the deterministic tie-break value derived from the decision seed
 ##   and the candidate's canonical move key (ADR-005 section 10);
 ## - ranking candidates by a multi-field tuple, so Medium's six-field order and
 ##   Hard's utility share one comparison;
+## - scoring a candidate line through the SAME ADR-007 line preview the human
+##   path previews with, so the AI can never disagree with committed scoring;
 ## - building the decision diagnostics every difficulty reports
 ##   (ADR-005 section 12).
 ##
 ## A strategy never touches the scene tree, never reads the undrawn bag, and
 ## never mutates authoritative state: it works on a detached snapshot and returns
-## a proposal that the application layer commits through the ordinary ADR-007
-## transaction (ADR-005 sections 1 and 11).
+## a proposal that the application layer commits through the ordinary ADR-011
+## whole-line transaction (ADR-005 sections 1 and 11).
 
 
-## Returns this strategy's proposal for one active tile.
+## Returns this strategy's proposal for the rival's whole deck.
 ##
 ## Returns an `INVALID` decision when the inputs cannot produce a proposal, a
-## `NO_LEGAL_MOVE` decision when no legal candidate exists (ADR-005 section 2),
-## and a `CANCELLED` decision when the token was cancelled before analysis
-## started or before it finished (ADR-005 section 9). Subclasses must return on
-## every path; a partial proposal may never be committed.
+## `SWAP` decision when no legal line exists (ADR-011 section 6), and a
+## `CANCELLED` decision when the token was cancelled before analysis started or
+## before it finished (ADR-005 section 9). Subclasses must return on every path; a
+## partial proposal may never be committed.
 func choose_move(
 	_snapshot: AiGameSnapshot,
-	_active_tile: TileDefinition,
+	_deck: Array[TileDefinition],
 	_config: AiDifficultyConfig,
 	_decision_seed: int,
 	_cancellation: AiCancellationToken
@@ -71,46 +76,76 @@ func tie_break_value_for(decision_seed: int, move_key: String) -> int:
 	return value
 
 
-## Returns the legal candidates for one tile, each carrying its tie-break value.
+## Returns the legal line candidates for one deck, each carrying its tie-break.
 ##
-## Candidates are ordered by cell row-major then rotation (ADR-005 section 2), so
-## every later stage of the search is reproducible from the candidate order alone.
+## Candidates are ordered by anchor cell row-major, then orientation, then line
+## length (ADR-005 section 2), so every later stage of the search is reproducible
+## from the candidate order alone. Legality comes from `LegalMoveGenerator`, which
+## asks `LineValidator` - the same validator the human path commits through
+## (ADR-011 section 12).
 func prepare_candidates(
 	snapshot: AiGameSnapshot,
-	active_tile: TileDefinition,
+	deck: Array[TileDefinition],
 	decision_seed: int,
 	report: Dictionary
 ) -> Array[AiMoveCandidate]:
 	var candidates: Array[AiMoveCandidate] = []
 	if snapshot == null:
 		return candidates
-	candidates = LegalMoveGenerator.generate_with_report(
-		snapshot.get_board(), active_tile, snapshot.ai_player_id(), report
-	)
+	candidates = LegalMoveGenerator.generate_with_report(snapshot.get_board(), deck, report)
 	for candidate: AiMoveCandidate in candidates:
 		candidate.tie_break_value = tie_break_value_for(decision_seed, candidate.move_key)
 	return candidates
 
 
-## Attaches the ADR-007 preview numbers to one candidate.
+## Attaches the ADR-007 preview numbers of one candidate line.
 ##
-## Delegates to `ScoringCoordinator.breakdown()` so the AI reads exactly the
-## numbers the human preview reads (ADR-007 sections 2 and 3).
+## Delegates to `ScoringCoordinator.preview_line()` so the AI reads exactly the
+## numbers the human preview reads for the same line (ADR-007 sections 2 and 3),
+## including the already-scored windows of ADR-001 section 5.
 func score_candidate(
 	snapshot: AiGameSnapshot,
 	candidate: AiMoveCandidate,
 	rules: ScoringRules
 ) -> void:
-	if snapshot == null or candidate == null or candidate.snapshot == null:
+	if snapshot == null or candidate == null or candidate.snapshots.is_empty():
 		return
-	candidate.apply_breakdown(
-		ScoringCoordinator.breakdown(
+	candidate.apply_transaction(
+		ScoringCoordinator.preview_line(
 			snapshot.get_board(),
-			candidate.snapshot,
+			candidate.snapshots,
+			snapshot.ai_player_id(),
 			rules,
-			snapshot.get_scored_hand_set()
+			snapshot.get_scored_hand_set(),
+			snapshot.turn_number()
 		)
 	)
+
+
+## Returns the immediate points one line would award a player on one board.
+##
+## Used for the second ply of ADR-005 section 6 evaluation, where the line
+## belongs to the opponent rather than to the AI, so the player identity is a
+## parameter rather than read from the snapshot.
+func line_points_for(
+	board: BoardState,
+	line: Array[TileSnapshot],
+	player_id: StringName,
+	rules: ScoringRules,
+	scored_hand_set: ScoredHandSet
+) -> int:
+	if board == null or line == null or line.is_empty():
+		return 0
+	var transaction: ScoreTransaction = ScoringCoordinator.preview_line(
+		board, line, player_id, rules, scored_hand_set, 0
+	)
+	if transaction == null or transaction.events == null:
+		return 0
+	var total: int = 0
+	for event: ScoreEvent in transaction.events:
+		if event != null:
+			total += event.points
+	return total
 
 
 ## Returns one candidate's score-event breakdown, for diagnostics only.
@@ -210,7 +245,8 @@ func ranking_of(candidate: AiMoveCandidate) -> String:
 ## Returns the diagnostics dictionary every difficulty reports.
 ##
 ## ADR-005 section 12 requires a recorded difficulty, evaluation version, and
-## search shape; extra keys carry the per-decision evidence.
+## search shape; extra keys carry the per-decision evidence. The search shape
+## names the line generator, because ADR-011 section 12 changes it.
 func build_diagnostics(
 	config: AiDifficultyConfig,
 	snapshot: AiGameSnapshot,
@@ -221,7 +257,7 @@ func build_diagnostics(
 		"evaluation_version": config.evaluation_version,
 		"config_version": config.version_key(),
 		"sample_version": config.sample_version(),
-		"search": "legal-move-generation",
+		"search": "legal-line-generation",
 	}
 	if snapshot != null:
 		diagnostics["turn_number"] = snapshot.turn_number()
@@ -232,10 +268,29 @@ func build_diagnostics(
 	return diagnostics
 
 
-## Returns the decision a strategy reports when no legal candidate exists.
+## Returns the decision a strategy reports when the deck holds no legal line.
 ##
-## ADR-005 section 2 gives this its own status so the caller never receives an
-## illegal substitute; ADR-003 decides what the turn does next.
+## ADR-011 section 6 makes the swap the way out of an unplayable hand, so this is
+## the swap decision rather than a refusal: `status` stays OK because the swap is
+## the move the turn takes, and it carries no coordinate so nothing can be
+## committed from it. ADR-005 section 2 is satisfied by never substituting an
+## illegal placement.
+func swap_decision(
+	snapshot: AiGameSnapshot,
+	config: AiDifficultyConfig,
+	report: Dictionary
+) -> AiDecision:
+	var revision: int = 0 if snapshot == null else snapshot.board_revision()
+	report["policy_outcome"] = "swap"
+	report["evaluated_candidates"] = 0
+	return AiDecision.create_swap(revision, build_diagnostics(config, snapshot, report))
+
+
+## Returns the decision a strategy reports when no legal line exists.
+##
+## Kept for callers and tests that want the structured ADR-005 section 2 refusal
+## rather than the ADR-011 section 6 swap; the live strategies use
+## `swap_decision()`.
 func no_legal_move_decision(
 	snapshot: AiGameSnapshot,
 	config: AiDifficultyConfig,

@@ -1,0 +1,11 @@
+Welcome to Summer Engine (c) built on the awesome work by Godot 2007-present Juan Linietsky, Ariel Manzur & Godot Contributors.
+OpenGL API 3.3.0 NVIDIA 610.88 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 2060
+
+[SE] AuthManager: CLI credential found; desktop session exchange required
+res://header-logo-320x568.png logo=[P: (77.54263, 16.0), S: (250.9147, 48.0)] board=[P: (74.0, 210.0), S: (258.0, 258.0)]
+res://header-logo-360x800.png logo=[P: (72.0, 19.3396), S: (216.0, 41.32081)] board=[P: (30.0, 228.0), S: (300.0, 300.0)]
+res://header-logo-540x960.png logo=[P: (144.5426, 16.0), S: (250.9147, 48.0)] board=[P: (30.0, 218.0), S: (480.0, 480.0)]
+res://header-logo-1280x720.png logo=[P: (514.5426, 16.0), S: (250.9147, 48.0)] board=[P: (496.0, 194.0), S: (288.0, 288.0)]
+res://header-logo-844x390.png logo=[P: (653.5426, 16.0), S: (250.9147, 48.0)] board=[P: (635.0, 194.0), S: (288.0, 288.0)]
+res://header-logo-540x960.png logo=[P: (144.5426, 16.0), S: (250.9147, 48.0)] board=[P: (30.0, 218.0), S: (480.0, 480.0)]
+HEADER LOGO CHECK: 0 failures

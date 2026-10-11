@@ -47,7 +47,11 @@ const DECK_SIZE: int = DeckRules.DEFAULT_DECK_SIZE
 const TILES_DEALT_AT_SETUP: int = DECK_SIZE * 2
 
 ## Tiles the pot still holds once both decks are dealt (ADR-010 section 2).
-const POT_AFTER_SETUP: int = BoardEnums.CELL_COUNT - TILES_DEALT_AT_SETUP
+##
+## The real generation rules hold 52 tiles (ADR-004 section 1, amended
+## 2026-09-23), so dealing twelve leaves 40. Every use of this constant below
+## runs against a session built from the real default rules.
+const POT_AFTER_SETUP: int = TileGenerationRules.DEFAULT_BAG_SIZE - TILES_DEALT_AT_SETUP
 
 ## The opening line every match in this suite opens with: a horizontal pair of
 ## two of the four central cells (ADR-006 section 2, ADR-011 sections 1 and 4).
@@ -81,15 +85,15 @@ func test_setup_hands_the_first_turn_to_the_human() -> void:
 	check_eq(
 		session.remaining_tile_count(),
 		POT_AFTER_SETUP,
-		"dealing twelve tiles leaves 132 in the shared pot"
+		"dealing twelve tiles leaves 40 in the shared pot"
 	)
 	check_eq(
 		session.remaining_tile_count()
 			+ session.deck_count(HUMAN)
 			+ session.deck_count(AI)
 			+ session.get_board().occupied_count(),
-		BoardEnums.CELL_COUNT,
-		"the pot, both decks, and the board must account for all 144 tiles"
+		TileGenerationRules.DEFAULT_BAG_SIZE,
+		"the pot, both decks, and the board must account for all 52 tiles"
 	)
 	check_eq(
 		session.verify_tile_conservation().size(),
@@ -629,72 +633,25 @@ func test_neither_player_holding_a_tile_while_the_pot_is_empty_ends_the_match() 
 	)
 
 
-func test_the_match_ends_when_every_cell_is_filled() -> void:
-	# ADR-010 section 7 condition 1, kept by ADR-011 section 9: the match ends on
-	# the move that fills the board. The fill runs through the ordinary
-	# commit-and-resolve path with ADR-011's two-tile moves, over a fixed
-	# Hamiltonian pairing of the grid, so every move is a contiguous, connected
-	# line and every cell is placed exactly once. The all-Ace rules keep a pair
-	# available in every deck size the endgame reaches, so the supply of legal
-	# lines is what the board-full condition is measured against.
+func test_an_overlong_hand_is_refused_without_ending_the_match() -> void:
+	# A line may reach five tiles, but a later move cannot extend it beyond five.
 	var session: GameSessionState = GameSessionState.create(
 		&"turn-o", 24, ScoringRules.create_default(), _all_ace_generation(BoardEnums.CELL_COUNT)
 	)
 	check_not_null(session, "the session must be constructible")
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
-	var pairs: Array = _grid_pairs()
-	var moves: int = 0
-
-	for pair: Variant in pairs:
-		if session.is_over():
-			break
-		var cells: Array[Vector2i] = pair
-		var result: LineResult = _commit_line_at(
-			session, session.get_turn_state().active_player_id, cells
-		)
-		if not result.was_committed():
-			break
-		TurnManager.resolve(session, result)
-		moves += 1
-
-	check_eq(
-		moves * 2,
-		BoardEnums.CELL_COUNT,
-		"144 cells need 72 two-tile moves, and none may be refused"
-	)
-	check(board.is_full(), "the loop must end with the board full")
-	check(session.is_over(), "the match must be over")
-	check_eq(
-		session.get_turn_state().phase,
-		TurnEnums.MatchPhase.GAME_OVER,
-		"filling the board moves the match to GAME_OVER"
-	)
-	check_eq(
-		session.get_end_reason(),
-		TurnEnums.EndReason.BOARD_FULL,
-		"filling the board is end condition 1 (ADR-010 section 7)"
-	)
-	check_eq(
-		TurnManager.detect_end_reason(session),
-		TurnEnums.EndReason.BOARD_FULL,
-		"the end-condition check reports the full board"
-	)
-	check_eq(session.move_count(), moves, "each committed line is exactly one move")
-	check_eq(
-		session.remaining_tile_count()
-			+ session.deck_count(HUMAN)
-			+ session.deck_count(AI)
-			+ board.occupied_count(),
-		BoardEnums.CELL_COUNT,
-		"a full board must still account for every tile exactly once"
-	)
-	check_eq(
-		session.verify_tile_conservation().size(),
-		0,
-		"a full match must keep every tile in exactly one place: %s"
-		% str(session.verify_tile_conservation())
-	)
+	var opening: LineResult = _commit_line_at(session, HUMAN, [Vector2i(5, 5), Vector2i(6, 5)])
+	check(opening.was_committed(), "the opening pair commits")
+	TurnManager.resolve(session, opening)
+	var extension: LineResult = _commit_line_at(session, AI, [Vector2i(7, 5), Vector2i(8, 5)])
+	check(extension.was_committed(), "a four-tile hand is legal")
+	TurnManager.resolve(session, extension)
+	var refused: LineResult = _commit_line_at(session, HUMAN, [Vector2i(9, 5), Vector2i(10, 5)])
+	check_eq(refused.rejection, PlacementEnums.PlacementRejection.HAND_TOO_LONG, "six tiles are refused")
+	check_eq(board.occupied_count(), 4, "the rejected move changes no cells")
+	check_eq(session.move_count(), 2, "the rejected move does not enter history")
+	check(not session.is_over(), "other placements remain available")
 
 
 func test_the_winner_rule_has_no_tie_breaker() -> void:
@@ -743,7 +700,11 @@ func test_a_rules_failure_stops_the_match_without_a_winner() -> void:
 
 
 func test_human_and_ai_reach_scoring_through_the_same_path() -> void:
-	var session: GameSessionState = _new_session(&"turn-k", 21)
+	var session: GameSessionState = GameSessionState.create(
+		&"turn-k", 21, ScoringRules.create_default(), _all_ace_generation(52)
+	)
+	if not check_not_null(session, "the same-path fixture must be constructible"):
+		return
 	TurnManager.setup(session)
 	var board: BoardState = session.get_board()
 
@@ -790,8 +751,8 @@ func test_the_remaining_count_is_visible_but_the_bag_is_not() -> void:
 
 	check_eq(
 		session.get_tile_source().get_bag_size(),
-		144,
-		"the configured bag holds one tile per board cell"
+		TileGenerationRules.DEFAULT_BAG_SIZE,
+		"the configured bag holds the 52 tiles of ADR-004 section 1 (amended 2026-09-23)"
 	)
 	check_eq(session.remaining_tile_count(), POT_AFTER_SETUP, "the remaining count is public")
 	check_eq(
@@ -828,16 +789,18 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 
 
 ## Returns generation rules whose every tile shares one rank, so any held pair is
-## a legal line whatever the seed (ADR-004 section 8 allows weights to be data).
+## the Pair of ADR-012 section 1 and a legal line whatever the seed (ADR-004
+## section 8 allows weights to be data).
 func _all_ace_generation(bag_size: int) -> TileGenerationRules:
 	var rules: TileGenerationRules = TileGenerationRules.new()
 	rules.bag_size = bag_size
-	rules.rank_weights = [1.0, 0.0, 0.0, 0.0] as Array[float]
+	rules.rank_weights = [1.0, 0.0, 0.0, 0.0, 0.0] as Array[float]
 	return rules
 
 
 ## Commits a line of `cells` for `player_id`, staging a pair of equal ranks so
-## the line is a legal hand (ADR-011 section 3) whatever the seed dealt.
+## the line is the Pair of ADR-012 section 1 and a legal hand whatever the seed
+## dealt.
 func _commit_line_at(
 	session: GameSessionState, player_id: StringName, cells: Array[Vector2i]
 ) -> LineResult:
@@ -851,7 +814,7 @@ func _commit_line_at(
 
 
 ## Returns `count` tiles of one player's deck, preferring `count` of equal rank so
-## the assembled line is at least a pair (ADR-011 section 3).
+## the assembled line is at least the repeated rank of an ADR-012 section 1 Pair.
 func _pair_tiles(
 	session: GameSessionState, player_id: StringName, count: int
 ) -> Array[TileDefinition]:

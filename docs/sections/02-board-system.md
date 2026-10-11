@@ -34,6 +34,23 @@ Origin (0, 0) is the top-left cell. This is a pragmatic convention.
 - Presentation nodes render from `BoardState`; they never become the source of
   truth for rules (see `AGENTS.md` sections 6 and 19).
 
+### 2.1 Cell artwork (Implemented)
+
+`BoardTileLayer` uses `assets/board/board_cell_default.png` for ordinary cells.
+Each board view scatters 1-5 copies of each blue, red, green and yellow cell
+sprite into distinct random positions; all remaining cells use the default.
+The count range is a cosmetic interpretation of the requested maximum of five
+per alternate sprite. Positions stay fixed through moves and resizing, and are
+regenerated when the view receives a different board. This decoration uses its
+own random generator, has no scoring or placement effect, and is not saved with
+the match. Committed tiles and existing feedback layers draw over the artwork.
+
+The board is framed by `assets/board/game_border.png` in a `NinePatchRect`.
+Its 128px source corner slices scale uniformly into the existing 14px board
+padding, while the side rails stretch to follow the square grid. The center is
+not drawn, and the frame ignores pointer input. Board cell geometry and hit
+testing continue to use the inner grid rectangle.
+
 ---
 
 ## 3. Placement (Specified)

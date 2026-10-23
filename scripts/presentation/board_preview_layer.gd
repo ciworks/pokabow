@@ -26,9 +26,8 @@ const GHOST_ALPHA: float = 0.75
 const DRAG_GHOST_ALPHA: float = 0.65
 
 ## Use only the supplied artwork's frame; the target contents stay visible.
-const TARGET_HIGHLIGHT_TEXTURE: Texture2D = preload("res://assets/tiles/tile_highlight.png")
-const TARGET_FRAME_MARGIN: float = 26.0
-var _target_frame: StyleBoxTexture = _create_target_frame()
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
+var _target_frame: StyleBoxFlat = _create_target_frame()
 
 ## Current render state, assigned by `BoardView`.
 var state: BoardRenderState = null
@@ -79,18 +78,16 @@ func _draw_drag() -> void:
 		TilePainter.paint_tile(self, drag_tile_rect(), snapshot, DRAG_GHOST_ALPHA)
 	# Draw the frame last so occupied or staged tiles cannot hide the target.
 	# Scale its source-space margins with the cell, including during board zoom.
-	var texture_size: Vector2 = TARGET_HIGHLIGHT_TEXTURE.get_size()
-	draw_set_transform(rect.position, 0.0, rect.size / texture_size)
-	draw_style_box(_target_frame, Rect2(Vector2.ZERO, texture_size))
-	draw_set_transform(Vector2.ZERO)
+	draw_style_box(_target_frame, rect)
 
 
-static func _create_target_frame() -> StyleBoxTexture:
-	var frame := StyleBoxTexture.new()
-	frame.texture = TARGET_HIGHLIGHT_TEXTURE
+static func _create_target_frame() -> StyleBoxFlat:
+	var frame := StyleBoxFlat.new()
+	frame.bg_color = Color.TRANSPARENT
 	frame.draw_center = false
-	for side: int in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
-		frame.set_texture_margin(side, TARGET_FRAME_MARGIN)
+	frame.border_color = Tabletop.honey()
+	frame.set_border_width_all(4)
+	frame.set_corner_radius_all(7)
 	return frame
 
 

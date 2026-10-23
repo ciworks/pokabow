@@ -32,6 +32,9 @@ func _ready() -> void:
 
 
 func set_access_token(token: String) -> void:
+	if token != access_token and _active_request != null:
+		_active_request.cancel_request()
+		_finish_request(_active_request)
 	access_token = token
 	_retry_delay = 0.0
 	_start_next_delete()
@@ -80,6 +83,19 @@ func _schedule_retry() -> void:
 ## Returns the local match key currently associated with this client.
 func current_match_id() -> String:
 	return _local_match_id
+
+
+func has_cached_matches() -> bool:
+	return not _records.is_empty()
+
+
+## Clears every locally tracked match record and queues remote deletions.
+func clear_all_match_caches() -> void:
+	var match_keys: Array[String] = []
+	for key: Variant in _records.keys():
+		match_keys.append(String(key))
+	for match_key: String in match_keys:
+		clear_match_cache(match_key)
 
 
 ## Clears one match's persisted API mapping and requests deletion of its remote
@@ -418,6 +434,12 @@ func _on_request_completed(
 	if request != _active_request:
 		return
 	var successful_transport: bool = result == HTTPRequest.RESULT_SUCCESS
+	# Authentication depends on the status, even for an empty/non-JSON body.
+	if successful_transport and response_code == 401:
+		access_token = ""
+		_finish_request(request)
+		authentication_required.emit()
+		return
 	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8()) if successful_transport else null
 	var data: Dictionary = parsed if parsed is Dictionary else {}
 	if kind == "preview":
@@ -425,11 +447,6 @@ func _on_request_completed(
 		_finish_request(request)
 		if _records.has(match_key):
 			_flush_turns(_match_record(match_key), match_key)
-		return
-	if successful_transport and response_code == 401:
-		access_token = ""
-		_finish_request(request)
-		authentication_required.emit()
 		return
 	if kind == "delete":
 		if successful_transport and response_code in [204, 404]:
@@ -644,10 +661,6 @@ func _send_preview() -> void:
 
 func _handle_preview_response(result: int, code: int, data: Dictionary) -> void:
 	if _sent_preview_generation != _preview_generation or _active_match_key != _local_match_id:
-		return
-	if code == 401:
-		access_token = ""
-		authentication_required.emit()
 		return
 	if code in [404, 501]:
 		# The route is explicitly proposed in OpenAPI. Avoid repeatedly probing

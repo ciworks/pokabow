@@ -251,17 +251,44 @@ func test_current_valid_preview_is_delivered_without_mutating_sync_version() -> 
 	controller.free()
 
 
-func test_profile_refresh_is_available_and_account_fields_show_server_values() -> void:
+func test_profile_updates_username_inline_and_keeps_email_read_only() -> void:
 	var packed: PackedScene = load("res://scenes/profile/profile_screen.tscn")
-	var screen: ProfileScreen = packed.instantiate()
+	var screen: Variant = packed.instantiate()
 	screen._ready()
 	screen.set_user_state({"user": {"id": "user-1", "displayName": "API Player", "email": null}})
-	var display_name: LineEdit = screen.get_node("%DisplayNameField")
 	var email: LineEdit = screen.get_node("%EmailField")
-	check_eq(display_name.text, "API Player", "profile displays the returned account name")
+	check_eq((screen.find_child("ProfileDisplayName", true, false) as Label).text, "API Player", "profile summary uses the current account name")
+	var account_details: Control = screen.find_child("AccountDetails", true, false) as Control
+	check(account_details != null and account_details.get_parent().name == "ProfileSummary", "account details occupy the subtitle position in the profile summary")
+	check_eq(screen._profile_name.autowrap_mode, TextServer.AUTOWRAP_OFF, "the profile username stays on one horizontal line")
+	check_eq(screen._profile_name.text_overrun_behavior, TextServer.OVERRUN_TRIM_ELLIPSIS, "long usernames truncate cleanly beside the edit icon")
+	check(screen._username_edit_row is VBoxContainer, "the inline editor gives the text field the full profile width")
+	check(screen._username_editor.size_flags_horizontal & Control.SIZE_EXPAND_FILL != 0, "the username field expands above its actions")
 	check_eq(email.text, "", "nullable email is handled without an invalid String conversion")
-	check(not display_name.editable, "profile cannot offer saves without an implemented endpoint")
-	check_eq((screen.get_node("%UpdateButton") as Button).text, "Refresh", "the former no-op button has a supported action")
+	check(screen.get_node_or_null("%UsernameField") == null, "account details no longer duplicate the profile username")
+	check(not email.editable, "email remains read-only")
+	var emitted: Array[Dictionary] = []
+	screen.profile_save_requested.connect(func(username: String, avatar_data: String) -> void:
+		emitted.append({"username": username, "avatar": avatar_data})
+	)
+	screen._begin_username_edit()
+	check(screen._username_edit_row.visible and not screen._username_display_row.visible, "pencil opens the inline editor")
+	screen._username_editor.text = "New Player"
+	screen._submit_current_username()
+	check_eq(screen._profile_name.text, "New Player", "inline Done stages the edited username")
+	(screen.find_child("SaveAvatar", true, false) as Button).pressed.emit()
+	check_eq(emitted.size(), 1, "one Save changes action submits the combined profile")
+	check_eq(emitted[0].username, "New Player", "combined save contains the staged username")
+	var avatar_image := Image.new()
+	check_eq(avatar_image.load_png_from_buffer(Marshalls.base64_to_raw(emitted[0].avatar)), OK, "combined save contains a valid normalized PNG")
+	check_eq(avatar_image.get_size(), Vector2i(195, 195), "combined save uses the avatar contract dimensions")
+	screen.set_profile_save_pending(true)
+	screen.set_profile_save_pending(false)
+	screen.set_profile_avatar_persisted(emitted[0].avatar)
+	screen.set_profile_save_result(true)
+	check_eq(screen._profile_name.text, "New Player", "successful update returns to the profile label")
+	check(not screen._username_edit_row.visible and screen._username_display_row.visible, "successful update closes the inline editor")
+	check_eq((screen.get_node("%UpdateButton") as Button).text, "Refresh", "refresh remains separate from profile saving")
 	var refreshed: Array[bool] = [false]
 	screen.refresh_requested.connect(func() -> void: refreshed[0] = true)
 	screen._on_update_pressed()

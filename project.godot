@@ -11,11 +11,16 @@ config_version=5
 [application]
 
 config/name="pokabow"
+config/version="1.0.2"
 run/main_scene="res://scenes/app/app_root.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
-boot_splash/bg_color=Color(0.07, 0.086, 0.118, 1)
+boot_splash/bg_color=Color(0.964706, 0.94902, 0.913725, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
+
+[autoload]
+
+AppearanceSettings="*res://scripts/presentation/appearance_settings.gd"
 
 [debug]
 
@@ -26,11 +31,16 @@ overlays=false
 window/size/viewport_width=540
 window/size/viewport_height=960
 window/stretch/mode="canvas_items"
-window/handheld/orientation="portrait"
+window/stretch/aspect="keep_width"
+window/handheld/orientation=1
 
 [dotnet]
 
 project/assembly_name="polkabow"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/SharePlugin/plugin.cfg", "res://addons/admob/plugin.cfg")
 
 [input]
 
@@ -48,6 +58,8 @@ mouse_wheel_zoom_in={
 [pokabow]
 
 server_ip="192.168.0.189"
+ads_android_interstitial_unit_id="ca-app-pub-3940256099942544/1033173712"
+ads_ios_interstitial_unit_id="ca-app-pub-3940256099942544/4411468910"
 
 [rendering]
 

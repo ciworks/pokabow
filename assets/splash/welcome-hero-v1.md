@@ -1,0 +1,8 @@
+# Splash hero v1
+
+Created 2026-10-18 with the built-in image generation tool, using `docs/design/splash-welcome-concept-v1.png` as the reference. Used by `scenes/splash/splash_screen.tscn`. Transparent PNG; only the illustration is baked into this asset. Wordmark, tagline and startup status are native Fredoka labels. Original concept and hub hero are preserved.
+
+## Prompt
+
+Edit this approved POKABOW splash concept into a reusable standalone HERO ILLUSTRATION with a true transparent background. Keep ONLY the central/lower illustration: two large circular cartoon portraits (curly-haired smiling woman on left, smiling bearded man on right), three square A-spade K-heart Q-club tiles in front, soft sage oval behind, and the tiny teal motion marks / honey diamonds. Preserve the exact cartoon character styling, relative sizes and vertical arrangement of this source illustration; the large heads occupy its upper half and the three tiles its lower half. Remove the entire logo, wordmark, tagline, loading squares, loading text, ivory page background, and all blank page space. There must be NO text anywhere other than A K Q on the tiles. True transparent alpha outside the illustration; keep the sage oval inside illustration. A tightly framed near-square canvas with about 4 percent transparent margin around the illustration, subject fills over 90 percent of canvas width and height, no large top or bottom margins. Maintain smooth clean graphic outlines and flat cartoon character shading. Do not redesign the characters or change into realistic 3D. This output is the production artwork extracted from the supplied concept, not another full screen.
+

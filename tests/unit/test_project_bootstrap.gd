@@ -53,15 +53,15 @@ func test_viewport_is_locked_portrait_540x960() -> void:
 	check_eq(height, 960, "viewport height must be 960")
 	check(width < height, "viewport must be portrait")
 
-	var orientation: String = String(ProjectSettings.get_setting("display/window/handheld/orientation", ""))
-	check(
-		orientation == "portrait",
-		"display/window/handheld/orientation must lock portrait, got '%s'" % orientation
-	)
+	# Godot 4 requires an integer enum; the old string "portrait" exports as landscape.
+	var orientation: Variant = ProjectSettings.get_setting("display/window/handheld/orientation")
+	check_eq(typeof(orientation), TYPE_INT, "handheld orientation must be a Godot 4 integer enum")
+	if typeof(orientation) == TYPE_INT:
+		check_eq(orientation, DisplayServer.SCREEN_PORTRAIT, "handheld orientation must lock portrait")
 
 
 func test_portrait_canvas_preserves_aspect_ratio() -> void:
-	check_eq(String(ProjectSettings.get_setting("display/window/stretch/aspect", "")), "keep", "wide windows must letterbox rather than reshape the portrait canvas")
+	check_eq(String(ProjectSettings.get_setting("display/window/stretch/aspect", "")), "keep_width", "tall phones must expand vertically without distorting the portrait canvas; wide windows retain side bars")
 
 
 func test_renderer_is_gl_compatibility() -> void:
@@ -132,6 +132,17 @@ func test_splash_scene_is_a_landscape_control_with_a_title() -> void:
 
 	var title: Label = _first_label_with_text(splash)
 	check_not_null(title, "the splash screen must display a non-empty title label")
+	var logo: TextureRect = splash.get_node_or_null(
+		"CenterContainer/TitleBlock/Logo"
+	) as TextureRect
+	var loading_bar: ProgressBar = splash.get_node_or_null(
+		"CenterContainer/TitleBlock/LoadingProgress"
+	) as ProgressBar
+	if check_not_null(loading_bar, "the splash screen must show startup warm-up progress below the logo") and logo != null:
+		check(
+			loading_bar.get_index() > logo.get_index(),
+			"the startup loading bar must be arranged after the logo"
+		)
 
 	splash.free()
 

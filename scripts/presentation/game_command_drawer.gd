@@ -12,7 +12,6 @@ var _motion: Tween
 
 
 func _ready() -> void:
-	%OpenMenuButton.pressed.connect(open_settings)
 	%CloseMenuButton.pressed.connect(func() -> void: set_open(false))
 	scrim.pressed.connect(func() -> void: set_open(false))
 	resized.connect(_layout)
@@ -25,6 +24,7 @@ func open_settings() -> void:
 
 
 func set_open(value: bool, animate: bool = true) -> void:
+	var was_open: bool = is_open
 	is_open = value
 	if _motion != null:
 		_motion.kill()
@@ -41,8 +41,10 @@ func set_open(value: bool, animate: bool = true) -> void:
 		panel.visible = value
 	if value:
 		%CloseMenuButton.grab_focus()
-	else:
-		%OpenMenuButton.grab_focus()
+	elif was_open:
+		var menu_button := get_parent().get_node_or_null("Root/Column/HeaderTools/HeaderSpacer") as Button
+		if menu_button != null:
+			menu_button.grab_focus()
 	opened_changed.emit(value)
 
 
@@ -52,7 +54,8 @@ func _layout() -> void:
 	if _motion != null:
 		_motion.kill()
 	var pot: Control = get_node("%PotPanel") as Control
-	var top: float = clampf(pot.get_global_rect().end.y - global_position.y + 12.0, 80.0, size.y * 0.4)
+	var hud: Control = pot.get_parent() as Control
+	var top: float = clampf(hud.get_global_rect().end.y - global_position.y + 12.0, 80.0, size.y * 0.4)
 	panel.size = Vector2(minf(350.0, maxf(260.0, size.x * 0.7)), maxf(180.0, size.y - top - 16.0))
 	panel.position = Vector2(size.x - panel.size.x - 12.0 if is_open else size.x + 8.0, top)
 	panel.visible = is_open

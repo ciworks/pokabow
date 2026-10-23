@@ -1,90 +1,134 @@
 class_name GameBottomNavigation
 extends PanelContainer
 
-## Presentation-only shortcuts; GameScreen supplies availability and handlers.
+## Presentation-only action bar; GameScreen supplies availability and handlers.
 signal action_requested(action: StringName)
 
-const ACTIONS: Array[StringName] = [&"Play", &"Skip", &"Swap", &"Undo", &"Quit"]
-const BAR_HEIGHT: float = 76.0
+const ACTIONS: Array[StringName] = [&"Undo", &"Swap", &"Play", &"Resign", &"Pot"]
+const BAR_HEIGHT: float = 112.0
+const PLAY_BUTTON_HEIGHT: float = 78.0
+const PLAY_BUTTON_STRETCH_RATIO: float = 2.0
+const PLAY_LABEL_FONT_SIZE: int = 30
 const TOOLTIPS: Array[String] = [
-	"Place your hand on the board",
-	"Skip is unavailable",
+	"Return staged tiles to your hand",
 	"Choose tiles to return to the pot",
-	"Return unplayed tiles to your rack",
-	"Back to hub",
+	"Play the staged hand",
+	"Resign this match",
+	"View tiles in the pot",
 ]
+const ICONS: Dictionary = {
+	&"Undo": "undo",
+	&"Play": "play_hand",
+	&"Swap": "swap",
+	&"Resign": "flag",
+	&"Pot": "pot_sack",
+}
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 
 var buttons: Dictionary[StringName, Button] = {}
+var _pot_count_label: Label = null
 
 
 func _ready() -> void:
 	custom_minimum_size.y = BAR_HEIGHT
-	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("101b25")
-	panel.border_color = Color("31434e")
+	var panel := Tabletop.panel(Tabletop.canvas(), 0, 0.0)
+	panel.border_color = Color("#D8D0C2")
 	panel.border_width_top = 1
-	panel.content_margin_left = 0.0
-	panel.content_margin_right = 0.0
 	panel.content_margin_top = 1.0
-	panel.content_margin_bottom = 0.0
 	add_theme_stylebox_override("panel", panel)
 	var row := HBoxContainer.new()
 	row.name = "Actions"
-	row.add_theme_constant_override("separation", 0)
+	row.add_theme_constant_override("separation", 2)
 	add_child(row)
 	for index: int in range(ACTIONS.size()):
 		var action: StringName = ACTIONS[index]
 		var button := Button.new()
 		button.name = String(action) + "Button"
-		button.custom_minimum_size = Vector2(48, BAR_HEIGHT - 1.0)
+		button.custom_minimum_size = Vector2(48, PLAY_BUTTON_HEIGHT if action == &"Play" else BAR_HEIGHT - 12.0)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if action == &"Play":
+			button.size_flags_stretch_ratio = PLAY_BUTTON_STRETCH_RATIO
+			button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		button.tooltip_text = TOOLTIPS[index]
-		var empty := StyleBoxEmpty.new()
-		button.add_theme_stylebox_override("normal", empty)
-		button.add_theme_stylebox_override("disabled", empty)
-		var highlight := StyleBoxFlat.new()
-		highlight.bg_color = Color("1b2b37")
-		button.add_theme_stylebox_override("hover", highlight)
-		var pressed := StyleBoxFlat.new()
-		pressed.bg_color = Color("233b43")
-		pressed.border_color = Color("66ffb8")
-		pressed.border_width_top = 3
-		button.add_theme_stylebox_override("pressed", pressed)
-		var focus := StyleBoxFlat.new()
-		focus.bg_color = Color.TRANSPARENT
-		focus.border_color = Color("66ffb8")
-		focus.set_border_width_all(2)
-		button.add_theme_stylebox_override("focus", focus)
+		if action == &"Resign":
+			button.accessibility_name = "Resign this match"
+		elif action == &"Pot":
+			button.accessibility_name = "Tile pot"
+		Tabletop.style_button(button, "primary" if action == &"Play" else "quiet")
+		if action == &"Play":
+			# The reference keeps Play honey-filled even before a hand is staged.
+			button.add_theme_stylebox_override("disabled", Tabletop.button_style("primary", "normal"))
 		row.add_child(button)
 		var content := VBoxContainer.new()
 		content.name = "Content"
 		content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		content.alignment = BoxContainer.ALIGNMENT_CENTER
-		content.add_theme_constant_override("separation", 5)
+		content.add_theme_constant_override("separation", 2)
 		button.add_child(content)
 		content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var icon_surface := PanelContainer.new()
+		icon_surface.name = "IconSurface"
+		icon_surface.custom_minimum_size = Vector2(52, 52)
+		icon_surface.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		icon_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_surface.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.canvas_alt(), 26, 0.0))
+		icon_surface.visible = action != &"Play"
+		content.add_child(icon_surface)
 		var icon := TextureRect.new()
-		icon.texture = load("res://assets/ui/navigation/%s.svg" % String(action).to_lower())
-		icon.custom_minimum_size = Vector2(24, 24)
+		icon.name = "Icon"
+		var icon_name: String = ICONS[action]
+		if action == &"Pot" and Tabletop.is_dark_mode():
+			icon_name = "pot_sack_light"
+		icon.texture = load("res://assets/ui/modern_tabletop/%s.svg" % icon_name)
+		icon.custom_minimum_size = Vector2(30, 30)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		content.add_child(icon)
+		var icon_center := CenterContainer.new()
+		icon_center.name = "IconCenter"
+		icon_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_surface.add_child(icon_center)
+		icon_center.add_child(icon)
+		if action == &"Pot":
+			icon.custom_minimum_size = Vector2(38, 38)
+			_pot_count_label = Label.new()
+			_pot_count_label.name = "PotCount"
+			_pot_count_label.text = "0"
+			_pot_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_pot_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			_pot_count_label.add_theme_font_override("font", Tabletop.BOLD)
+			_pot_count_label.add_theme_font_size_override("font_size", 12)
+			_pot_count_label.add_theme_color_override("font_color", Tabletop.canvas())
+			_pot_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			icon.add_child(_pot_count_label)
+			_pot_count_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			_pot_count_label.offset_top = 13.0
 		var label := Label.new()
-		label.text = String(action)
+		label.name = "Label"
+		label.text = "Play hand" if action == &"Play" else String(action)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_size_override("font_size", 13)
+		label.add_theme_font_override("font", Tabletop.SEMIBOLD)
+		label.add_theme_color_override("font_color", Tabletop.ink())
+		label.add_theme_font_size_override("font_size", PLAY_LABEL_FONT_SIZE if action == &"Play" else 18)
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		content.add_child(label)
 		buttons[action] = button
-		# Skip has no matching drawer command.
-		if action != &"Skip":
-			button.pressed.connect(func() -> void: action_requested.emit(action))
-	set_available(&"Play", false)
-	set_available(&"Skip", false)
-	set_available(&"Swap", false)
+		button.pressed.connect(func() -> void: action_requested.emit(action))
+	set_available(&"Resign", false)
 	set_available(&"Undo", false)
+	set_available(&"Play", false)
+	set_available(&"Swap", false)
+	set_available(&"Pot", false)
+
+
+func set_pot_count(count: int) -> void:
+	if _pot_count_label == null:
+		return
+	_pot_count_label.text = str(maxi(0, count))
+	var button: Button = buttons[&"Pot"]
+	button.tooltip_text = "Tile pot: %d available" % count
+	button.accessibility_name = button.tooltip_text
 
 
 func set_available(action: StringName, available: bool) -> void:
@@ -93,5 +137,8 @@ func set_available(action: StringName, available: bool) -> void:
 	var button: Button = buttons[action]
 	button.disabled = not available
 	var content: Control = button.get_node("Content") as Control
-	content.modulate = Color(0.4, 1.0, 0.72) if available and action == &"Play" else Color("c5d0d8")
-	content.modulate.a = 1.0 if available else 0.4
+	content.modulate = (
+		Color.WHITE
+		if available or action == &"Play"
+		else Color(0.42, 0.49, 0.50, 0.55)
+	)

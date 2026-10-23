@@ -2,36 +2,17 @@ extends Control
 
 ## Fits the overlapping portrait and score plate without changing score state.
 const EXTRA_VERTICAL_PADDING: float = 5.0
+const GAME_AVATAR_SCALE: Vector2 = Vector2.ONE * 1.25
+const COMPACT_HORIZONTAL_GAP: float = 20.0
 
-var _warning_tween: Tween
-var _warning_origin: Vector2
-
-
-## Brief motion on the whole artwork keeps portrait, plate, text, and border
-## together. Reduced-motion preference suppresses the shake.
-func warn_time_running_out() -> void:
-	stop_turn_warning()
-	if not is_inside_tree() or AccessibilitySettings.reduced_motion():
-		return
-	_warning_origin = position
-	_warning_tween = create_tween()
-	for offset: float in [-2.0, 2.0, -1.5, 1.5, 0.0]:
-		_warning_tween.tween_property(self, "position", _warning_origin + Vector2(offset, 0.0), 0.06)
-
-
-func stop_turn_warning() -> void:
-	if _warning_tween != null:
-		_warning_tween.kill()
-		position = _warning_origin
-		_warning_tween = null
-
+@export var stacked: bool = false
+@export var compact_horizontal: bool = false
 @export var portrait_on_right: bool = false
 @export var title_path: NodePath = ^"HumanScoreTitle"
 @export var value_path: NodePath = ^"HumanScoreValue"
 
 @onready var portrait: TextureRect = $Portrait
 @onready var plate: NinePatchRect = $Plate
-@onready var outline: PanelContainer = $TurnOutline
 @onready var title: Label = get_node(title_path) as Label
 @onready var value: Label = get_node(value_path) as Label
 
@@ -48,6 +29,12 @@ func _queue_layout() -> void:
 
 
 func _layout() -> void:
+	if compact_horizontal:
+		_layout_compact_horizontal()
+		return
+	if stacked:
+		_layout_stacked()
+		return
 	var artwork_width: float = minf(size.x, size.y * 2.5)
 	var artwork_left: float = (size.x - artwork_width) * 0.5
 	var portrait_width: float = minf(size.y * 0.95, artwork_width * 0.55)
@@ -58,8 +45,6 @@ func _layout() -> void:
 	if portrait_on_right:
 		portrait.position.x = artwork_left + artwork_width - portrait_width
 		plate.position.x = artwork_left
-	outline.position = plate.position + Vector2(2, 2)
-	outline.size = plate.size - Vector2(4, 4)
 	var text_left: float = artwork_left + portrait_width * 0.96
 	var text_width: float = maxf(1.0, artwork_width - portrait_width * 0.96 - 5.0)
 	if portrait_on_right:
@@ -80,4 +65,67 @@ func _layout() -> void:
 	title.position = Vector2(text_left, text_top)
 	title.size = Vector2(text_width, title_height)
 	value.position = Vector2(text_left, text_top + title_height)
+	value.size = Vector2(text_width, value_height)
+
+
+## Keep portrait and score in the outer portion, clear of the central pot.
+func _layout_stacked() -> void:
+	plate.position = Vector2.ZERO
+	plate.size = size
+	var center_x: float = size.x * (0.65 if portrait_on_right else 0.35)
+	var portrait_side: float = minf(size.y * 0.57, size.x * 0.55)
+	portrait.position = Vector2(center_x - portrait_side * 0.5, 8.0)
+	portrait.size = Vector2.ONE * portrait_side
+	# Scale the player and its frame around the same vertical center as the rival.
+	portrait.pivot_offset = portrait.size * 0.5
+	var text_width: float = size.x * 0.50
+	var font_size: int = 34
+	var font: Font = value.get_theme_font("font")
+	while font_size > 16 and font.get_string_size(value.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > text_width:
+		font_size -= 1
+	font_size = maxi(1, roundi(float(font_size) * 0.5))
+	if value.get_theme_font_size("font_size") != font_size:
+		value.add_theme_font_size_override("font_size", font_size)
+	if title.get_theme_font_size("font_size") != 20:
+		title.add_theme_font_size_override("font_size", 20)
+	var title_height: float = title.get_minimum_size().y
+	var value_height: float = value.get_minimum_size().y
+	var text_top: float = maxf(portrait.position.y + portrait_side, size.y - title_height - value_height - 10.0)
+	title.position = Vector2(center_x - text_width * 0.5, text_top)
+	title.size = Vector2(text_width, title_height)
+	value.position = Vector2(title.position.x, text_top + title_height)
+	value.size = Vector2(text_width, value_height)
+
+
+## Small portrait and score pair used by the Modern Tabletop score strip.
+func _layout_compact_horizontal() -> void:
+	plate.hide()
+	var side: float = minf(54.0, maxf(32.0, size.y - 12.0))
+	var inset: float = 8.0
+	portrait.size = Vector2.ONE * side
+	portrait.pivot_offset = portrait.size * 0.5
+	portrait.scale = GAME_AVATAR_SCALE
+	portrait.position = Vector2(inset, (size.y - side) * 0.5)
+	var text_left: float = portrait.position.x + side + COMPACT_HORIZONTAL_GAP
+	var text_width: float = maxf(1.0, size.x - text_left - inset)
+	if portrait_on_right:
+		portrait.position.x = size.x - inset - side
+		text_left = inset
+		text_width = maxf(1.0, portrait.position.x - COMPACT_HORIZONTAL_GAP - text_left)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if not portrait_on_right else HORIZONTAL_ALIGNMENT_RIGHT
+	value.horizontal_alignment = title.horizontal_alignment
+	if title.get_theme_font_size("font_size") != 18:
+		title.add_theme_font_size_override("font_size", 18)
+	var font: Font = value.get_theme_font("font")
+	var font_size: int = 36
+	while font_size > 18 and font.get_string_size(value.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > text_width:
+		font_size -= 1
+	if value.get_theme_font_size("font_size") != font_size:
+		value.add_theme_font_size_override("font_size", font_size)
+	var title_height: float = title.get_minimum_size().y
+	var value_height: float = value.get_minimum_size().y
+	var top: float = (size.y - title_height - value_height) * 0.5
+	title.position = Vector2(text_left, top)
+	title.size = Vector2(text_width, title_height)
+	value.position = Vector2(text_left, top + title_height)
 	value.size = Vector2(text_width, value_height)

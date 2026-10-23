@@ -10,8 +10,6 @@ if 'id="14_settings"' not in resources:
     resources += '[ext_resource type="Texture2D" path="res://assets/ui/settings.png" id="14_settings"]\n\n'
 if 'id="22_background"' not in resources:
     resources += '[ext_resource type="Texture2D" path="res://assets/ui/default_background.png" id="22_background"]\n\n'
-if 'id="23_board_deck"' not in resources:
-    resources += '[ext_resource type="Texture2D" path="res://assets/ui/board_deck.png" id="23_board_deck"]\n\n'
 if 'id="26_close"' not in resources:
     resources += '[ext_resource type="Texture2D" path="res://assets/ui/close.png" id="26_close"]\n\n'
 if 'id="27_bottom_navigation"' not in resources:
@@ -130,15 +128,11 @@ for block in blocks:
 if not any('name="DeckBar"' in block for block in blocks):
     node('DeckBar','HBoxContainer','Root/Column',container+'\nalignment = 1',True)
 if not any('name="DeckPanel"' in block for block in blocks):
-	node('DeckPanel','TextureRect','Root/Column/DeckBar',container+'\ntexture = ExtResource("23_board_deck")\nexpand_mode = 1\nstretch_mode = 5',True)
+	node('DeckPanel','Control','Root/Column/DeckBar',container,True)
 	node('RackColumn','VBoxContainer','Root/Column/DeckBar/DeckPanel','''layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 38.0
-offset_top = 14.0
-offset_right = -38.0
-offset_bottom = -22.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2

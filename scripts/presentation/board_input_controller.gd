@@ -38,6 +38,8 @@ var enabled: bool = false
 var _pressing: bool = false
 var _pan_gesture: bool = false
 var _last_position := Vector2.ZERO
+## Viewport position of the latest release, for returning tiles to a rack slot.
+var release_position := Vector2.INF
 var _touch_index: int = -1
 var _touches: Dictionary[int, Vector2] = {}
 var _pinching: bool = false
@@ -65,6 +67,12 @@ func _input(event: InputEvent) -> void:
 		_handle_touch(event)
 	elif event is InputEventScreenDrag and _touches.has(event.index):
 		_handle_touch_drag(event)
+	elif _pressing and _touch_index == -1 and event is InputEventMouse and event.device != -1:
+		# Keep ownership when a board drag crosses the rack or another Control.
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			_handle_press(event.position, event.pressed)
+		elif event is InputEventMouseMotion:
+			_handle_move(event.position)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -162,6 +170,7 @@ func _handle_press(position: Vector2, pressed: bool) -> void:
 			_press_origin_cell = BoardMetrics.NO_CELL
 			return
 		_pressing = true
+		release_position = Vector2.INF
 		_press_cell = cell
 		_press_origin_cell = cell
 		_pan_gesture = not enabled or not board_view.is_staged_cell(cell)
@@ -174,6 +183,7 @@ func _handle_press(position: Vector2, pressed: bool) -> void:
 	if not _pressing:
 		return
 	var released_cell: Vector2i = board_view.cell_at_global(position)
+	release_position = position
 	_pressing = false
 	_press_cell = BoardMetrics.NO_CELL
 	if not _pan_gesture and enabled:

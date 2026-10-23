@@ -6,7 +6,6 @@
 # Engine resolution order:
 #   1. $GODOT_BIN
 #   2. godot / godot4 / Godot on PATH
-#   3. the engine bundled with the Summer app (development convenience)
 #
 # Exit codes: 0 = all checks passed, 1 = a check failed, 2 = no engine found.
 
@@ -26,16 +25,6 @@ find_engine() {
 
 	for candidate in godot godot4 Godot; do
 		if command -v "$candidate" >/dev/null 2>&1; then
-			printf '%s\n' "$candidate"
-			return 0
-		fi
-	done
-
-	for candidate in \
-		"${HOME:-}/AppData/Local/SummerEngine/current/Summer.exe" \
-		"/Applications/Summer.app/Contents/MacOS/Summer"
-	do
-		if [ -x "$candidate" ]; then
 			printf '%s\n' "$candidate"
 			return 0
 		fi

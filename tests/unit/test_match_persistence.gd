@@ -35,6 +35,29 @@ func test_starting_a_match_leaves_a_resume_point() -> void:
 	_cleanup(controller)
 
 
+func test_multiple_active_matches_keep_separate_resume_records() -> void:
+	var first_id: StringName = &"active-test-one"
+	var second_id: StringName = &"active-test-two"
+	var first := GameSessionController.new()
+	var second := GameSessionController.new()
+	first.save_path = GameSessionController.save_path_for_match(String(first_id))
+	second.save_path = GameSessionController.save_path_for_match(String(second_id))
+	first.start_new_match(first_id, 31)
+	second.start_new_match(second_id, 32)
+	var found: Dictionary = {}
+	for entry: Dictionary in GameSessionController.saved_match_entries():
+		found[String(entry.get("id", ""))] = entry
+	check(found.has(String(first_id)), "the first staged game must appear in the hub list")
+	check(found.has(String(second_id)), "the second staged game must remain independently resumable")
+	if found.has(String(first_id)):
+		check_eq(found[String(first_id)].get("opponent"), "AI Rival", "AI entries identify their rival")
+		check_eq(found[String(first_id)].get("score"), "You 0  |  AI Rival 0", "the card carries the current score")
+	first.clear_saved_match()
+	second.clear_saved_match()
+	first.free()
+	second.free()
+
+
 func test_a_committed_move_saves_and_resumes_to_the_same_position() -> void:
 	var controller: GameSessionController = _new_controller()
 	if not check(controller.start_new_match(TEST_MATCH_ID, TEST_SEED), "the match must start"):

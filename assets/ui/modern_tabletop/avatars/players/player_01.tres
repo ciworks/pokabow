@@ -1,0 +1,8 @@
+[gd_resource type="AtlasTexture" format=3 uid="uid://e63j7nvswscm"]
+
+[ext_resource type="Texture2D" uid="uid://bwccauof2eji7" path="res://assets/ui/modern_tabletop/player-avatar-roster-v1.png" id="1"]
+
+[resource]
+atlas = ExtResource("1")
+region = Rect2(0, 0, 443.5, 444)
+margin = Rect2(-35, -10, -10, 0)

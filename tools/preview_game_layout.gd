@@ -44,7 +44,7 @@ func _run() -> void:
 	_click(screen.get_node("%CloseMenuButton").get_global_rect().get_center())
 	await create_timer(0.3).timeout
 	var close_works: bool = not screen.command_drawer.is_open
-	_click(screen.get_node("%OpenMenuButton").get_global_rect().get_center())
+	_click((screen.get_node("%HeaderSpacer") as Button).get_global_rect().get_center())
 	await create_timer(0.3).timeout
 	var settings_works: bool = screen.command_drawer.is_open
 	_click(Vector2(45, 310))

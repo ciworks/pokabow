@@ -1,6 +1,76 @@
 extends TestCase
 
 
+func _rack_tiles() -> Array[TileDefinition]:
+	var tiles: Array[TileDefinition] = []
+	for index: int in range(6):
+		tiles.append(TileDefinition.create(StringName("rack-%d" % index), TileEnums.TileRank.ACE,
+			TileEnums.FaceColor.RED, [TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.RED,
+			TileEnums.EdgeColor.GREEN, TileEnums.EdgeColor.YELLOW]))
+	return tiles
+
+
+func test_staged_slots_remain_vacant_and_cannot_select_neighbors() -> void:
+	var row := DeckView.new()
+	row.size = Vector2(480, 96)
+	row.set_locked(false)
+	var tiles: Array[TileDefinition] = _rack_tiles()
+	row.set_deck(tiles)
+	var rectangles: Array[Rect2] = []
+	for index: int in range(6):
+		rectangles.append(row.tile_rect_at(index))
+	var visible: Array[TileDefinition] = [tiles[0], tiles[2], tiles[5]]
+	row.set_deck(visible, &"", 0, tiles)
+	for index: int in range(visible.size()):
+		check_eq(row.tile_rect_at(index), rectangles[tiles.find(visible[index])], "staging several tiles keeps every survivor in place")
+	var selected: Array[StringName] = []
+	row.tile_selected.connect(func(id: StringName) -> void: selected.append(id))
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = rectangles[1].get_center()
+	row._gui_input(press)
+	check(selected.is_empty(), "pressing a vacant slot does not select a neighbor")
+	row.set_deck(tiles)
+	for index: int in range(6):
+		check_eq(row.tile_rect_at(index), rectangles[index], "cancel restores original slots")
+	visible = [tiles[0], tiles[2], tiles[3], tiles[4], tiles[5]]
+	row.set_deck(visible)
+	check_eq(row.tile_rect_at(1), rectangles[2], "committed removal also leaves a gap")
+	var replacement: TileDefinition = TileDefinition.create(&"replacement", tiles[1].rank, tiles[1].face_color, tiles[1].get_base_edges())
+	visible.append(replacement)
+	row.set_deck(visible)
+	check_eq(row.tile_rect_at(5), rectangles[1], "refill takes vacant slot")
+	row.free()
+
+
+func test_every_rack_insertion_preserves_order_and_survives_refresh() -> void:
+	var tiles: Array[TileDefinition] = _rack_tiles()
+	for origin: int in range(6):
+		for boundary: int in range(7):
+			var row := DeckView.new()
+			row.size = Vector2(480, 96)
+			row.set_locked(false)
+			row.set_deck(tiles)
+			var x: float = 1.0
+			if boundary == 6:
+				x = row.size.x - 1.0
+			elif boundary > 0:
+				x = (row.tile_rect_at(boundary - 1).get_center().x + row.tile_rect_at(boundary).get_center().x) * 0.5
+			check(row.insert_tile_at(tiles[origin].tile_id, Vector2(x, 48)), "every insertion boundary is accepted")
+			row.set_deck(tiles, tiles[origin].tile_id, 2)
+			for frame: int in range(60):
+				row._process(1.0 / 60.0)
+			var expected: Array[TileDefinition] = tiles.duplicate()
+			expected.remove_at(origin)
+			expected.insert(boundary - 1 if boundary > origin else boundary, tiles[origin])
+			for index: int in range(6):
+				check_eq(row.tile_rect_at(tiles.find(expected[index])), DeckView.tile_rect(index, 6, row.size), "refresh retains requested order")
+			check_eq(row.selected_tile_id(), tiles[origin].tile_id, "reordering keeps selection identity")
+			check_eq(row.selected_rotation(), 2, "reordering keeps pending rotation")
+			row.free()
+
+
 func test_surrounding_space_selects_nearest_tile_for_every_hand_size() -> void:
 	for available: Vector2 in [Vector2(280, 72), Vector2(480, 96), Vector2(720, 140)]:
 		for count: int in range(1, 7):
@@ -51,6 +121,71 @@ func test_drag_from_padding_reports_tile_and_respects_interaction_gates() -> voi
 	check_eq(started, [tile.tile_id], "padding starts exactly one drag for the nearest tile")
 	check_eq(dropped, [tile.tile_id], "release reports the same tile")
 	check(not row.is_dragging(), "release ends the gesture")
+	row.free()
+
+
+func test_same_hand_refresh_keeps_a_press_and_drag_until_release() -> void:
+	var row := DeckView.new()
+	row.size = Vector2(480, 96)
+	row.set_locked(false)
+	row.set_deck(_rack_tiles())
+	var selected: Array[StringName] = []
+	var dropped: Array[StringName] = []
+	var cancelled: Array[StringName] = []
+	row.tile_selected.connect(func(id: StringName) -> void: selected.append(id))
+	row.tile_drop_requested.connect(func(id: StringName, _point: Vector2) -> void: dropped.append(id))
+	row.tile_drag_cancelled.connect(func(id: StringName) -> void: cancelled.append(id))
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = row.tile_rect_at(0).get_center()
+	row._gui_input(press)
+	row.set_deck(_rack_tiles(), &"rack-0")
+	var motion := InputEventMouseMotion.new()
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	motion.position = press.position + Vector2(DeckView.DRAG_THRESHOLD + 4, 0)
+	row._gui_input(motion)
+	check(row.is_dragging(), "selection redraw preserves the held press")
+	row.set_deck(_rack_tiles(), &"rack-0")
+	check(row.is_dragging(), "same-hand polling redraw preserves the drag")
+	check_eq(row.dragging_index(), 0, "polling keeps the dragged tile identity")
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.pressed = false
+	release.position = motion.position
+	row._gui_input(release)
+	check_eq(selected, [&"rack-0"], "press selects exactly once")
+	check_eq(dropped, [&"rack-0"], "release still reports a drop")
+	check(cancelled.is_empty(), "unchanged redraw never cancels the drag")
+	row.free()
+
+
+func test_changed_hand_or_turn_cancels_a_held_drag() -> void:
+	var row := DeckView.new()
+	row.size = Vector2(480, 96)
+	row.set_locked(false)
+	var tiles: Array[TileDefinition] = _rack_tiles()
+	row.set_deck(tiles)
+	var cancelled: Array[StringName] = []
+	row.tile_drag_cancelled.connect(func(id: StringName) -> void: cancelled.append(id))
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = row.tile_rect_at(0).get_center()
+	var motion := InputEventMouseMotion.new()
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	motion.position = press.position + Vector2(DeckView.DRAG_THRESHOLD + 4, 0)
+	row._gui_input(press)
+	row._gui_input(motion)
+	row.set_deck([tiles[1], tiles[2], tiles[3], tiles[4], tiles[5]])
+	check(not row.is_dragging(), "a changed hand cancels the drag")
+	check_eq(cancelled, [&"rack-0"], "changed hand reports cancellation once")
+	row.set_deck(tiles)
+	row._gui_input(press)
+	row._gui_input(motion)
+	row.set_locked(true)
+	check(not row.is_dragging(), "turn lock cancels the drag")
+	check_eq(cancelled.size(), 2, "turn lock reports one additional cancellation")
 	row.free()
 
 

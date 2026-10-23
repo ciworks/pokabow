@@ -16,13 +16,13 @@ var state: BoardRenderState = null
 ## Painted under every cell so the separations read as grid lines: without it the
 ## empty cells are one continuous block the colour of the screen background, and
 ## the player cannot see which cell they are tapping.
-const GRID_LINE: Color = Color("#17212b")
+const GRID_LINE: Color = Color("#173D42")
 
 ## Pixels trimmed from each cell so the backing shows through as a separator.
+## At 1 px per edge, adjacent cells have a compact 2 px deep-teal gap.
 const CELL_INSET: float = 1.0
 
-const DEFAULT_CELL_COLOR: Color = Color("#333333")
-var _default_cell_style: StyleBoxFlat = StyleBoxFlat.new()
+const DEFAULT_CELL_TEXTURE: Texture2D = preload("res://assets/board/board_cell_default.png")
 
 
 func _ready() -> void:
@@ -30,8 +30,6 @@ func _ready() -> void:
 	# mouse input here would silently swallow board gestures before
 	# `_unhandled_input` ever saw them (ADR-008 section 8).
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_default_cell_style.bg_color = DEFAULT_CELL_COLOR
-	_default_cell_style.set_corner_radius_all(4)
 
 
 func _draw() -> void:
@@ -52,11 +50,12 @@ func _draw_board() -> void:
 			var cell: Vector2i = Vector2i(x, y)
 			var rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, grid)
 			var slot: Rect2 = rect.grow(-CELL_INSET)
-			draw_style_box(_default_cell_style, slot)
+			if DEFAULT_CELL_TEXTURE != null:
+				draw_texture_rect(DEFAULT_CELL_TEXTURE, slot, false)
 			var snapshot: TileSnapshot = state.board.get_tile(cell)
 			# A tile a scoring bounce is growing is left to the second pass
 			# below, so the tile in the next cell along cannot cover it.
-			if snapshot == null or state.zoom_for(cell) > 1.0:
+			if snapshot == null or state.concealed_cells.has(cell) or state.zoom_for(cell) > 1.0:
 				continue
 			TilePainter.paint_tile(self, slot, snapshot)
 	_draw_zooming_tiles()
@@ -79,7 +78,7 @@ func _draw_zooming_tiles() -> void:
 		if scale <= 1.0:
 			continue
 		var snapshot: TileSnapshot = state.board.get_tile(cell)
-		if snapshot == null:
+		if snapshot == null or state.concealed_cells.has(cell):
 			continue
 		var rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, state.grid)
 		var slot: Rect2 = rect.grow(-CELL_INSET)

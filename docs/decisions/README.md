@@ -73,6 +73,7 @@ How the decision is tested (per AGENTS.md section 16).
 | ADR-016 | Earned and Premium Cosmetic Currencies | GAME_SPEC 8.5, 13.10 | Proposed; currency separation and cosmetic-only direction confirmed |
 | ADR-017 | Sixty-second turns | GAME_SPEC 13.5; Mobile UX | Decided; implemented |
 | ADR-018 | Resignation | GAME_SPEC 13.5, 13.9 | Decided; implemented |
+| [ADR-020](ADR-020-modern-tabletop-design-system.md) | Modern Tabletop Design System | GAME_SPEC 7.3, 7.6; all UI presentation | Decided; runtime adoption pending |
 
 ADR-007 and ADR-008 are technical/architectural decisions; they do not change
 game rules. ADR-001 through ADR-006, ADR-010, and ADR-011 change game rules
@@ -105,6 +106,8 @@ Proposed in their own status fields; the other listed ADRs are accepted or decid
 - `ADR-016-cosmetic-currencies.md`
 - `ADR-017-turn-timer.md`
 - `ADR-018-resignation.md`
+- `ADR-019-live-online-play.md`
+- `ADR-020-modern-tabletop-design-system.md`
 
 Where an ADR has been partly superseded, the amendment entry at the end of that
 ADR names the new decision. Read the amendment before implementing any

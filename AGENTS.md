@@ -43,6 +43,14 @@ If the specification is ambiguous or contradictory:
 
 Small implementation details may be chosen pragmatically when they do not alter the specified game rules.
 
+For visual presentation, [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) is the
+approved standard (Modern Tabletop, ADR-020). Read it before creating or changing
+UI elements, pages, layouts or graphics. Its written visual requirements take
+precedence over older mockups, historical styling notes and existing incidental
+styles. This scoped precedence does not override gameplay, input, persistence or
+networking contracts. Existing visuals are not proof that the approved design
+has already been implemented.
+
 ---
 
 # 3. Core Game Rules
@@ -528,6 +536,18 @@ Avoid:
 ---
 
 # 19. UI Architecture
+
+All new or redesigned UI must follow [the design system](docs/DESIGN_SYSTEM.md):
+its semantic colours, typography, spacing, component states, responsive layout,
+avatar/icon treatment and review checklist. Reuse shared presentation resources;
+do not invent a separate visual style for each screen. Migrate existing UI
+incrementally and report visual verification and remaining device checks.
+
+Authored characters must use the original concept's **2D cartoon style**:
+simplified expressive faces, clean outlines, grouped hair shapes and restrained
+cel shading. Photorealistic and semi-realistic characters are not permitted.
+Apply this to all new character art and pages; player-uploaded profile photos
+remain supported. See the design system's character acceptance criteria.
 
 UI should reflect game state rather than independently calculating game rules.
 

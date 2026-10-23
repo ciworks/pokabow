@@ -20,15 +20,15 @@ func test_dialog_scene_exposes_the_terms_controls() -> void:
 	var privacy: LinkButton = dialog.find_child("PrivacyLink", true, false) as LinkButton
 	var accept: Button = dialog.find_child("AcceptButton", true, false) as Button
 	var close: Button = dialog.find_child("CloseButton", true, false) as Button
-	check_eq(heading.text if heading != null else "", "Terms of Use", "the dialog heading must read Terms of Use")
+	check_eq(heading.text if heading != null else "", "Before you play", "the dialog must introduce the first-run consent step")
 	check(
-		copy != null and copy.text.contains("agree to our Terms of Use"),
-		"the dialog must explain that continuing requires agreement"
+		copy != null and copy.text.contains("Terms of Use") and copy.text.contains("Privacy Policy"),
+		"the dialog must direct the player to both policies before continuing"
 	)
 	check_eq(terms.uri if terms != null else "", "https://tiletopia.com/terms", "the terms link must open the terms page")
 	check_eq(privacy.uri if privacy != null else "", "https://tiletopia.com/privacy", "the privacy link must open the privacy page")
-	check_eq(accept.text if accept != null else "", "ACCEPT", "the call to action must be labelled ACCEPT")
-	check_eq(close.text if close != null else "", "[ x ]", "the close control must be the corner [ x ] icon")
+	check_eq(accept.text if accept != null else "", "Agree & continue", "the primary action must state its consent outcome")
+	check_eq(close.text if close != null else "", "Quit", "the secondary action must clearly explain that it exits the game")
 	dialog.free()
 
 

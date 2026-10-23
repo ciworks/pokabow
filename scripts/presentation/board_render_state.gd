@@ -87,6 +87,9 @@ var drag_tile_visible: bool = true
 ## can be interrupted.
 var cell_zoom: Dictionary = {}
 
+## Committed tiles currently drawn by a flight overlay, not the board layer.
+var concealed_cells: Array[Vector2i] = []
+
 ## One entry per connected same-colour edge cluster the board currently holds,
 ## each `{color: int, cells: Array[Vector2i]}`, as `GameSessionController`
 ## enumerated them with `EdgeClusterScorer`.

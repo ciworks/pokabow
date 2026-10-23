@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="FontFile" path="res://assets/fonts/DosisMedium-xP6m.ttf" id="28_interface_font"]
+[ext_resource type="FontVariation" path="res://assets/fonts/fredoka/Fredoka-Medium.tres" id="28_interface_font"]
 
 [ext_resource type="Script" uid="uid://djcefqsfh53du" path="res://scripts/presentation/game_screen.gd" id="1_screen"]
 
@@ -37,11 +37,12 @@
 
 [ext_resource type="Script" uid="uid://84qy7swejcdg" path="res://scripts/presentation/deck_view.gd" id="10_deck"]
 
+[ext_resource type="Script" path="res://addons/SharePlugin/Share.gd" id="11_share"]
+
 
 [ext_resource type="Script" uid="uid://cmkl7iu12kgld" path="res://scripts/presentation/deal_layer.gd" id="11_fvr6p"]
 
 
-[ext_resource type="Script" path="res://scripts/presentation/cluster_display_layer.gd" id="12_cluster"]
 
 
 [ext_resource type="Script" uid="uid://cq2rf6mhrugeh" path="res://scripts/presentation/cluster_display_layer.gd" id="12_cluster"]
@@ -49,14 +50,15 @@
 
 [ext_resource type="Script" uid="uid://f2qag4u6307g" path="res://scripts/presentation/game_command_drawer.gd" id="13_drawer"]
 
+[ext_resource type="Script" path="res://scripts/presentation/resign_confirmation.gd" id="14_resign_confirmation"]
 
-[ext_resource type="Texture2D" uid="uid://dawwo27xeltaq" path="res://assets/ui/settings.png" id="14_settings"]
+
 
 
 [ext_resource type="Texture2D" uid="uid://b0hbic33uju6o" path="res://assets/ui/avatar_panel_default.png" id="15_avatar_panel"]
 
 
-[ext_resource type="Texture2D" uid="uid://cao7nn8qiuvev" path="res://assets/board/characters/avatar_default.png" id="16_avatar"]
+[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/avatars/players/player_01.tres" id="16_avatar"]
 
 
 [ext_resource type="Script" uid="uid://crv46mjrtt36x" path="res://scripts/presentation/player_score_art.gd" id="17_score_art"]
@@ -65,19 +67,16 @@
 [ext_resource type="Texture2D" uid="uid://cmvfpaahmsgic" path="res://assets/ui/avatar_panel_rival.png" id="18_rival_panel"]
 
 
-[ext_resource type="Texture2D" uid="uid://ci73oc0hllme3" path="res://assets/board/characters/avatar_default_rival.png" id="19_rival_avatar"]
+[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/avatars/rivals/rival_01.tres" id="19_rival_avatar"]
 
 
-[ext_resource type="Texture2D" uid="uid://clhe3pmr256q8" path="res://assets/board/game_border.png" id="20_board_frame"]
+[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/board_frame.svg" id="20_board_frame"]
 
 
-[ext_resource type="Texture2D" uid="uid://l1idkjqn02db" path="res://assets/ui/menu_open_on.png" id="21_menu_tab"]
 
 
-[ext_resource type="Texture2D" uid="uid://dce2gfgn51433" path="res://assets/ui/board_deck.png" id="23_board_deck"]
 
 
-[ext_resource type="Texture2D" uid="uid://cprqseft2spvg" path="res://assets/ui/play.png" id="24_play"]
 
 
 [ext_resource type="Shader" uid="uid://ijpnl08dhhip" path="res://assets/ui/disabled_icon.gdshader" id="25_disabled_icon"]
@@ -86,7 +85,6 @@
 [ext_resource type="Texture2D" uid="uid://coq5xq2p57bpi" path="res://assets/ui/close.png" id="26_close"]
 
 
-[ext_resource type="Script" path="res://scripts/presentation/turn_timer_outline.gd" id="28_turn_timer"]
 
 
 [ext_resource type="Script" uid="uid://b8jnvbj14gd4p" path="res://scripts/presentation/confetti_layer.gd" id="26_0lrm5"]
@@ -102,12 +100,15 @@
 
 [ext_resource type="Texture2D" path="res://assets/branding/pokabow-header-logo-v2.tres" id="29_header_logo"]
 
-[sub_resource type="StyleBoxFlat" id="AvatarTurnOutline"]
-draw_center = false
-corner_radius_top_left = 10
-corner_radius_top_right = 10
-corner_radius_bottom_right = 10
-corner_radius_bottom_left = 10
+[ext_resource type="Script" path="res://scripts/presentation/opponent_rack_view.gd" id="30_opponent_rack"]
+
+[ext_resource type="Texture2D" path="res://assets/ui/navigation/back.svg" id="31_back"]
+
+[ext_resource type="Script" path="res://scripts/presentation/framed_player_avatar.gd" id="40_player_frame"]
+
+[ext_resource type="Script" path="res://scripts/presentation/rival_move_layer.gd" id="41_rival_move"]
+
+[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/menu.svg" id="32_menu_icon"]
 
 [sub_resource type="StyleBoxEmpty" id="SettingsButtonEmpty"]
 
@@ -308,7 +309,8 @@ mouse_filter = 2
 script = ExtResource("1_screen")
 theme = SubResource("InterfaceTheme")
 
-[node name="Background" type="TextureRect" parent="." unique_id=1293800763]
+[node name="Background" type="ColorRect" parent="." unique_id=1293800763]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -316,29 +318,27 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.07, 0.086, 0.118, 1)
-texture = ExtResource("22_background")
-expand_mode = 1
-stretch_mode = 6
+color = Color(0.964706, 0.94902, 0.913725, 1)
 
 [node name="Root" type="MarginContainer" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_bottom = -76.0
+offset_bottom = -112.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_bottom = 16
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_bottom = 8
 
 [node name="Column" type="VBoxContainer" parent="Root"]
 layout_mode = 2
 mouse_filter = 2
-theme_override_constants/separation = 12
+theme_override_constants/separation = 8
 
 [node name="HeaderTools" type="HBoxContainer" parent="Root/Column" unique_id=1865484477]
 custom_minimum_size = Vector2(0, 48)
@@ -346,66 +346,53 @@ layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="ZoomControls" type="HBoxContainer" parent="Root/Column/HeaderTools"]
-custom_minimum_size = Vector2(104, 48)
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="ZoomOutButton" type="Button" parent="Root/Column/HeaderTools/ZoomControls"]
+[node name="BackToHubButton" type="Button" parent="Root/Column/HeaderTools"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(48, 48)
+custom_minimum_size = Vector2(44, 44)
 layout_mode = 2
-text = "−"
-tooltip_text = "Zoom out: full board"
+tooltip_text = "Back to hub"
+theme_override_styles/normal = SubResource("SettingsButtonEmpty")
+theme_override_styles/hover = SubResource("SettingsButtonEmpty")
+theme_override_styles/pressed = SubResource("SettingsButtonEmpty")
+theme_override_styles/disabled = SubResource("SettingsButtonEmpty")
+icon = ExtResource("31_back")
+icon_alignment = 1
 
-[node name="ZoomInButton" type="Button" parent="Root/Column/HeaderTools/ZoomControls"]
+[node name="Brand" type="Label" parent="Root/Column/HeaderTools" unique_id=1043454517]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(48, 48)
-layout_mode = 2
-text = "+"
-tooltip_text = "Zoom in: six columns"
-
-[node name="Brand" type="TextureRect" parent="Root/Column/HeaderTools" unique_id=1043454517]
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 2
-texture = ExtResource("29_header_logo")
-expand_mode = 1
-stretch_mode = 5
+text = "POKABOW"
+horizontal_alignment = 1
+vertical_alignment = 1
 
-[node name="SettingsSlot" type="HBoxContainer" parent="Root/Column/HeaderTools"]
-custom_minimum_size = Vector2(104, 48)
-layout_mode = 2
-alignment = 2
-mouse_filter = 2
-
-[node name="OpenMenuButton" type="Button" parent="Root/Column/HeaderTools/SettingsSlot" unique_id=86566607]
+[node name="HeaderSpacer" type="Button" parent="Root/Column/HeaderTools"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(48, 48)
+custom_minimum_size = Vector2(44, 44)
 layout_mode = 2
-size_flags_vertical = 4
-tooltip_text = "Open match settings and turn actions"
-theme_override_colors/icon_pressed_color = Color(0.75, 0.75, 0.75, 1)
-theme_override_styles/focus = SubResource("SettingsButtonEmpty")
-theme_override_styles/normal = SubResource("SettingsButtonEmpty")
-theme_override_styles/pressed = SubResource("SettingsButtonEmpty")
-theme_override_styles/hover = SubResource("SettingsButtonEmpty")
-theme_override_styles/disabled = SubResource("SettingsButtonEmpty")
-icon = ExtResource("14_settings")
-icon_alignment = 1
-expand_icon = true
+tooltip_text = "Open match menu"
+icon = ExtResource("32_menu_icon")
 
-[node name="Hud" type="HBoxContainer" parent="Root/Column"]
+[node name="HeaderDivider" type="ColorRect" parent="Root/Column" unique_id=2104459910]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 1)
+layout_mode = 2
+mouse_filter = 2
+color = Color(0.843137, 0.886275, 0.862745, 1)
+
+[node name="Hud" type="Control" parent="Root/Column"]
+custom_minimum_size = Vector2(0, 188)
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 10
 
 [node name="HumanScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=588964454]
 unique_name_in_owner = true
-layout_mode = 2
+layout_mode = 0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("SettingsButtonEmpty")
-custom_minimum_size = Vector2(80, 94)
+custom_minimum_size = Vector2(0, 0)
 size_flags_horizontal = 3
 size_flags_vertical = 4
 
@@ -413,6 +400,7 @@ size_flags_vertical = 4
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("17_score_art")
+compact_horizontal = true
 
 [node name="Plate" type="NinePatchRect" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=307373539]
 layout_mode = 0
@@ -422,13 +410,9 @@ patch_margin_top = 12
 patch_margin_right = 12
 patch_margin_bottom = 12
 
-[node name="TurnOutline" type="PanelContainer" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=1089964734]
-layout_mode = 0
-mouse_filter = 2
-theme_override_styles/panel = SubResource("AvatarTurnOutline")
-script = ExtResource("28_turn_timer")
-
 [node name="Portrait" type="TextureRect" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=683538940]
+script = ExtResource("40_player_frame")
+show_ring = false
 layout_mode = 0
 mouse_filter = 2
 texture = ExtResource("16_avatar")
@@ -454,8 +438,8 @@ horizontal_alignment = 1
 [node name="PotPanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=1913823554]
 unique_name_in_owner = true
 z_index = 1
-custom_minimum_size = Vector2(110, 108)
-layout_mode = 2
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("SettingsButtonEmpty")
 
@@ -465,42 +449,21 @@ layout_mode = 2
 script = ExtResource("7_664sp")
 mouse_filter = 2
 
-[node name="CountPlate" type="NinePatchRect" parent="Root/Column/Hud/PotPanel/TilePileView" unique_id=1374869738]
-layout_mode = 0
-texture = ExtResource("15_avatar_panel")
-patch_margin_left = 12
-patch_margin_top = 12
-patch_margin_right = 12
-patch_margin_bottom = 12
-
-[node name="AvailableTilesLabel" type="Label" parent="Root/Column/Hud/PotPanel/TilePileView/CountPlate" unique_id=1891926262]
+[node name="AvailableTilesLabel" type="Label" parent="Root/Column/Hud/PotPanel/TilePileView" unique_id=1891926262]
 unique_name_in_owner = true
-layout_mode = 1
+layout_mode = 0
+mouse_filter = 2
 theme_override_font_sizes/font_size = 22
 text = "40"
 horizontal_alignment = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
 vertical_alignment = 1
-
-[node name="PotCaption" type="Label" parent="Root/Column/Hud/PotPanel/TilePileView" unique_id=645644597]
-layout_mode = 0
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
-theme_override_constants/shadow_offset_y = 1
-theme_override_font_sizes/font_size = 13
-text = "tiles left"
-horizontal_alignment = 1
 
 [node name="AiScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=2010655655]
 unique_name_in_owner = true
-layout_mode = 2
+layout_mode = 0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("SettingsButtonEmpty")
-custom_minimum_size = Vector2(80, 94)
+custom_minimum_size = Vector2(0, 0)
 size_flags_horizontal = 3
 size_flags_vertical = 4
 
@@ -511,6 +474,7 @@ script = ExtResource("17_score_art")
 portrait_on_right = true
 title_path = NodePath("AiScoreTitle")
 value_path = NodePath("AiScoreValue")
+compact_horizontal = true
 
 [node name="Plate" type="NinePatchRect" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=1565456533]
 layout_mode = 0
@@ -520,18 +484,14 @@ patch_margin_top = 12
 patch_margin_right = 12
 patch_margin_bottom = 12
 
-[node name="TurnOutline" type="PanelContainer" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=444069353]
-layout_mode = 0
-mouse_filter = 2
-theme_override_styles/panel = SubResource("AvatarTurnOutline")
-script = ExtResource("28_turn_timer")
-
 [node name="Portrait" type="TextureRect" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=1365060607]
 layout_mode = 0
 mouse_filter = 2
 texture = ExtResource("19_rival_avatar")
 expand_mode = 1
 stretch_mode = 5
+script = ExtResource("40_player_frame")
+show_ring = false
 
 [node name="AiScoreTitle" type="Label" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=1157654841]
 layout_mode = 0
@@ -547,6 +507,47 @@ layout_mode = 0
 theme_override_font_sizes/font_size = 36
 text = "0"
 horizontal_alignment = 1
+
+[node name="TurnInfoPanel" type="PanelContainer" parent="Root/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+size_flags_horizontal = 3
+
+[node name="TurnInfoRow" type="HBoxContainer" parent="Root/Column/TurnInfoPanel"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+mouse_filter = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="TurnStatusLabel" type="Label" parent="Root/Column/TurnInfoPanel/TurnInfoRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+mouse_filter = 2
+text = "Your turn"
+theme_override_font_sizes/font_size = 14
+vertical_alignment = 1
+
+[node name="OpponentRack" type="Control" parent="Root/Column/TurnInfoPanel/TurnInfoRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+script = ExtResource("30_opponent_rack")
+
+[node name="TurnClockLabel" type="Label" parent="Root/Column/TurnInfoPanel/TurnInfoRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(48, 0)
+layout_mode = 2
+mouse_filter = 2
+text = "1:00"
+theme_override_font_sizes/font_size = 14
+horizontal_alignment = 2
+vertical_alignment = 1
 
 [node name="Body" type="HBoxContainer" parent="Root/Column"]
 layout_mode = 2
@@ -566,6 +567,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 mouse_filter = 2
 script = ExtResource("2_board")
+fill_available_space = true
 
 [node name="BoardCanvas" type="Control" parent="Root/Column/Body/BoardViewport/BoardView"]
 clip_contents = true
@@ -640,13 +642,24 @@ mouse_filter = 2
 script = ExtResource("8_dagq5")
 
 [node name="BoardFrame" type="NinePatchRect" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=1509824097]
+unique_name_in_owner = true
 layout_mode = 0
 texture = ExtResource("20_board_frame")
 draw_center = false
-patch_margin_left = 128
-patch_margin_top = 128
-patch_margin_right = 128
-patch_margin_bottom = 128
+patch_margin_left = 40
+patch_margin_top = 40
+patch_margin_right = 40
+patch_margin_bottom = 40
+
+[node name="BoardMessageLabel" type="Label" parent="Root/Column" unique_id=1270215685]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+mouse_filter = 2
+text = "Pinch to explore the board"
+horizontal_alignment = 1
+vertical_alignment = 1
+text_overrun_behavior = 3
 
 [node name="DeckBar" type="HBoxContainer" parent="Root/Column" unique_id=1990410009]
 layout_mode = 2
@@ -655,23 +668,16 @@ theme_override_constants/separation = 10
 unique_name_in_owner = true
 alignment = 1
 
-[node name="DeckPanel" type="TextureRect" parent="Root/Column/DeckBar" unique_id=172467655]
+[node name="DeckPanel" type="Control" parent="Root/Column/DeckBar" unique_id=172467655]
 layout_mode = 2
 mouse_filter = 2
 unique_name_in_owner = true
-texture = ExtResource("23_board_deck")
-expand_mode = 1
-stretch_mode = 5
 
 [node name="RackColumn" type="VBoxContainer" parent="Root/Column/DeckBar/DeckPanel" unique_id=1399526047]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 38.0
-offset_top = 14.0
-offset_right = -38.0
-offset_bottom = -22.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
@@ -697,7 +703,7 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -76.0
+offset_top = -112.0
 grow_horizontal = 2
 grow_vertical = 0
 mouse_filter = 2
@@ -794,6 +800,7 @@ custom_minimum_size = Vector2(0, 48)
 text = "Keep tiles"
 
 [node name="PreviewPanel" type="PanelContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands"]
+unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBox_panel")
@@ -933,12 +940,16 @@ layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
 text = "Back to hub"
 
-[node name="ResignConfirmationDialog" type="ConfirmationDialog" parent="." unique_id=1809042764]
+[node name="ResignConfirmationDialog" type="Control" parent="." unique_id=1809042764]
 unique_name_in_owner = true
-title = "Resign"
-dialog_text = "Are you sure you want to end the game?\n\nThis will be marked as a Loss."
-ok_button_text = "Yes"
-cancel_button_text = "No"
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("14_resign_confirmation")
 
 [node name="BoardInputController" type="Node" parent="." unique_id=238671052]
 unique_name_in_owner = true
@@ -969,6 +980,17 @@ script = ExtResource("9_scores")
 unique_name_in_owner = true
 anchors_preset = 0
 script = ExtResource("11_fvr6p")
+
+[node name="RivalMoveLayer" type="Control" parent="FeedbackLayer"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("41_rival_move")
 
 [node name="SummaryOverlay" type="Control" parent="FeedbackLayer" unique_id=1145975393]
 unique_name_in_owner = true
@@ -1037,6 +1059,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="RecoveryDim" type="ColorRect" parent="FeedbackLayer/RecoveryOverlay" unique_id=140678821]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -1055,6 +1078,7 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="RecoveryPanel" type="PanelContainer" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter" unique_id=1826144121]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
@@ -1063,6 +1087,7 @@ layout_mode = 2
 theme_override_constants/separation = 12
 
 [node name="RecoveryTitle" type="Label" parent="FeedbackLayer/RecoveryOverlay/RecoveryCenter/RecoveryPanel/RecoveryBox" unique_id=1955980043]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 30
 text = "Match could not be restored"
@@ -1084,3 +1109,7 @@ layout_mode = 2
 size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 18
 text = "Start a fresh match"
+
+[node name="Share" type="Node" parent="." unique_id=1947684075]
+unique_name_in_owner = true
+script = ExtResource("11_share")

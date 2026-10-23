@@ -81,35 +81,31 @@ signal tile_drag_cancelled(tile_id: StringName)
 ## Reserve a full hand's width even when tiles leave the deck.
 const LAYOUT_SLOT_COUNT: int = 6
 
-## Minimum horizontal gap, including the two outer gaps, relative to tile width.
-const GAP_RATIO: float = 0.25
+## Compact separation on the 540px logical canvas (4px at 360px device width).
+const GAP: float = 6.0
 
 ## Minimum vertical padding; horizontal space is divided into equal gaps.
 const PADDING: float = 8.0
 
-## How far the selected tile is lifted, as a fraction of the tile's height.
-const SELECTED_LIFT_RATIO: float = 0.06
-
-## Thickness of the selected tile's outline, in pixels.
-const SELECTED_OUTLINE: float = 3.0
-
-## Selection outline colour. Presentation only, like the tile palette.
-const SELECTED_COLOR: Color = Color(1.0, 0.86, 0.42, 1.0)
+## Thickness of a swap-marked tile's outline, in pixels.
+const MARKED_OUTLINE: float = 3.0
 
 ## Outline colour of a tile marked for the swap, so a marked tile is never
 ## mistaken for the tile the next staging command takes.
-const MARKED_COLOR: Color = Color(0.52, 0.78, 1.0, 1.0)
+const MARKED_COLOR: Color = Color("#F4C86A")
 
-## Inner inset of the marked outline, in pixels, so the two outlines can both be
-## read on one tile.
+## Inner inset of the swap-marked outline, in pixels.
 const MARKED_INSET: float = 3.0
-
-## Opacity of the row's copy of a tile that is being dragged, so the row still
-## shows the tile is held while the board shows where it would land.
-const DRAGGED_ALPHA: float = 0.45
 
 ## Width and height of a deck tile while it is being dragged.
 const DRAG_SCALE: float = 0.9
+
+## Semi-transparent border drawn over the tile the player has armed.
+const SELECTED_TILE_HIGHLIGHT: Texture2D = preload("res://assets/tiles/tile_highlight.png")
+
+## Exponential easing keeps slot changes smooth even when a finger reverses direction.
+const SLOT_SHIFT_SMOOTHNESS: float = 14.0
+const SLOT_SHIFT_EPSILON: float = 0.005
 
 ## How far a press must travel before it is a drag rather than a tap, in pixels.
 ##
@@ -118,8 +114,24 @@ const DRAG_SCALE: float = 0.9
 ## smaller than one tile, so a deliberate drag starts immediately.
 const DRAG_THRESHOLD: float = 8.0
 
+## A glimmer crosses a resting tile at three times the original one-second speed.
+const GLIMMER_DURATION: float = 1.0 / 3.0
+const GLIMMER_DELAY_MIN: float = 0.35
+const GLIMMER_DELAY_MAX: float = 1.4
+
 ## The player's tiles, in deck order.
 var _deck: Array[TileDefinition] = []
+
+## Local rack order, including staged tiles and empty slots after a commit.
+## This is presentation state; tile ownership remains with the controller.
+var _slots: Array[StringName] = []
+
+## Temporary order while a dragged tile is over the rack. Only a rack drop commits it.
+var _preview_slots: Array[StringName] = []
+var _has_insert_preview: bool = false
+
+## Fractional visual slot positions, eased toward the committed or preview order.
+var _slot_positions: Dictionary = {}
 
 ## Index of the tile drawn as selected; -1 when the deck is empty.
 var _selected_index: int = -1
@@ -183,10 +195,59 @@ var _drag_index: int = -1
 ## Last pointer position reported for the drag, in this control's coordinates.
 var _drag_point: Vector2 = Vector2.ZERO
 
+var _glimmer_rng := RandomNumberGenerator.new()
+var _glimmer_timer: Timer
+var _glimmer_tile_id: StringName = &""
+var _last_glimmer_tile_id: StringName = &""
+var _glimmer_elapsed: float = 0.0
+
 
 ## Accepts taps and drags, so the row can arm a placement.
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	set_process(false)
+	_glimmer_rng.randomize()
+	_glimmer_timer = Timer.new()
+	_glimmer_timer.one_shot = true
+	_glimmer_timer.timeout.connect(_start_random_glimmer)
+	add_child(_glimmer_timer)
+	_schedule_glimmer_if_needed()
+
+
+## Eases all visible and reserved tiles toward their current slot targets.
+func _process(delta: float) -> void:
+	var redraw_needed: bool = false
+	var slots: Array[StringName] = _layout_slots()
+	var blend: float = 1.0 - exp(-SLOT_SHIFT_SMOOTHNESS * delta)
+	var moving: bool = false
+	for index: int in range(slots.size()):
+		var tile_id: StringName = slots[index]
+		if String(tile_id).is_empty():
+			continue
+		var current: float = float(_slot_positions.get(tile_id, index))
+		var target: float = float(index)
+		var next: float = lerpf(current, target, blend)
+		if absf(target - next) <= SLOT_SHIFT_EPSILON:
+			next = target
+		else:
+			moving = true
+		_slot_positions[tile_id] = next
+		if next != current:
+			redraw_needed = true
+	if not String(_glimmer_tile_id).is_empty():
+		if not _can_glimmer(_glimmer_tile_id):
+			_finish_glimmer()
+		else:
+			_glimmer_elapsed += delta
+			if _glimmer_elapsed >= GLIMMER_DURATION:
+				_finish_glimmer()
+			else:
+				redraw_needed = true
+	if not moving and String(_glimmer_tile_id).is_empty():
+		set_process(false)
+	if redraw_needed:
+		queue_redraw()
 
 
 ## Drops a gesture that can no longer finish.
@@ -204,12 +265,18 @@ func _notification(what: int) -> void:
 		return
 	if not is_visible_in_tree():
 		cancel_drag()
+		if _glimmer_timer != null:
+			_glimmer_timer.stop()
+		_glimmer_tile_id = &""
+	else:
+		_schedule_glimmer_if_needed()
 
 
 ## Replaces the drawn deck, the selected tile, and its rotation
 ## (ADR-010 section 10).
 ##
-## `tiles` is the human's deck in deal order; `selected_id` is the tile the
+## `tiles` contains the available tiles; `held_tiles` also includes staged tiles
+## whose rack slots must remain reserved. `selected_id` is the tile the
 ## application controller reports as armed, or an empty name when none is; and
 ## `rotation` is the quarter-turn that tile would be staged at, so the player can
 ## see the tile turn in the row instead of only once it is on the board. The row
@@ -217,18 +284,20 @@ func _notification(what: int) -> void:
 ## application layer owns both, so a redraw cannot disagree with the next
 ## placement.
 ##
-## A drag in flight is abandoned here, because the deck it was dragging from no
-## longer exists in the shape the drag described. The press that started it is
-## deliberately left alone: reporting a tap re-renders the deck, and a gesture
-## that is still a tap must not be torn down by its own redraw.
+## Keep an active press or drag when a poll hands us the same tile identities in
+## the same order. A changed hand cancels the gesture before its indices can
+## refer to different tiles.
 func set_deck(
-	tiles: Array[TileDefinition], selected_id: StringName = &"", rotation: int = 0
+	tiles: Array[TileDefinition], selected_id: StringName = &"", rotation: int = 0,
+	held_tiles: Array[TileDefinition] = []
 ) -> void:
-	_abandon_drag()
+	if not _same_deck_ids(tiles):
+		cancel_drag()
 	_deck = []
 	for tile: TileDefinition in tiles:
 		if tile != null:
 			_deck.append(tile)
+	_sync_slots(held_tiles if not held_tiles.is_empty() else tiles)
 	_prune_marked()
 	_pending_rotation = posmod(rotation, TileEnums.ROTATION_COUNT)
 	_armed_id = selected_id
@@ -239,7 +308,20 @@ func set_deck(
 	# The player's own tap is what selects, which is the gesture this row reports
 	# as `tile_selected`.
 	_selected_index = _index_of(_deck, selected_id)
+	if not String(_glimmer_tile_id).is_empty() and not _can_glimmer(_glimmer_tile_id):
+		_finish_glimmer()
+	else:
+		_schedule_glimmer_if_needed()
 	queue_redraw()
+
+
+func _same_deck_ids(tiles: Array[TileDefinition]) -> bool:
+	if tiles.size() != _deck.size():
+		return false
+	for index: int in range(tiles.size()):
+		if tiles[index] == null or _deck[index].tile_id != tiles[index].tile_id:
+			return false
+	return true
 
 
 ## Returns how many tiles the row is showing.
@@ -323,6 +405,10 @@ func set_selected(tile_id: StringName) -> void:
 	if index == _selected_index:
 		return
 	_selected_index = index
+	if not String(_glimmer_tile_id).is_empty() and not _can_glimmer(_glimmer_tile_id):
+		_finish_glimmer()
+	else:
+		_schedule_glimmer_if_needed()
 	queue_redraw()
 
 
@@ -333,6 +419,10 @@ func set_concealed(tile_ids: Array[StringName]) -> void:
 	if _concealed == tile_ids:
 		return
 	_concealed = tile_ids.duplicate()
+	if not String(_glimmer_tile_id).is_empty() and not _can_glimmer(_glimmer_tile_id):
+		_finish_glimmer()
+	else:
+		_schedule_glimmer_if_needed()
 	queue_redraw()
 
 
@@ -347,7 +437,7 @@ func concealed_ids() -> Array[StringName]:
 ## row draws it, so this shares `tile_rect` rather than re-deriving the layout and
 ## a flight can never aim at a rectangle the row does not use.
 func tile_global_rect(index: int) -> Rect2:
-	var local: Rect2 = tile_rect(index, _deck.size(), size)
+	var local: Rect2 = tile_rect_at(index)
 	if local.size == Vector2.ZERO:
 		return Rect2()
 	return get_global_transform() * local
@@ -358,17 +448,13 @@ func tile_global_rect_for(tile_id: StringName) -> Rect2:
 	return tile_global_rect(_index_of(_deck, tile_id))
 
 
-## Draws the tile row, the selection outline, and any swap marks.
+## Draws the tile row and any swap marks.
 ##
-## While the row is collecting a swap set it draws no selection and no lift: the
-## tiles a swap returns are a set of marks (ADR-011 section 6), no tile is armed
-## for a staging that a whole-turn swap would consume, and an un-lifted row makes
-## the drawn tile exactly the shape and place the finger has to hit.
+## While the row is collecting a swap set it draws no selection: the tiles a swap
+## returns are a set of marks (ADR-011 section 6), no tile is armed for a staging
+## that a whole-turn swap would consume.
 ##
-## The tile being dragged is ghosted in place rather than removed: the board draws
-## the real ghost at the cell under the pointer, so this copy is dimmed to read as
-## picked up, and a drag that is currently off the board never makes the row look
-## as if it lost a tile.
+## A dragged tile leaves its slot vacant; the screen draws the moving copy.
 ##
 ## The selected tile is drawn at `_pending_rotation`, so tapping it again is
 ## visibly a turn rather than a change the player only sees once the tile is on the
@@ -378,7 +464,7 @@ func _draw() -> void:
 	if _deck.is_empty():
 		return
 	for index: int in range(_deck.size()):
-		var rect: Rect2 = tile_rect(index, _deck.size(), size)
+		var rect: Rect2 = tile_rect_at(index)
 		if not TilePainter.is_drawable(rect):
 			continue
 		# A tile the deal animation is still flying in is drawn only by that
@@ -388,17 +474,9 @@ func _draw() -> void:
 		if _concealed.has(_deck[index].tile_id):
 			continue
 		if index == _drag_index:
-			# The dragged copy is drawn at the pending rotation too, so the row
-			# and the board's ghost cannot disagree about the tile in flight.
-			TilePainter.paint_tile(
-				self,
-				Rect2(rect.get_center() - rect.size * DRAG_SCALE * 0.5, rect.size * DRAG_SCALE),
-				TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, _pending_rotation),
-				DRAGGED_ALPHA
-			)
 			continue
+		TilePainter.paint_tile_shadow(self, rect)
 		if index == _selected_index and not _mark_mode:
-			rect = _lifted(rect)
 			# TilePainter reads a tile's visible edges from a snapshot, so the
 			# row draws the identical face the board would commit, at the
 			# rotation the player has turned it to (ADR-006 section 5,
@@ -406,20 +484,91 @@ func _draw() -> void:
 			TilePainter.paint_tile(
 				self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, _pending_rotation)
 			)
-			draw_rect(rect, SELECTED_COLOR, false, SELECTED_OUTLINE)
+			draw_texture_rect(SELECTED_TILE_HIGHLIGHT, rect, false)
 			_draw_mark(index, rect)
 			continue
 		TilePainter.paint_tile(
 			self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, 0)
 		)
 		_draw_mark(index, rect)
+		if _deck[index].tile_id == _glimmer_tile_id:
+			TilePainter.paint_tile_glimmer(
+				self, rect, _glimmer_elapsed / GLIMMER_DURATION
+			)
 
 
 ## Outlines one tile when it is marked for the swap (ADR-011 section 6).
 func _draw_mark(index: int, rect: Rect2) -> void:
 	if not is_marked(_deck[index].tile_id):
 		return
-	draw_rect(rect.grow(-MARKED_INSET), MARKED_COLOR, false, SELECTED_OUTLINE)
+	draw_rect(rect.grow(-MARKED_INSET), MARKED_COLOR, false, MARKED_OUTLINE)
+
+
+## Returns true only while this tile is resting visibly in the hand.
+func _can_glimmer(tile_id: StringName) -> bool:
+	if not is_inside_tree() or not is_visible_in_tree() or _mark_mode:
+		return false
+	var index: int = _index_of(_deck, tile_id)
+	return (
+		index >= 0
+		and index != _selected_index
+		and index != _drag_index
+		and not _concealed.has(tile_id)
+	)
+
+
+## Starts the next glimmer after a random pause, only if a resting tile exists.
+func _schedule_glimmer_if_needed() -> void:
+	if _glimmer_timer == null or _glimmer_timer.time_left > 0.0:
+		return
+	if not String(_glimmer_tile_id).is_empty() or _eligible_glimmer_ids().is_empty():
+		return
+	_glimmer_timer.start(_glimmer_rng.randf_range(GLIMMER_DELAY_MIN, GLIMMER_DELAY_MAX))
+
+
+## Chooses a random resting tile, avoiding an immediate repeat when possible.
+func _start_random_glimmer() -> void:
+	var choices: Array[StringName] = _eligible_glimmer_ids()
+	if choices.size() > 1:
+		choices.erase(_last_glimmer_tile_id)
+	if choices.is_empty():
+		return
+	_glimmer_tile_id = choices[_glimmer_rng.randi_range(0, choices.size() - 1)]
+	_glimmer_elapsed = 0.0
+	set_process(true)
+	queue_redraw()
+
+
+## Ends the sweep and starts a randomized pause before another tile glimmers.
+func _finish_glimmer() -> void:
+	if String(_glimmer_tile_id).is_empty():
+		return
+	_last_glimmer_tile_id = _glimmer_tile_id
+	_glimmer_tile_id = &""
+	_glimmer_elapsed = 0.0
+	_schedule_glimmer_if_needed()
+	queue_redraw()
+
+
+## Drops an active glimmer as soon as its tile is selected, concealed, or lifted.
+func _stop_glimmer_if_unavailable() -> void:
+	if not String(_glimmer_tile_id).is_empty() and not _can_glimmer(_glimmer_tile_id):
+		_finish_glimmer()
+	else:
+		_schedule_glimmer_if_needed()
+
+
+## Returns visible, resting tiles that may receive a glimmer.
+func _eligible_glimmer_ids() -> Array[StringName]:
+	var result: Array[StringName] = []
+	if not is_inside_tree() or not is_visible_in_tree() or _mark_mode:
+		return result
+	for index: int in range(_deck.size()):
+		var tile_id: StringName = _deck[index].tile_id
+		if index == _selected_index or index == _drag_index or _concealed.has(tile_id):
+			continue
+		result.append(tile_id)
+	return result
 
 
 ## Turns a gesture on the row into a selection, a swap mark, or a drag.
@@ -442,6 +591,31 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		_handle_motion(event)
+
+
+## Keeps a deck gesture alive after the pointer leaves this control.
+##
+## `_gui_input` is bounded by the row's rectangle. A drag onto the board necessarily
+## leaves that rectangle, so the viewport-level path continues tracking the same
+## mouse/touch gesture until its release. Converting the event back to row-local
+## coordinates keeps slot hit-testing and screen drop mapping on the same geometry.
+func _input(event: InputEvent) -> void:
+	if _locked or (not _pressing and not _dragging):
+		return
+	if event is InputEventMouseMotion:
+		var local_event: InputEvent = make_input_local(event)
+		if local_event is InputEventMouseMotion:
+			_handle_motion(local_event)
+			_consume()
+		return
+	if event is InputEventMouseButton:
+		var button: InputEventMouseButton = event
+		if button.button_index != MOUSE_BUTTON_LEFT or button.pressed:
+			return
+		var local_event: InputEvent = make_input_local(event)
+		if local_event is InputEventMouseButton:
+			_handle_release(local_event)
+			_consume()
 
 
 ## Routes a press to the press handler and a release to the release handler.
@@ -478,7 +652,9 @@ func _handle_press(button: InputEventMouseButton) -> void:
 	# Cleared first, so a press that is not a rotation can never inherit the mark
 	# of an earlier one and report a turn the player did not ask for.
 	_rotate_index = -1
-	_press_index = _index_at(button.position, _deck.size(), size)
+	var slot: int = _index_at_current(button.position)
+	var slots: Array[StringName] = _layout_slots()
+	_press_index = _index_of(_deck, slots[slot]) if slot >= 0 else -1
 	if _press_index < 0:
 		return
 	if _mark_mode:
@@ -489,6 +665,7 @@ func _handle_press(button: InputEventMouseButton) -> void:
 		# selection is the row's own fallback, which nothing has armed yet: both
 		# are a selection, so the first tap on the deck's first tile still arms it.
 		_selected_index = _press_index
+		_stop_glimmer_if_unavailable()
 		queue_redraw()
 		tile_selected.emit(_deck[_press_index].tile_id)
 		return
@@ -500,8 +677,7 @@ func _handle_press(button: InputEventMouseButton) -> void:
 ##
 ## The drop is reported without a cancellation, so one release cannot arrive as
 ## two endings. Where the drop landed, and whether it may land there at all, is
-## the screen's question, so a release over the deck row itself simply lands off
-## the board and changes nothing.
+## the screen's question, including insertion into the deck row.
 func _handle_release(button: InputEventMouseButton) -> void:
 	if not _pressing and not _dragging:
 		return
@@ -595,6 +771,7 @@ func _start_drag(point: Vector2) -> void:
 	_dragging = true
 	_drag_index = _press_index
 	_drag_point = point
+	_stop_glimmer_if_unavailable()
 	# A drag stages the tile, so it must not also turn it: the rotation the player
 	# chose in the row is the rotation the drop stages.
 	_rotate_index = -1
@@ -626,6 +803,7 @@ func cancel_drag(notify: bool = true) -> void:
 ## re-renders the deck, so the redraw must be able to let go of an abandoned drag
 ## without destroying a gesture that is still live.
 func _abandon_drag() -> void:
+	clear_insert_preview()
 	if not _dragging and _drag_index == -1:
 		return
 	_dragging = false
@@ -652,6 +830,8 @@ func set_mark_mode(enabled: bool) -> void:
 	_mark_mode = enabled
 	cancel_drag()
 	_marked.clear()
+	_stop_glimmer_if_unavailable()
+	_schedule_glimmer_if_needed()
 	queue_redraw()
 
 
@@ -704,7 +884,127 @@ func is_marked(tile_id: StringName) -> bool:
 ## Returns the rectangle of a deck tile in this control's local coordinates, or
 ## an empty rectangle when the index is not drawn. For diagnostics and tests.
 func tile_rect_at(index: int) -> Rect2:
-	return tile_rect(index, _deck.size(), size)
+	if index < 0 or index >= _deck.size():
+		return Rect2()
+	var slots: Array[StringName] = _layout_slots()
+	var tile_id: StringName = _deck[index].tile_id
+	var target_slot: int = slots.find(tile_id)
+	if target_slot < 0:
+		return Rect2()
+	var visual_slot: float = float(_slot_positions.get(tile_id, target_slot))
+	return _tile_rect_at_slot(visual_slot, slots.size(), size)
+
+
+## Preserve surviving identities in their slots. Refill uses the vacant slots.
+func _sync_slots(held_tiles: Array[TileDefinition]) -> void:
+	var prior_slots: Array[StringName] = _slots.duplicate()
+	if held_tiles.is_empty():
+		_slots.clear()
+		_preview_slots.clear()
+		_has_insert_preview = false
+		_slot_positions.clear()
+		set_process(false)
+		return
+	for index: int in range(_slots.size()):
+		if _index_of(held_tiles, _slots[index]) < 0:
+			_slots[index] = &""
+	for tile: TileDefinition in held_tiles:
+		if tile == null or _slots.has(tile.tile_id):
+			continue
+		var vacancy: int = _slots.find(&"")
+		if vacancy >= 0:
+			_slots[vacancy] = tile.tile_id
+		else:
+			_slots.append(tile.tile_id)
+	var present: Dictionary = {}
+	for index: int in range(_slots.size()):
+		var tile_id: StringName = _slots[index]
+		if String(tile_id).is_empty():
+			continue
+		present[tile_id] = true
+		if not _slot_positions.has(tile_id):
+			_slot_positions[tile_id] = float(index)
+	for raw: Variant in _slot_positions.keys():
+		if not present.has(raw):
+			_slot_positions.erase(raw)
+	if _has_insert_preview and _slots != prior_slots:
+		clear_insert_preview()
+
+
+## Returns the order currently being animated, without exposing a mutable copy.
+func _layout_slots() -> Array[StringName]:
+	return _preview_slots if _has_insert_preview else _slots
+
+
+## Resolves a pointer against the currently drawn slot centers, including tiles
+## that are still easing into a new order.
+func _index_at_current(point: Vector2) -> int:
+	var slots: Array[StringName] = _layout_slots()
+	if slots.is_empty() or not Rect2(Vector2.ZERO, size).has_point(point):
+		return -1
+	var centers: Array[float] = []
+	for index: int in range(slots.size()):
+		var tile_id: StringName = slots[index]
+		var visual_slot: float = float(_slot_positions.get(tile_id, index)) if not String(tile_id).is_empty() else float(index)
+		centers.append(_tile_rect_at_slot(visual_slot, slots.size(), size).get_center().x)
+	for index: int in range(slots.size() - 1):
+		if point.x < (centers[index] + centers[index + 1]) * 0.5:
+			return index
+	return slots.size() - 1
+
+
+## Previews insertion at the pointer's horizontal position. Other tiles ease
+## aside to open the slot while the dragged tile remains under the pointer.
+func preview_insert_at(tile_id: StringName, point: Vector2) -> bool:
+	if _locked or _mark_mode or not point.is_finite() or not Rect2(Vector2.ZERO, size).has_point(point):
+		clear_insert_preview()
+		return false
+	var next_slots: Array[StringName] = _layout_slots().duplicate()
+	var origin: int = next_slots.find(tile_id)
+	if origin < 0:
+		clear_insert_preview()
+		return false
+	var boundary: int = next_slots.size()
+	for index: int in range(next_slots.size()):
+		if point.x < _tile_rect_at_slot(float(index), next_slots.size(), size).get_center().x:
+			boundary = index
+			break
+	next_slots.remove_at(origin)
+	if boundary > origin:
+		boundary -= 1
+	next_slots.insert(boundary, tile_id)
+	if next_slots == _slots:
+		clear_insert_preview()
+		return true
+	if not _has_insert_preview or next_slots != _preview_slots:
+		_preview_slots = next_slots
+		_has_insert_preview = true
+		set_process(true)
+		queue_redraw()
+	return true
+
+
+## Abandons the temporary order and eases every tile back to its saved position.
+func clear_insert_preview() -> void:
+	if not _has_insert_preview:
+		return
+	_preview_slots.clear()
+	_has_insert_preview = false
+	set_process(true)
+	queue_redraw()
+
+
+## Commits the live preview when the dragged tile is released inside the rack.
+func insert_tile_at(tile_id: StringName, point: Vector2) -> bool:
+	if not preview_insert_at(tile_id, point):
+		return false
+	if _has_insert_preview:
+		_slots = _preview_slots.duplicate()
+		_preview_slots.clear()
+		_has_insert_preview = false
+		set_process(true)
+		queue_redraw()
+	return true
 
 
 ## Drops marks for tiles the row no longer holds, so a deck change cannot leave a
@@ -724,27 +1024,33 @@ func _prune_marked() -> void:
 ## Pure geometry, so drawing and hit-testing cannot disagree and a test can check
 ## the layout without a rendered frame.
 static func tile_rect(index: int, count: int, available: Vector2) -> Rect2:
-	if count <= 0 or index < 0 or index >= count:
+	if index < 0 or index >= count:
+		return Rect2(Vector2.ZERO, Vector2.ZERO)
+	return _tile_rect_at_slot(float(index), count, available)
+
+
+static func _tile_rect_at_slot(slot: float, count: int, available: Vector2) -> Rect2:
+	if count <= 0 or slot < 0.0 or slot > float(count - 1):
 		return Rect2(Vector2.ZERO, Vector2.ZERO)
 	# Size against a full hand, not the remaining tiles. The background keeps
 	# its screen-defined dimensions and fewer tiles retain the same square size.
 	var slot_count: int = maxi(count, LAYOUT_SLOT_COUNT)
 	var hint: Vector2 = Vector2(
-		available.x / (float(slot_count) + GAP_RATIO * float(slot_count + 1)),
+		(available.x - GAP * float(slot_count - 1)) / float(slot_count),
 		maxf(available.y - PADDING * 2.0, 0.0)
 	)
 	if hint.x <= 0.0 or hint.y <= 0.0:
 		return Rect2(Vector2.ZERO, Vector2.ZERO)
-	var tile_size: float = minf(hint.x, hint.y)
-	var gap: float = (available.x - tile_size * float(count)) / float(count + 1)
-	var origin := Vector2(gap, (available.y - tile_size) * 0.5)
-	return Rect2(origin + Vector2((tile_size + gap) * float(index), 0.0), Vector2(tile_size, tile_size))
+	var tile_size: float = floorf(minf(hint.x, hint.y))
+	var gap: float = (available.x - tile_size * float(slot_count)) / float(slot_count - 1)
+	var row_width: float = tile_size * float(count) + gap * float(count - 1)
+	var origin := Vector2((available.x - row_width) * 0.5, (available.y - tile_size) * 0.5)
+	return Rect2(origin + Vector2((tile_size + gap) * slot, 0.0), Vector2(tile_size, tile_size))
 
 
 ## Uses the full row height and divides horizontal gaps at tile-center midpoints.
 ## Outer tiles own the space to the row edges; a single tile owns the whole row.
-## Targets stay stable when selection lifts the artwork. Points outside the row
-## and rows with no drawable tiles remain misses.
+## Points outside the row and rows with no drawable tiles remain misses.
 static func _index_at(point: Vector2, count: int, available: Vector2) -> int:
 	if count <= 0 or not Rect2(Vector2.ZERO, available).has_point(point):
 		return -1
@@ -756,13 +1062,6 @@ static func _index_at(point: Vector2, count: int, available: Vector2) -> int:
 		if point.x < (center + next_center) * 0.5:
 			return index
 	return count - 1
-
-
-## Returns the drawn rectangle with the selected tile's slight lift applied.
-static func _lifted(rect: Rect2) -> Rect2:
-	return Rect2(
-		rect.position - Vector2(0.0, rect.size.y * SELECTED_LIFT_RATIO), rect.size
-	)
 
 
 ## Returns the index of a tile identity in `tiles`, or -1.

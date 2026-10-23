@@ -1,101 +1,64 @@
 class_name TilePileView
 extends Control
 
-## Decorative shared bag artwork; pictured faces do not describe unseen tiles.
-## The screen supplies the authoritative count and deals from the bag opening.
+## Shared tile-pot artwork and remaining tile count. Counts come from the
+## controller; this view only presents those values.
 const POT_TEXTURE: Texture2D = preload("res://assets/ui/tile_pot.png")
-## Visible artwork plus a small edge allowance; excludes faint alpha noise in
-## the source's large transparent top and bottom margins.
-const POT_ART_REGION: Rect2 = Rect2(0, 264, 1005, 1030)
-## Soft ellipse cast under the bag. Cropped to the shape's visible pixels,
-## because the source canvas carries 128px of empty margin above and below it.
-const POT_SHADOW_TEXTURE: Texture2D = preload("res://assets/ui/tile_pot_shadow.png")
-const POT_SHADOW_ART_REGION: Rect2 = Rect2(0, 128, 970, 282)
-## The artwork is drawn this much larger than the space the header reserves for
-## it, so the pot reads as a foreground object rather than a small badge.
-const POT_DRAW_SCALE: float = 1.25
-## Fraction of the drawn artwork its base is lowered below the header slot. The
-## slot ends 12px above the board's outer border, so the bag is shifted only far
-## enough to clear that border: at 25% above its slot the bag cannot both stay
-## on screen and sit flush with the slot.
-const POT_BASE_DROP: float = 0.075
 
-## Tiles the pile currently stands for.
 var _tile_count: int = 0
-var _pot_texture: AtlasTexture
-var _pot_rect: Rect2
-var _shadow_texture: AtlasTexture
-var _shadow_rect: Rect2
+var _stack_rect: Rect2
 
-@onready var count_plate: NinePatchRect = $CountPlate
-@onready var count_label: Label = $CountPlate/AvailableTilesLabel
-@onready var caption: Label = $PotCaption
+@onready var count_label: Label = $AvailableTilesLabel
 
 
 func _ready() -> void:
-	# Decorative: pointer events pass straight through to whatever is behind.
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Ignore transparent source margins without altering the supplied assets.
-	_pot_texture = AtlasTexture.new()
-	_pot_texture.atlas = POT_TEXTURE
-	_pot_texture.region = POT_ART_REGION
-	_shadow_texture = AtlasTexture.new()
-	_shadow_texture.atlas = POT_SHADOW_TEXTURE
-	_shadow_texture.region = POT_SHADOW_ART_REGION
 	resized.connect(_layout)
+	count_label.theme_changed.connect(_layout.call_deferred)
 	_layout()
 
 
-## Shows a pile standing for `tile_count` tiles still in the bag.
 func set_tile_count(tile_count: int) -> void:
 	var clamped: int = maxi(tile_count, 0)
-	if clamped == _tile_count:
-		return
 	_tile_count = clamped
-	queue_redraw()
+	count_label.text = "%d left" % _tile_count
+	_layout()
 
 
-## Returns the number of tiles the pile stands for.
 func tile_count() -> int:
 	return _tile_count
 
 
-## Returns the point a dealt tile should leave from, in GLOBAL coordinates.
-##
-## The screen measures the deal's flight without knowing how the bag is drawn.
 func stack_origin_global() -> Vector2:
-	return get_global_transform() * (_pot_rect.position + _pot_rect.size * Vector2(0.5, 0.3))
+	return get_global_transform() * (_stack_rect.position + _stack_rect.size * Vector2(0.5, 0.36))
 
 
 func _draw() -> void:
-	# Shadow first: the bag's base sits over the shadow's upper half.
-	if _shadow_texture != null:
-		draw_texture_rect(_shadow_texture, _shadow_rect, false)
-	if _pot_texture != null:
-		draw_texture_rect(_pot_texture, _pot_rect, false)
+	if POT_TEXTURE != null and _stack_rect.has_area():
+		# The supplied square PNG has generous transparent margins. Draw its
+		# artwork bounds so the visible pot remains compact and crisp.
+		var texture_size: Vector2 = POT_TEXTURE.get_size()
+		var source_rect := Rect2(
+			Vector2(texture_size.x * 0.18, texture_size.y * 0.15),
+			Vector2(texture_size.x * 0.64, texture_size.y * 0.68)
+		)
+		draw_texture_rect_region(POT_TEXTURE, _stack_rect, source_rect)
 
 
 func _layout() -> void:
-	var source_size: Vector2 = _pot_texture.get_size()
-	var scale: float = minf(size.x / source_size.x, size.y / source_size.y) * POT_DRAW_SCALE
-	var drawn_size: Vector2 = source_size * scale
-	# Taller than its slot, so the base is shifted a little past the slot's
-	# bottom edge: that keeps the art clear of the board's border below while
-	# leaving the top on screen. The panel draws no background of its own.
-	_pot_rect = Rect2(
-		Vector2((size.x - drawn_size.x) * 0.5, size.y - drawn_size.y * (1.0 - POT_BASE_DROP)),
-		drawn_size
-	)
-	# Centred on the bag's base: the shadow's upper half reads behind the bag and
-	# its lower half crosses onto the board's border.
-	var shadow_size: Vector2 = _shadow_texture.get_size() * scale
-	_shadow_rect = Rect2(
-		Vector2((size.x - shadow_size.x) * 0.5, _pot_rect.end.y - shadow_size.y * 0.5),
-		shadow_size
-	)
-	count_plate.position = _pot_rect.position + drawn_size * Vector2(0.23, 0.58)
-	count_plate.size = drawn_size * Vector2(0.54, 0.28)
-	count_label.add_theme_font_size_override("font_size", clampi(roundi(drawn_size.y * 0.21), 18, 26))
-	caption.position = _pot_rect.position + Vector2(0.0, drawn_size.y * 0.85)
-	caption.size = Vector2(drawn_size.x, 18.0)
+	var side: float = maxf(1.0, minf(size.x, size.y))
+	var pot_size := Vector2(side * 0.42, side * 0.38)
+	_stack_rect = Rect2(Vector2((size.x - pot_size.x) * 0.5, side * 0.02), pot_size)
+	count_label.position = Vector2(0.0, side * 0.58)
+	var text_size := Vector2(size.x, maxf(16.0, side * 0.28))
+	var font: Font = count_label.get_theme_font("font")
+	var font_size: int = maxi(1, ceili(text_size.y))
+	while font_size > 1:
+		var text_width: float = font.get_string_size(count_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		if text_width <= text_size.x and font.get_height(font_size) <= text_size.y:
+			break
+		font_size -= 1
+	if count_label.get_theme_font_size("font_size") != font_size:
+		count_label.add_theme_font_size_override("font_size", font_size)
+	count_label.size = text_size
 	queue_redraw()

@@ -30,6 +30,9 @@ extends Node
 ## A new or resumed match is ready to render.
 signal session_started()
 
+## A saved match was restored successfully and is ready for presentation.
+signal session_resumed()
+
 ## Authoritative state changed; the HUD and board should resynchronize.
 signal state_changed()
 
@@ -39,6 +42,9 @@ signal preview_changed()
 ## A whole line was committed and the turn lifecycle resolved
 ## (ADR-011 sections 5 and 7).
 signal line_committed(result: LineResult, turn_phase: int)
+
+## Publicly committed AI tiles and authoritative hand counts, for presentation.
+signal rival_move_committed(result: LineResult, hand_before: int, hand_after: int)
 
 ## A line was committed, carrying the move's anchor as a placement-shaped payload.
 ##
@@ -91,8 +97,11 @@ signal ai_thinking_changed(thinking: bool)
 ## The opponent difficulty used when none is requested (ADR-005 section 5).
 const DEFAULT_AI_DIFFICULTY: int = AiEnums.DEFAULT_DIFFICULTY
 
-## Where the single match save lives (ADR-008 section 11).
+## Legacy location retained for existing single-match saves.
 const SAVE_PATH: String = "user://match_save.json"
+
+## Prefix for per-match save files used by the hub's active-games list.
+const ACTIVE_MATCH_PREFIX: String = "active_match_"
 
 ## Where an exported bug-report fixture is written (Milestone 7).
 ##
@@ -104,12 +113,14 @@ const FIXTURE_PATH: String = "user://match_fixture.json"
 const NO_VALID_MOVE_NOTICE: String = "No valid move available, now opponents turn"
 const TURN_TIMEOUT_NOTICE: String = "Time up, play moves to other player"
 const INVALID_POKER_HAND_NOTICE: String = "Form a valid poker hand"
+const NOT_CONNECTED_NOTICE: String = "Must touch an existing tile"
 
 ## The save location actually in use.
 ##
 ## Defaults to `SAVE_PATH`; a test points it at its own file, so exercising the
 ## save path cannot overwrite the player's real in-progress match.
 var save_path: String = SAVE_PATH
+var rival_avatar_path: String = ""
 
 ## The fixture location actually in use. Defaults to `FIXTURE_PATH`; a test points
 ## it at its own file, for the same reason `save_path` is redirectable.
@@ -137,6 +148,9 @@ var _pending_rotation: int = 0
 var _pending_cell: Vector2i = Vector2i(BoardEnums.OPENING_MIN, BoardEnums.OPENING_MIN)
 
 var _ai_scheduled: bool = false
+var _ai_schedule_generation: int = 0
+## Presentation may hold the rival until the human's score and refill effects end.
+var _ai_move_paused: bool = false
 
 ## The opponent's decision service. It owns no rules and mutates nothing: it
 ## returns a proposal this controller commits through the ordinary move path
@@ -181,6 +195,8 @@ func update_turn_clock(now_unix: float = -1.0) -> void:
 	var expired_player: StringName = turn.active_player_id
 	_cancel_ai_analysis()
 	_ai_scheduled = false
+	_ai_move_paused = false
+	_ai_schedule_generation += 1
 	_set_ai_thinking(false)
 	_clear_staged()
 	TurnManager.resolve_timeout(_session)
@@ -254,6 +270,8 @@ func start_new_match(
 	_cancel_ai_analysis()
 	_set_ai_thinking(false)
 	_ai_scheduled = false
+	_ai_move_paused = false
+	_ai_schedule_generation += 1
 	_clear_staged()
 	TurnManager.setup(_session)
 	update_turn_clock()
@@ -292,23 +310,112 @@ func resume_match() -> bool:
 		)
 
 	_session = session
+	rival_avatar_path = String(payload.get("rival_avatar_path", ""))
 	# ADR-003 section 9: a transient preview is never persisted, so resume with no
 	# pending placement and the active tile still uncommitted.
 	_cancel_ai_analysis()
 	_set_ai_thinking(false)
 	_ai_scheduled = false
+	_ai_move_paused = false
+	_ai_schedule_generation += 1
 	_clear_staged()
 	session_started.emit()
 	state_changed.emit()
 	notice.emit("Resumed your saved match")
 	_skip_human_turn_without_move()
 	_after_state_change()
+	session_resumed.emit()
 	return true
 
 
 ## Returns true when a resumable save exists.
 func has_saved_match() -> bool:
 	return FileAccess.file_exists(save_path)
+
+
+## Returns resumable local matches, including the legacy single-save slot.
+## Each record contains the path needed to restore that specific match.
+static func saved_match_entries() -> Array[Dictionary]:
+	var paths := PackedStringArray()
+	if FileAccess.file_exists(SAVE_PATH):
+		paths.append(SAVE_PATH)
+	for file_name: String in DirAccess.get_files_at("user://"):
+		if file_name.begins_with(ACTIVE_MATCH_PREFIX) and file_name.get_extension().to_lower() == "json":
+			paths.append("user://".path_join(file_name))
+	var entries: Array[Dictionary] = []
+	for path: String in paths:
+		var file: FileAccess = FileAccess.open(path, FileAccess.READ)
+		if file == null:
+			continue
+		var payload: Variant = JSON.parse_string(file.get_as_text())
+		file.close()
+		if not payload is Dictionary:
+			continue
+		var raw_match: Variant = payload.get("match", null)
+		if not raw_match is Dictionary:
+			continue
+		var match_data: Dictionary = raw_match
+		var snapshot: MatchSnapshotDto = MatchSnapshotDto.from_dictionary(match_data)
+		if snapshot == null or not snapshot.is_valid():
+			continue
+		if int(match_data.get("outcome", TurnEnums.MatchOutcome.IN_PROGRESS)) != TurnEnums.MatchOutcome.IN_PROGRESS:
+			continue
+		var scores: Dictionary = _scores_from_ledger(match_data.get("ledger", {}))
+		entries.append({
+			"kind": "ai",
+			"id": String(match_data.get("match_id", "")),
+			"path": path,
+			"opponent": "AI Rival",
+			"score": "You %d  |  AI Rival %d" % [
+				int(scores.get("human", 0)), int(scores.get("ai", 0))
+			],
+			"saved_at": String(payload.get("saved_at", "")),
+			"avatar_path": String(payload.get("rival_avatar_path", "")),
+		})
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return String(a.get("saved_at", "")) > String(b.get("saved_at", ""))
+	)
+	return entries
+
+
+## Builds a stable per-match save path without exposing raw IDs as filenames.
+static func save_path_for_match(match_id: String) -> String:
+	return "user://".path_join("%s%s.json" % [ACTIVE_MATCH_PREFIX, match_id.sha256_text()])
+
+
+## Clears every local resumable game, used by the hub's explicit cache command.
+static func clear_all_saved_matches() -> bool:
+	var succeeded: bool = true
+	for path: String in [SAVE_PATH]:
+		if FileAccess.file_exists(path) and DirAccess.remove_absolute(
+			ProjectSettings.globalize_path(path)
+		) != OK:
+			succeeded = false
+	for file_name: String in DirAccess.get_files_at("user://"):
+		if not file_name.begins_with(ACTIVE_MATCH_PREFIX) or file_name.get_extension().to_lower() != "json":
+			continue
+		var path: String = "user://".path_join(file_name)
+		if DirAccess.remove_absolute(ProjectSettings.globalize_path(path)) != OK:
+			succeeded = false
+	return succeeded
+
+
+static func _scores_from_ledger(value: Variant) -> Dictionary:
+	var result := {"human": 0, "ai": 0}
+	if not value is Dictionary:
+		return result
+	var events: Variant = value.get("events", [])
+	if not events is Array:
+		return result
+	for event: Variant in events:
+		if not event is Dictionary:
+			continue
+		var player_id: String = String(event.get("player_id", ""))
+		if player_id == "human":
+			result["human"] = int(result["human"]) + int(event.get("points", 0))
+		elif player_id == "ai":
+			result["ai"] = int(result["ai"]) + int(event.get("points", 0))
+	return result
 
 
 ## Returns whether the local match has been created or restored.
@@ -355,6 +462,7 @@ func save_match() -> bool:
 	file.store_string(
 		JSON.stringify({
 			"saved_at": Time.get_datetime_string_from_system(),
+			"rival_avatar_path": rival_avatar_path,
 			"match": dto.to_dictionary(),
 		})
 	)
@@ -983,6 +1091,12 @@ func remaining_tiles() -> int:
 	return _session.remaining_tile_count()
 
 
+func remaining_tile_faces() -> Array[Dictionary]:
+	if _session == null:
+		return []
+	return _session.remaining_tile_faces()
+
+
 ## Returns every tile of the pending line, in staging order (ADR-011 section 11).
 ##
 ## This is what the board draws as the uncommitted line. A copy is returned, so
@@ -1166,6 +1280,11 @@ func human_deck_count() -> int:
 	return _session.deck_count(TurnEnums.HUMAN_PLAYER_ID)
 
 
+## Public count only; concealed opponent tiles are never needed by the HUD.
+func opponent_deck_count() -> int:
+	return _session.deck_count(TurnEnums.AI_PLAYER_ID) if _session != null else 0
+
+
 ## Returns the identity of the human's selected deck tile, or an empty name.
 ##
 ## The selection lives on the session, so this and `human_tile()` can never
@@ -1235,6 +1354,21 @@ func is_ai_thinking() -> bool:
 	return _ai_thinking
 
 
+## Holds or releases a pending rival move while presentation completes.
+## Releasing starts the already-due turn immediately; all other AI turns retain
+## their difficulty-specific presentation delay.
+func set_ai_move_paused(paused: bool) -> void:
+	if _ai_move_paused == paused:
+		return
+	_ai_move_paused = paused
+	if paused:
+		_ai_schedule_generation += 1
+		_ai_scheduled = false
+		return
+	if not paused and _session != null and TurnManager.is_awaiting_ai_action(_session):
+		_schedule_ai_move(0.0)
+
+
 ## Returns the opponent's decision service, or null before construction.
 func get_ai_coordinator() -> AiCoordinator:
 	return _ai
@@ -1259,11 +1393,14 @@ func final_result() -> MatchResult:
 ## turn is one move (ADR-011 section 7). A refused line never reaches resolution,
 ## so an illegal move cannot consume a turn (ADR-003 section 5).
 func _commit_line(player_id: StringName, staged: Array[TileSnapshot]) -> LineResult:
+	var hand_before: int = _session.deck_count(player_id)
 	var result: LineResult = MoveCommitter.commit_line(_session, player_id, staged)
 	if result == null or not result.was_committed():
 		return result
 
 	var phase: int = TurnManager.resolve(_session, result)
+	if player_id == TurnEnums.AI_PLAYER_ID:
+		rival_move_committed.emit(result, hand_before, _session.deck_count(player_id))
 	line_committed.emit(result, phase)
 	move_committed.emit(_anchor_view(result, phase), phase)
 	if not result.score_events.is_empty():
@@ -1378,7 +1515,7 @@ func _line_reason_text(result: LineResult) -> String:
 		PlacementEnums.PlacementRejection.OPENING_CELL_REQUIRED:
 			return "The first line goes in the centre"
 		PlacementEnums.PlacementRejection.NOT_CONNECTED:
-			return "Must touch an existing tile"
+			return NOT_CONNECTED_NOTICE
 		PlacementEnums.PlacementRejection.TILE_NOT_AVAILABLE:
 			return "No tile available"
 		PlacementEnums.PlacementRejection.NOT_PLAYERS_TURN:
@@ -1449,7 +1586,8 @@ func _skip_human_turn_without_move() -> void:
 	if TurnManager.detect_end_reason(_session) != TurnEnums.EndReason.NONE:
 		return
 	var phase: int = TurnManager.resolve_no_valid_move(_session)
-	if phase == TurnEnums.MatchPhase.AWAIT_ACTION:
+	# Both players await an action; check who still owns the turn.
+	if TurnManager.is_awaiting_human_action(_session):
 		return
 	turn_passed.emit(player_id)
 	if phase != TurnEnums.MatchPhase.GAME_OVER:
@@ -1469,20 +1607,22 @@ func _skip_human_turn_without_move() -> void:
 ## (ADR-010 section 11), so raising it at scheduling time would report the rival
 ## as still thinking the moment its previous placement landed and never let the
 ## state clear between placements.
-func _schedule_ai_move() -> void:
-	if _ai_scheduled:
+func _schedule_ai_move(delay_override: float = -1.0) -> void:
+	if _ai_scheduled or _ai_move_paused:
 		return
 	if not is_inside_tree():
 		return
 	_ai_scheduled = true
-	var delay: float = 0.0
-	if _ai != null:
-		delay = _ai.presentation_delay_seconds()
+	_ai_schedule_generation += 1
+	var delay: float = delay_override
+	if delay < 0.0:
+		delay = _ai.presentation_delay_seconds() if _ai != null else 0.0
 	var timer: SceneTreeTimer = get_tree().create_timer(delay)
 	var scheduled_session: GameSessionState = _session
 	var scheduled_turn: int = _session.get_turn_state().turn_number
+	var schedule_generation: int = _ai_schedule_generation
 	timer.timeout.connect(func() -> void:
-		if _session == scheduled_session and _session.get_turn_state().turn_number == scheduled_turn:
+		if schedule_generation == _ai_schedule_generation and _session == scheduled_session and _session.get_turn_state().turn_number == scheduled_turn:
 			_on_ai_think_timeout()
 	)
 

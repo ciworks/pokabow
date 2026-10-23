@@ -6,7 +6,6 @@ rem
 rem Engine resolution order:
 rem   1. %GODOT_BIN%
 rem   2. godot / godot4 / Godot on PATH
-rem   3. the engine bundled with the Summer app (development convenience)
 rem
 rem Exit codes: 0 = all checks passed, 1 = a check failed, 2 = no engine found.
 
@@ -25,12 +24,6 @@ for %%c in (godot.exe godot4.exe Godot.exe) do (
 		for /f "delims=" %%p in ('where %%c 2^>nul') do (
 			if not defined ENGINE set "ENGINE=%%p"
 		)
-	)
-)
-
-if not defined ENGINE (
-	if exist "%LOCALAPPDATA%\SummerEngine\current\Summer.exe" (
-		set "ENGINE=%LOCALAPPDATA%\SummerEngine\current\Summer.exe"
 	)
 )
 

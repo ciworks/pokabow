@@ -17,7 +17,7 @@ extends TestCase
 ## turned, board taps build the pending line and it is drawn whole with one
 ## validity verdict, a tap on a staged tile turns that staged tile instead of
 ## taking it out of the line, dragging a staged tile off the board is what takes it
-## out, Rotate turns the tile the line last took without writing to the board,
+## out, repeated taps rotate selected and staged tiles without writing to the board,
 ## Cancel returns every staged tile to the deck, and one Confirm commits the whole
 ## line as one move. Swapping (section 6) returns deck tiles for equal
 ## replacements and consumes the whole turn.
@@ -35,6 +35,7 @@ extends TestCase
 
 const GAME_SCREEN_SCENE: String = "res://scenes/game/game_screen.tscn"
 const APP_ROOT_SCENE: String = "res://scenes/app/app_root.tscn"
+const TABLETOP_THEME: Script = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 
 const HUMAN: StringName = TurnEnums.HUMAN_PLAYER_ID
 
@@ -61,25 +62,34 @@ const LINE_GAP: int = PlacementEnums.PlacementRejection.LINE_GAP
 const MIXED_ORIENTATION: int = PlacementEnums.PlacementRejection.MIXED_ORIENTATION
 
 
-func test_a_human_with_no_valid_move_sees_a_toast_and_loses_the_turn() -> void:
+func test_a_human_with_no_valid_move_sees_a_board_notice_and_loses_the_turn() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
 	var controller: GameSessionController = screen.controller
 	var session: GameSessionState = controller.get_session()
 	var board: BoardState = controller.get_board()
-	var tile: TileDefinition = controller.human_deck()[0]
-	var filler: TileDefinition = TileDefinition.create(
-		&"test-no-move-filler", TileEnums.TileRank.ACE, TileEnums.FaceColor.RED,
+	# A queen cannot extend this full house or pair with either of its ranks.
+	var tile: TileDefinition = TileDefinition.create(
+		&"test-no-move-queen", TileEnums.TileRank.QUEEN, TileEnums.FaceColor.RED,
 		[TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE]
 	)
 	var snapshots: Array[TileSnapshot] = []
-	for x: int in range(BoardEnums.OPENING_MIN, BoardEnums.OPENING_MIN + 5):
-		snapshots.append(TileSnapshot.create(filler, Vector2i(x, BoardEnums.OPENING_MIN), 0))
-	if not check(LineValidator.validate(board, snapshots).is_legal(), "fixture line must be legal"):
+	for index: int in range(5):
+		var filler: TileDefinition = TileDefinition.create(
+			StringName("test-no-move-filler-%d" % index),
+			TileEnums.TileRank.ACE if index < 3 else TileEnums.TileRank.KING,
+			TileEnums.FaceColor.RED,
+			[TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE, TileEnums.EdgeColor.BLUE]
+		)
+		snapshots.append(TileSnapshot.create(filler, Vector2i(BoardEnums.OPENING_MIN + index, BoardEnums.OPENING_MIN), 0))
+	if not check(LineValidator.validate(board, snapshots).accepted, "fixture line must be legal"):
 		_release(screen)
 		return
 	board.commit_tiles(snapshots)
+	# Automatic passing applies only when the pot can no longer fund a swap.
+	while not session.get_tile_source().is_exhausted():
+		session.get_tile_source().draw()
 	var turn_state: TurnState = session.get_turn_state()
 	turn_state.active_player_id = HUMAN
 	turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
@@ -93,12 +103,13 @@ func test_a_human_with_no_valid_move_sees_a_toast_and_loses_the_turn() -> void:
 	check_eq(turn_state.active_player_id, TurnEnums.AI_PLAYER_ID, "play passes to the opponent")
 	check_eq(turn_state.turn_number, 2, "the skipped turn advances the turn number")
 	check_eq(notices.back() if not notices.is_empty() else "", GameSessionController.NO_VALID_MOVE_NOTICE, "the exact no-move notice is emitted")
-	check(screen._is_toast_notice(GameSessionController.NO_VALID_MOVE_NOTICE), "the no-move notice is presented as a toast")
+	check_eq(screen.get_node("%BoardMessageLabel").text, GameSessionController.NO_VALID_MOVE_NOTICE, "the no-move notice appears below the board")
+	check_eq(screen.turn_indicator.text, "Rival's turn", "the command drawer retains current turn status")
 	_release(screen)
 
 
-## One scoring move must reveal what it awarded, not merely announce a number
-## (AGENTS.md section 8, Milestone 8: edge and cluster visualization).
+## One scoring move must reveal the tiles in its poker hand, not merely announce
+## a number (AGENTS.md section 8, Milestone 8: score feedback).
 ##
 ## The cells and the colour arrive on the events, so the board marks what really
 ## scored rather than re-deriving it from the board - which is what keeps the
@@ -108,8 +119,8 @@ func test_a_scoring_move_reveals_its_edges_and_clusters() -> void:
 	if screen == null:
 		return
 
-	# One matching boundary and one paying cluster, in the order ADR-007 section 7
-	# records them: edge matches by boundary id, then clusters by colour.
+	# One matching boundary, one poker hand, and one paying cluster, in the order
+	# ADR-007 section 7 records them.
 	var events: Array[ScoreEvent] = [
 		ScoreEvent.create(
 			&"score:move:m1:edge:edge:5,5-6,5",
@@ -163,26 +174,40 @@ func test_a_scoring_move_reveals_its_edges_and_clusters() -> void:
 	)
 	check_eq(
 		screen.board_view.reveal_layer.group_count(),
-		2,
-		"the hand and edge cluster are outlined; an individual edge match is not"
+		1,
+		"the poker hand gets one overlay group; an edge cluster does not outline tiles"
+	)
+	check(
+		screen.board_view.reveal_layer.ripple_duration() > 0.0,
+		"the scored hand shows a tactile ripple before online Gems travel"
 	)
 	check_eq(
 		screen.board_view.reveal_layer.wave_cells().size(),
 		5,
 		"the poker hand's five tiles are the ones that bounce"
 	)
-	screen.board_view.clear_score_reveal()
+	screen.board_view.reveal_layer._process(4.0)
 	check(
-		not screen.board_view.reveal_layer.has_marks(),
-		"clearing the reveal must leave nothing drawn (ADR-008 section 9)"
+		screen.board_view.reveal_layer.has_marks(),
+		"the hand trace remains after the ripple finishes"
 	)
-
-	# A move that scored nothing must reveal nothing, rather than leaving the
-	# previous move's marks up.
+	check_eq(
+		screen.board_view.reveal_layer.modulate.a,
+		1.0,
+		"the hand trace starts fully visible"
+	)
+	var reveal: ScoreRevealLayer = screen.board_view.reveal_layer
+	if reveal._fade != null and reveal._fade.is_valid():
+		reveal._fade.custom_step(ScoreRevealLayer.FADE * 0.5)
+	check(reveal.has_marks(), "the hand trace remains during its fade")
+	check(reveal.modulate.a > 0.0, "the hand trace is still visible halfway through the fade")
+	if reveal._fade != null and reveal._fade.is_valid():
+		reveal._fade.custom_step(ScoreRevealLayer.FADE)
+	check(not reveal.has_marks(), "the hand trace clears when its two-second fade finishes")
 	screen._on_score_awarded([] as Array, Vector2i(5, 5))
 	check(
 		not screen.board_view.reveal_layer.has_marks(),
-		"a move that scored nothing must not leave a stale reveal"
+		"a move with no hand leaves no hand trace"
 	)
 	_release(screen)
 
@@ -202,6 +227,11 @@ func test_game_screen_provides_the_adr_008_hierarchy() -> void:
 		"Root/Column/Hud/HumanScorePanel": "PanelContainer",
 		"Root/Column/Hud/AiScorePanel": "PanelContainer",
 		"Root/Column/Hud/PotPanel": "PanelContainer",
+		"Root/Column/TurnInfoPanel": "PanelContainer",
+		"Root/Column/TurnInfoPanel/TurnInfoRow": "HBoxContainer",
+		"Root/Column/TurnInfoPanel/TurnInfoRow/TurnStatusLabel": "Label",
+		"Root/Column/TurnInfoPanel/TurnInfoRow/OpponentRack": "Control",
+		"Root/Column/TurnInfoPanel/TurnInfoRow/TurnClockLabel": "Label",
 		"Root/Column/DeckBar/DeckPanel/RackColumn/DeckRow/DeckView": "Control",
 		"BottomNavigation": "PanelContainer",
 	}
@@ -226,6 +256,10 @@ func test_game_screen_provides_the_adr_008_hierarchy() -> void:
 		"HumanScoreValue",
 		"AiScoreValue",
 		"TurnIndicator",
+		"TurnInfoRow",
+		"TurnInfoPanel",
+		"TurnStatusLabel",
+		"TurnClockLabel",
 		"AvailableTilesLabel",
 		"TilePileView",
 		"DealLayer",
@@ -266,7 +300,13 @@ func test_app_root_replaces_the_splash_with_a_playable_match() -> void:
 	# boot is driven explicitly here. In the running game `_ready` calls the same
 	# function; this only removes the timing dependency from the test.
 	if root.get("game_screen") == null:
+		(root.get_node("OverlayLayer/TransitionOverlay") as CanvasItem).show()
+		(root.get_node("OverlayLayer/ErrorDialog") as CanvasItem).show()
 		root.call("boot_game_screen")
+		check(not (root.get_node("OverlayLayer/TransitionOverlay") as CanvasItem).visible,
+			"game boot must clear a stale full-screen transition cover")
+		check(not (root.get_node("OverlayLayer/ErrorDialog") as CanvasItem).visible,
+			"game boot must clear a stale shell error cover")
 
 	# The splash is authored into the scene for the Milestone 0 bootstrap; the
 	# composition root detaches it once a match can be hosted (ADR-008 section 4).
@@ -377,7 +417,7 @@ func test_human_input_is_gated_to_the_human_action_phase() -> void:
 	check(controller.is_human_turn(), "the human opens the match")
 	check(screen.board_input.enabled, "the board accepts input on the human's turn")
 	check(screen.bottom_navigation.buttons[&"Play"].disabled, "Play waits for a staged hand")
-	check(screen.bottom_navigation.buttons[&"Undo"].disabled, "Undo waits for a staged hand")
+	check(not screen.bottom_navigation.buttons[&"Pot"].disabled, "Pot is available before staging")
 	check(not screen.bottom_navigation.buttons[&"Swap"].disabled, "Swap is available on the human's turn")
 	check(not screen.deck_view.is_locked(), "the deck row is selectable on the human's turn")
 
@@ -396,7 +436,7 @@ func test_human_input_is_gated_to_the_human_action_phase() -> void:
 	check(not controller.is_human_turn(), "the committed line hands play to the rival")
 	check(not screen.board_input.enabled, "the board must not accept input off-turn")
 	check(screen.bottom_navigation.buttons[&"Play"].disabled, "Play must be disabled off-turn")
-	check(screen.bottom_navigation.buttons[&"Undo"].disabled, "Undo must be disabled off-turn")
+	check(not screen.bottom_navigation.buttons[&"Pot"].disabled, "Pot remains available off-turn")
 	check(screen.bottom_navigation.buttons[&"Swap"].disabled, "Swap must be disabled off-turn")
 	check(screen.deck_view.is_locked(), "the deck row must not be selectable off-turn")
 	check(
@@ -681,77 +721,6 @@ func test_staging_builds_a_pending_line_without_writing_to_the_board() -> void:
 		controller.get_session().move_count(), 0, "turning a staged tile must not record a move"
 	)
 	check(controller.is_human_turn(), "turning a staged tile must not consume the turn")
-	_release(screen)
-
-
-func test_rotating_a_staged_tile_updates_the_line_without_writing_to_the_board() -> void:
-	var screen: GameScreen = _host_screen()
-	if screen == null:
-		return
-	var controller: GameSessionController = screen.controller
-	var board: BoardState = controller.get_board()
-	# Nothing is armed when a match starts, so the test arms a tile the way a
-	# player does before asking the staging commands for one.
-	_tap_deck_fully(screen, 0)
-	var tile: TileDefinition = controller.human_tile()
-	if not check_not_null(tile, "the human must hold a tile to stage"):
-		_release(screen)
-		return
-	var cells: Array[Vector2i] = _line_cells(board, TILES_PER_LINE)
-	if not check_eq(cells.size(), TILES_PER_LINE, "the opening board must offer a two-cell line"):
-		_release(screen)
-		return
-
-	# Rotating with nothing staged only sets the rotation the next staged tile
-	# takes, and must not write to the board (ADR-011 section 11).
-	var revision_before: int = board.get_revision()
-	screen._on_rotate_pressed()
-	check_eq(controller.pending_rotation(), 1, "the rotate command advances the pending rotation")
-	check_eq(controller.staged_count(), 0, "rotating must not stage a tile by itself")
-	check_eq(board.get_revision(), revision_before, "rotating must not touch the board")
-
-	# Stage one tile, then rotate the pending line.
-	screen.stage_at(cells[0])
-	if not check_eq(controller.staged_count(), 1, "the tile must be staged at the tapped cell"):
-		_release(screen)
-		return
-	var staged_rotation: int = controller.pending_snapshot().get_rotation()
-	var rotation_before: int = controller.pending_rotation()
-
-	screen._on_rotate_pressed()
-	check_eq(
-		controller.pending_snapshot().get_rotation(),
-		(staged_rotation + 1) % TileEnums.ROTATION_COUNT,
-		"rotating must turn the staged tile one quarter-turn"
-	)
-	check_eq(
-		controller.pending_rotation(),
-		(rotation_before + 1) % TileEnums.ROTATION_COUNT,
-		"the reported rotation must follow the staged tile"
-	)
-	check_eq(
-		screen.board_view.get_pending_line()[0].get_rotation(),
-		controller.pending_snapshot().get_rotation(),
-		"the board must draw the staged tile at its rotated orientation"
-	)
-	check_eq(
-		controller.staged_cells()[0],
-		cells[0],
-		"rotating must not move the tile to another cell"
-	)
-	check_eq(board.occupied_count(), 0, "rotating must not write to the board")
-	check_eq(board.get_revision(), revision_before, "rotating must not touch the board")
-	check_eq(controller.get_session().move_count(), 0, "rotating must not record a move")
-	check(controller.is_human_turn(), "rotating must not consume the turn")
-
-	# A full turn of the rotate control returns the tile to where it started.
-	for _step: int in range(TileEnums.ROTATION_COUNT - 1):
-		screen._on_rotate_pressed()
-	check_eq(
-		controller.pending_snapshot().get_rotation(),
-		staged_rotation,
-		"four rotations must return the tile to its starting orientation"
-	)
 	_release(screen)
 
 
@@ -1403,27 +1372,35 @@ func test_empty_awards_show_no_total_popup() -> void:
 	_release(screen)
 
 
-func test_rival_win_uses_red_sweep_loss_title_and_no_confetti() -> void:
+func test_results_mark_the_winner_without_sweeping_panels() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
 	var session: GameSessionState = screen.controller.get_session()
 	session.finish(TurnEnums.MatchOutcome.AI_WIN, TurnEnums.EndReason.BOARD_FULL)
 	screen._on_match_ended(MatchResult.build(session))
+	check(not screen.summary_overlay.visible, "rival result leaves the final board visible briefly")
+	screen._on_final_board_pause_finished()
 	var presentation: MatchEndPresentation = screen.summary_overlay as MatchEndPresentation
-	presentation.seek(MatchEndPresentation.DURATION)
-	check_eq(screen.summary_title.text, "YOU LOSE", "a rival win must show the loss heading")
-	check_eq(presentation._panel_sweep_direction(), -1.0,
-		"a rival win must sweep the lower red panel upward")
-	check(not presentation._celebrating, "a rival win must not start confetti")
+	presentation._stop_animation()
+	presentation.seek(0.5)
+	check_eq(screen.summary_title.text, "Rival wins", "rival win uses the neutral result heading")
+	check(presentation._accents[1].winner and not presentation._accents[0].winner, "only the rival gets the winner ring")
+	check_eq(presentation._accents[1].sparkle_alpha, 0.0, "rival win has no celebratory sparkles")
+	check(not screen.summary_hub_button.disabled, "hub remains available during the entrance")
+	check(presentation.find_child("BluePattern", true, false) == null, "old sweeping pattern is absent")
 	screen._on_restart_pressed()
 	session = screen.controller.get_session()
 	session.finish(TurnEnums.MatchOutcome.HUMAN_WIN, TurnEnums.EndReason.BOARD_FULL)
 	screen._on_match_ended(MatchResult.build(session))
+	screen._on_final_board_pause_finished()
+	presentation._stop_animation()
+	presentation.seek(0.5)
+	check(presentation._accents[0].winner and not presentation._accents[1].winner, "only the player gets the winner ring")
+	if not AccessibilitySettings.reduced_motion():
+		check(presentation._accents[0].sparkle_alpha > 0, "player win has a brief sparkle")
 	presentation.seek(MatchEndPresentation.DURATION)
-	check_eq(presentation._panel_sweep_direction(), 1.0,
-		"a human win must retain the blue panel sweep")
-	check(presentation._celebrating, "a human win must retain confetti")
+	check(presentation._accents[0].sparkle_alpha < 0.001, "entrance sparkles finish before the repeating accent")
 	_release(screen)
 
 
@@ -1442,16 +1419,20 @@ func test_the_summary_panel_shows_the_final_breakdown_and_restarts() -> void:
 	# bag (ADR-004 section 1, amended 2026-09-23) cannot fill all 144 cells.
 	session.finish(TurnEnums.MatchOutcome.DRAW, TurnEnums.EndReason.BOARD_FULL)
 	screen._on_match_ended(MatchResult.build(session))
+	check(not screen.summary_overlay.visible, "player result leaves the final board visible briefly")
+	screen._on_final_board_pause_finished()
 
 	check(screen.summary_overlay.visible, "the summary must appear when the match ends")
 	check(not (screen.get_node("%PotPanel") as Control).visible,
 		"game over must hide the pot, count plate and count")
 	check(not screen.tile_pile_view.is_visible_in_tree(), "game over must hide the pot artwork")
+	check(not screen.turn_info_panel.visible, "game over hides the turn information panel")
+	check_eq(screen.turn_clock_label.text, "", "game over clears the text timer")
 	check(not screen.available_tiles_label.is_visible_in_tree(), "game over must hide the tile count")
 	check(not screen.summary_body.text.contains("tiles left"), "the summary must omit the tile count")
 	check_eq(screen.summary_title.text, "It's a draw", "a draw must be reported as one")
 	check(
-		screen.summary_body.text.contains("poker"),
+		(screen.summary_overlay as MatchEndPresentation)._terms.has("poker"),
 		"the summary must break the score down by category"
 	)
 	check(not screen.board_input.enabled, "a finished match must stop accepting input")
@@ -1462,6 +1443,7 @@ func test_the_summary_panel_shows_the_final_breakdown_and_restarts() -> void:
 	check((screen.get_node("%PotPanel") as Control).visible,
 		"a new match must restore the pot and tile count")
 	check(not screen.is_swap_mode(), "a new match must start with no swap set")
+	check_eq(screen.turn_clock_label.text, "1:00", "a new match restores the text timer")
 	var restarted: GameSessionState = controller.get_session()
 	if check_not_null(restarted, "restarting must produce a session"):
 		check(
@@ -1568,6 +1550,53 @@ func test_deck_surrounding_space_can_drag_a_tile_onto_the_board() -> void:
 		check_eq(screen.controller.staged_snapshots()[0].get_tile_id(), tile_id, "drop stages the nearest tile")
 		check_eq(screen.controller.staged_cells()[0], cell, "drop reaches the chosen cell")
 	check(not row.is_dragging(), "release finishes the drag")
+	_release(screen)
+
+
+func test_deck_drag_continues_after_pointer_leaves_the_deck_control() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var row: DeckView = screen.deck_view
+	row.size = Vector2(720.0, 96.0)
+	var cell: Vector2i = screen.controller.get_board().get_frontier_cells()[0]
+	var start: Vector2 = row.tile_rect_at(0).get_center()
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = start
+	row._gui_input(press)
+	var threshold_point: Vector2 = start + Vector2(0.0, -DeckView.DRAG_THRESHOLD - 4.0)
+	_send_viewport_motion(row, threshold_point)
+	check(row.is_dragging(), "viewport motion must start a drag outside the deck control")
+	var destination: Vector2 = _drag_point_for(screen, cell)
+	_send_viewport_motion(row, destination)
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.pressed = false
+	release.position = row.get_global_transform_with_canvas() * destination
+	row._input(release)
+	check_eq(screen.controller.staged_count(), 1, "release outside the deck must stage the tile on the board")
+	check_eq(screen.controller.staged_cells()[0], cell, "the tracked release must land on its board cell")
+	check(not row.is_dragging(), "viewport release must finish the deck drag")
+	_release(screen)
+
+
+func test_hud_refresh_preserves_a_held_deck_drag() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var row: DeckView = screen.deck_view
+	if not check(_begin_deck_drag(screen, 0), "deck drag starts before HUD refresh"):
+		_release(screen)
+		return
+	var dragged_id: StringName = screen._drag_tile_id
+	screen._refresh_all()
+	check(row.is_dragging(), "unchanged HUD redraw keeps the held deck gesture")
+	check_eq(screen._drag_tile_id, dragged_id, "screen keeps the tile identity until release")
+	check(screen._deck_drag_preview.visible, "drag preview remains visible after refresh")
+	row.cancel_drag()
+	check(not row.is_dragging() and String(screen._drag_tile_id).is_empty(), "explicit cancellation still ends both views")
 	_release(screen)
 
 
@@ -1712,6 +1741,49 @@ func test_deal_tracks_live_pot_and_rack_geometry_without_restarting() -> void:
 	_release(screen)
 
 
+func test_deal_signals_tile_flip_sound_at_half_turn() -> void:
+	var layer := DealLayer.new()
+	layer._tiles = [TileDefinition.new()]
+	layer._playing = true
+	var sound_at: float = DealLayer.FLIGHT + DealLayer.HOLD + layer.flip_duration * 0.25
+	layer._elapsed = sound_at - 0.01
+	var flips: Array[int] = []
+	layer.tile_flip_sound_due.connect(func() -> void: flips.append(1))
+	layer._process(0.005)
+	check(flips.is_empty(), "the sound cue must wait until halfway through the turn")
+	layer._process(0.01)
+	check_eq(flips.size(), 1, "the sound cue must fire halfway into the turn")
+	layer.free()
+
+
+func test_tile_flip_depth_peaks_at_twenty_percent_of_tile_width() -> void:
+	var bounds := Rect2(30.0, 40.0, 200.0, 100.0)
+	var edge_on: Rect2 = TilePainter.flip_depth_rect(bounds, 0.5)
+	check_eq(edge_on.size.x, 40.0, "edge-on depth reaches twenty percent of tile width")
+	check_eq(edge_on.size.y, bounds.size.y, "depth spans the tile's full height")
+	check(edge_on.get_center().is_equal_approx(bounds.get_center()), "depth stays centered on the flipping tile")
+	check_eq(TilePainter.flip_depth_rect(bounds, 0.25).size.x, 20.0, "depth grows smoothly toward the midpoint")
+	check(not TilePainter.flip_depth_rect(bounds, 0.0).has_area(), "no side face is visible before the flip")
+	check(not TilePainter.flip_depth_rect(bounds, 1.0).has_area(), "no side face remains after the flip")
+	check_eq(TilePainter.FLIP_EDGE_COLOR, Color(0.20, 0.20, 0.22, 1.0), "the temporary side is dark gray")
+
+
+func test_tile_flip_sound_loads_at_quarter_amplitude() -> void:
+	var adapter := FeedbackAdapter.new()
+	var stream: AudioStream = adapter._load_cue_stream(
+		String(FeedbackAdapter.CUE_SOUNDS[FeedbackAdapter.CUE_TILE_FLIP])
+	)
+	check_not_null(stream, "the tile-flip MP3 must load even before an import artifact exists")
+	check_eq(
+		float(FeedbackAdapter.CUE_VOLUMES_DB[FeedbackAdapter.CUE_TILE_FLIP]),
+		-18.0,
+		"tile-pop playback must use a 75% intensity reduction"
+	)
+	if stream != null:
+		check(stream.get_length() > 0.0, "the loaded tile-flip clip must have a usable duration")
+	adapter.free()
+
+
 func test_deck_drag_shrinks_preview_and_tracks_nearest_cell() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
@@ -1725,12 +1797,13 @@ func test_deck_drag_shrinks_preview_and_tracks_nearest_cell() -> void:
 	check_eq(screen.board_view.get_drop_cell(), cell, "first drag motion immediately highlights the nearest cell")
 	var preview: BoardPreviewLayer = screen.board_view.get_node("%PreviewLayer") as BoardPreviewLayer
 	var overlay: Control = screen._deck_drag_preview
+	check_eq(screen._deck_drag_preview.DRAG_TILE_ALPHA, 1.0, "a tile dragged from the deck stays fully opaque")
 	var to_screen: Transform2D = screen.get_global_transform().affine_inverse() * row.get_global_transform()
 	var deck_rect: Rect2 = to_screen * row.tile_rect_at(row.dragging_index())
 	check(overlay.size.is_equal_approx(deck_rect.size * 0.9), "drag preview is ten percent smaller than its deck tile")
 	check(overlay.get_rect().get_center().is_equal_approx(to_screen * destination), "smaller tile follows the pointer")
 	check(not preview.state.drag_tile_visible, "board draws no duplicate snapped tile")
-	check_eq(preview.TARGET_HIGHLIGHT_TEXTURE.resource_path, "res://assets/tiles/tile_highlight.png", "target uses the supplied highlight artwork")
+	check_eq(preview._target_frame.border_color, Color("#F4C86A"), "drop target uses the Modern Tabletop honey outline")
 	check(not preview._target_frame.draw_center, "highlight frame leaves the target tile visible")
 	var next_cell := Vector2i(6, 5)
 	_send_motion(row, _drag_point_for(screen, next_cell))
@@ -1741,6 +1814,33 @@ func test_deck_drag_shrinks_preview_and_tracks_nearest_cell() -> void:
 	check_eq(preview.state.drag_scale, 1.0, "drop restores normal render scale")
 	check(not overlay.visible, "drop hides the free-moving tile")
 	check(preview.drag_tile_rect().size == Vector2.ZERO, "no small drag tile remains after release")
+	_release(screen)
+
+
+func test_deck_glimmer_only_runs_on_resting_unselected_tiles() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	_finish_opening_deal(screen)
+	var row: DeckView = screen.deck_view
+	var tile_id: StringName = screen.controller.human_deck()[0].tile_id
+	check(is_equal_approx(DeckView.GLIMMER_DURATION, 1.0 / 3.0), "a glimmer takes one third of a second at three times speed")
+	check(
+		TilePainter.warmable_art_paths().has(TilePainter.TILE_GLIMMER_TEXTURE),
+		"the deck glimmer image is included in the startup warm-up"
+	)
+	row._selected_index = -1
+	row._drag_index = -1
+	row.set_concealed([] as Array[StringName])
+	check(row._can_glimmer(tile_id), "an unselected tile at rest may glimmer")
+	row._selected_index = 0
+	check(not row._can_glimmer(tile_id), "a selected tile does not glimmer")
+	row._selected_index = -1
+	row._drag_index = 0
+	check(not row._can_glimmer(tile_id), "a lifted tile does not glimmer")
+	row._drag_index = -1
+	row.set_concealed([tile_id])
+	check(not row._can_glimmer(tile_id), "a concealed tile in flight does not glimmer")
 	_release(screen)
 
 
@@ -2131,7 +2231,7 @@ func _run_refused_line(
 ##
 ## The screen's layout gives the row a real rectangle in the running game, and
 ## the smoke tests never wait for a layout pass, so the rectangle is set here
-## before the tap is aimed. `DeckView.tile_rect` is the same geometry the row
+## before the tap is aimed. `tile_rect_at` resolves the tile's current rack slot,
 ## draws and hit-tests with, so the tap lands on the tile it names.
 func _tap_deck(screen: GameScreen, index: int) -> void:
 	if screen == null or screen.deck_view == null:
@@ -2141,7 +2241,7 @@ func _tap_deck(screen: GameScreen, index: int) -> void:
 	var count: int = row.deck_size()
 	if count <= 0 or index < 0 or index >= count:
 		return
-	var rect: Rect2 = DeckView.tile_rect(index, count, row.size)
+	var rect: Rect2 = row.tile_rect_at(index)
 	var event: InputEventMouseButton = InputEventMouseButton.new()
 	event.button_index = MOUSE_BUTTON_LEFT
 	event.pressed = true
@@ -2164,7 +2264,7 @@ func _tap_deck_fully(screen: GameScreen, index: int) -> void:
 	var count: int = row.deck_size()
 	if count <= 0 or index < 0 or index >= count:
 		return
-	_send_release(row, DeckView.tile_rect(index, count, row.size).get_center())
+	_send_release(row, row.tile_rect_at(index).get_center())
 
 
 ## Returns the global point at the centre of one board cell.
@@ -2192,7 +2292,7 @@ func _off_board_point(screen: GameScreen) -> Vector2:
 ##
 ## The row is given the rectangle its layout would produce, because the smoke
 ## tests never wait for a layout pass, and the press is aimed with
-## `DeckView.tile_rect`, the same geometry the row draws and hit-tests with, so it
+## `tile_rect_at`, the same geometry the row draws and hit-tests with, so it
 ## lands on the tile it names.
 func _send_press(row: DeckView, position: Vector2) -> void:
 	_send_button(row, position, true)
@@ -2225,6 +2325,14 @@ func _send_motion(row: DeckView, position: Vector2) -> void:
 	row._gui_input(event)
 
 
+## Sends a viewport-space motion into the in-progress drag path.
+func _send_viewport_motion(row: DeckView, local_point: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.button_mask = MOUSE_BUTTON_MASK_LEFT
+	event.position = row.get_global_transform_with_canvas() * local_point
+	row._input(event)
+
+
 ## Starts a drag of one deck tile through the row's own input handler.
 ##
 ## A press alone is a tap; the drag only begins once the pointer has travelled
@@ -2239,7 +2347,7 @@ func _begin_deck_drag(screen: GameScreen, index: int) -> bool:
 	var count: int = row.deck_size()
 	if count <= 0 or index < 0 or index >= count:
 		return false
-	var grab: Vector2 = DeckView.tile_rect(index, count, row.size).get_center()
+	var grab: Vector2 = row.tile_rect_at(index).get_center()
 	_send_press(row, grab)
 	_send_motion(row, grab + Vector2(DeckView.DRAG_THRESHOLD + 4.0, 0.0))
 	return row.is_dragging()
@@ -2366,16 +2474,67 @@ func _make_event(
 
 
 ## Hosts a game screen with a started match and returns it, or null on failure.
-func test_bottom_navigation_play_and_undo_use_staged_line_commands() -> void:
+func test_bottom_navigation_menu_and_play_use_existing_commands() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
+	var background: ColorRect = screen.get_node("%Background") as ColorRect
+	check_not_null(background, "the ivory canvas uses a ColorRect so it renders without a texture")
+	if background != null:
+		check_eq(background.color, Color("#F6F2E9"), "the game screen canvas uses the approved ivory")
+	check_eq(screen.turn_indicator.text, "Your turn", "the command drawer shows the active turn")
+	check(screen.get_node_or_null("%HeaderTurnStatus") == null, "the top message label is removed")
+	var opponent_rack: OpponentRackView = screen.get_node("%OpponentRack") as OpponentRackView
+	check_eq(opponent_rack._tile_count, DECK_SIZE, "rival tiles reflect the starting hand count")
+	opponent_rack.size = Vector2(420, 62)
+	screen._fit_opponent_rack_cell_size()
+	var overview_cell_side: float = screen.board_view.overview_cell_size()
+	check(overview_cell_side > 0.0, "zoomed-out board cell size is available to the rival rack")
+	check(is_equal_approx(opponent_rack.tile_rect(0).size.x, overview_cell_side), "rival tiles exactly match a zoomed-out board cell")
+	check(is_equal_approx(opponent_rack.tile_rect(0).size.x, opponent_rack.tile_rect(1).size.x), "rival tiles do not shrink to fit as more tiles are shown")
+	var gap: float = opponent_rack.tile_rect(1).position.x - opponent_rack.tile_rect(0).end.x
+	check(is_equal_approx(gap, overview_cell_side * OpponentRackView.TILE_GAP_RATIO), "rival tiles use even compact gaps from the concept")
+	opponent_rack.size.x = 300.0
+	check(is_equal_approx(opponent_rack.tile_rect(0).size.x, overview_cell_side), "narrow rack spacing preserves exact board-cell tile size")
+	check(opponent_rack.tile_rect(0).position.x >= 0.0 and opponent_rack.tile_rect(DECK_SIZE - 1).end.x <= opponent_rack.size.x, "board-cell rival tiles remain inside a narrow rack")
+	check(TilePainter.warmable_art_paths().has(TilePainter.OPPONENT_TILE_BACK_TEXTURE), "the teal opponent back participates in startup preloading")
+	check(ResourceLoader.exists(TilePainter.OPPONENT_TILE_BACK_TEXTURE), "the supplied teal opponent back asset is available")
 	var nav: GameBottomNavigation = screen.bottom_navigation
 	check_eq(nav.buttons.size(), 5, "the bottom bar offers five options")
 	check(nav.buttons[&"Play"].disabled, "Play waits for a staged hand")
-	check(nav.buttons[&"Undo"].disabled, "Undo waits for unplayed tiles")
-	check(nav.buttons[&"Skip"].disabled, "Skip has no corresponding menu command")
-	check(nav.buttons[&"Skip"].get_signal_connection_list("pressed").is_empty(), "Skip has no action")
+	check(nav.buttons[&"Undo"].disabled, "Undo waits for staged tiles")
+	check_eq(nav.get_node("Actions").get_child(1), nav.buttons[&"Play"], "Play hand stays in the thumb zone")
+	for action: StringName in [&"Undo", &"Swap", &"Resign", &"Pot"]:
+		var icon_surface: PanelContainer = nav.buttons[action].get_node("Content/IconSurface") as PanelContainer
+		var icon_style: StyleBoxFlat = icon_surface.get_theme_stylebox("panel") as StyleBoxFlat
+		check_eq(icon_style.bg_color, TABLETOP_THEME.canvas_alt(), "%s icon uses the soft-ivory rounded surface" % action)
+		check_eq(icon_surface.custom_minimum_size, Vector2(52, 52), "%s icon has the rounded concept-sized surface" % action)
+	var play_button: Button = nav.buttons[&"Play"]
+	var play_label: Label = play_button.get_node("Content/Label") as Label
+	var play_surface: StyleBoxFlat = play_button.get_theme_stylebox("normal") as StyleBoxFlat
+	var disabled_play_surface: StyleBoxFlat = play_button.get_theme_stylebox("disabled") as StyleBoxFlat
+	check_eq(play_surface.bg_color, TABLETOP_THEME.honey(), "Play hand uses the concept's honey primary-action fill")
+	check_eq(disabled_play_surface.bg_color, TABLETOP_THEME.honey(), "Play hand keeps its honey fill while unavailable")
+	check_eq(play_label.get_theme_font("font"), TABLETOP_THEME.SEMIBOLD, "Play hand uses Fredoka Semibold")
+	check_eq(play_label.get_theme_color("font_color"), TABLETOP_THEME.ink(), "Play hand label uses deep-teal ink")
+	check_eq(play_button.get_node("Content").modulate, Color.WHITE, "disabled Play hand content stays untinted so its text remains deep teal")
+	check_eq(play_label.get_theme_font_size("font_size"), 30, "Play hand label matches 22px at the 390px reference width")
+	check(is_equal_approx(play_button.custom_minimum_size.y, 78.0), "Play hand height matches the concept proportion")
+	check_eq(play_button.size_flags_vertical, Control.SIZE_SHRINK_CENTER, "Play hand keeps its concept height centered in the footer")
+	check(is_equal_approx(play_button.size_flags_stretch_ratio, 2.0), "Play hand is wider than secondary actions as in the concept")
+	check_eq(nav.get_node("Actions").get_child(4), nav.buttons[&"Pot"], "Pot occupies the right edge")
+	check(screen.get_node_or_null("%HeaderSpacer") is Button, "top-right settings remain available")
+	check_eq(nav.get_node("Actions").get_child(3), nav.buttons[&"Resign"], "Resign follows Swap")
+	check(not nav.buttons.has(&"Share"), "the redundant gameplay Share action is absent")
+	check(not nav.buttons[&"Resign"].disabled, "Resign is available during an active match")
+	var resign_label: Label = nav.buttons[&"Resign"].get_node("Content/Label") as Label
+	check_eq(resign_label.text, "Resign", "the resign action has a clear label")
+	check_eq(nav.buttons[&"Resign"].tooltip_text, "Resign this match", "the resign action has a concise tooltip")
+	check_eq(nav.buttons[&"Resign"].accessibility_name, "Resign this match", "the resign action has an accessible name")
+	check(ResourceLoader.exists("res://assets/ui/modern_tabletop/flag.svg"), "Resign uses a local flag icon")
+	check(screen.get_node_or_null("%Share") is Share, "the results screen retains the configured Share plugin node")
+	check(not nav.buttons.has(&"Menu"), "bottom Menu is replaced by Pot")
+	check_eq(nav.buttons[&"Pot"].get_node("Content/Label").text, "Pot", "tile-pot action has a clear label")
 	var pair: Array[TileDefinition] = _rank_pair(screen.controller.human_deck(), 2)
 	var cells: Array[Vector2i] = _line_cells(screen.controller.get_board(), 2)
 	if not check(pair.size() == 2 and cells.size() == 2, "fixture supplies an opening pair"):
@@ -2384,17 +2543,18 @@ func test_bottom_navigation_play_and_undo_use_staged_line_commands() -> void:
 	for index: int in range(2):
 		screen.controller.stage_tile(pair[index].tile_id, cells[index])
 	check(not nav.buttons[&"Play"].disabled, "staging enables Play")
-	check(not nav.buttons[&"Undo"].disabled, "staging enables Undo")
-	nav.buttons[&"Undo"].pressed.emit()
-	check(not screen.controller.has_pending(), "Undo clears the whole staged placement")
-	check_eq(screen.controller.get_session().move_count(), 0, "Undo does not consume a turn")
-	check_eq(screen.deck_view.deck_size(), DECK_SIZE, "Undo restores unplayed tiles")
-	for index: int in range(2):
-		screen.controller.stage_tile(pair[index].tile_id, cells[index])
+	check(not nav.buttons[&"Undo"].disabled, "Undo becomes available for staged tiles")
+	(screen.get_node("%HeaderSpacer") as Button).pressed.emit()
+	check(screen.command_drawer.is_open, "Menu opens the existing settings drawer")
+	check(screen.controller.has_pending(), "opening Menu preserves the staged hand")
+	screen.command_drawer.set_open(false, false)
+	check((screen.get_node("%HeaderSpacer") as Button).has_focus(), "closing the drawer returns focus to the header menu")
 	nav.buttons[&"Play"].pressed.emit()
 	check_eq(screen.controller.get_session().move_count(), 1, "Play commits the staged hand")
+	check_eq(screen.turn_indicator.text, "Rival's turn", "turn status follows turn changes")
 	for action: StringName in [&"Play", &"Swap", &"Undo"]:
 		check(nav.buttons[action].disabled, "%s is unavailable off-turn" % action)
+	check(not nav.buttons[&"Resign"].disabled, "Resign remains available off-turn")
 	_release(screen)
 
 
@@ -2410,8 +2570,8 @@ func test_bottom_navigation_swap_uses_existing_selection_and_confirmation() -> v
 	check(swap.disabled, "Swap stays disabled while selecting tiles")
 	swap.pressed.emit()
 	check(not screen.command_drawer.is_open, "Swap does not open the settings menu")
-	(screen.get_node("%OpenMenuButton") as Button).pressed.emit()
-	check(screen.command_drawer.is_open, "the settings icon opens swap confirmation controls")
+	(screen.get_node("%HeaderSpacer") as Button).pressed.emit()
+	check(screen.command_drawer.is_open, "the header menu opens swap confirmation controls")
 	check(screen.swap_confirm_button.visible and not screen.swap_confirm_button.disabled, "selected tiles can be returned")
 	check_eq(screen.swap_tiles().size(), 1, "reopening keeps the selected tile")
 	screen.swap_cancel_button.pressed.emit()
@@ -2419,90 +2579,209 @@ func test_bottom_navigation_swap_uses_existing_selection_and_confirmation() -> v
 	_release(screen)
 
 
-func test_bottom_navigation_quit_requests_the_hub() -> void:
+func test_hub_navigation_buttons_request_the_hub() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
 	var requests: Array[int] = []
 	screen.hub_requested.connect(func() -> void: requests.append(1))
-	screen.bottom_navigation.buttons[&"Quit"].pressed.emit()
-	check_eq(requests.size(), 1, "Quit uses the existing hub navigation signal")
+	(screen.get_node("%HeaderSpacer") as Button).pressed.emit()
+	(screen.get_node("%MenuHubButton") as Button).pressed.emit()
+	check_eq(requests.size(), 1, "the in-menu hub action uses the existing hub navigation signal")
+	(screen.get_node("%BackToHubButton") as Button).pressed.emit()
+	check_eq(requests.size(), 2, "the top-left back button requests the same hub navigation")
 	_release(screen)
 
 
-func test_avatar_timer_updates_without_rebuilding_board_and_clears_swap_on_expiry() -> void:
+func test_pot_timer_updates_without_rebuilding_board_and_clears_swap_on_expiry() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
-	var human: TurnTimerOutline = screen.human_score_panel.get_node("HumanScoreBox/TurnOutline") as TurnTimerOutline
-	var rival: TurnTimerOutline = screen.ai_score_panel.get_node("AiScoreBox/TurnOutline") as TurnTimerOutline
-	check_eq(human.seconds_left, 60, "human opens with a full border")
-	check_eq(rival.seconds_left, 0, "inactive rival has no yellow border")
+	var clock: Label = screen.turn_clock_label
+	check_eq(clock.text, "1:00", "human opens with a 1:00 text countdown")
+	check_eq(screen.turn_status_label.text, "Your turn", "concept row names the active human turn")
+	check(screen.human_score_panel.get_theme_stylebox("panel") is StyleBoxEmpty, "human avatar and score have no surrounding panel")
+	check(screen.ai_score_panel.get_theme_stylebox("panel") is StyleBoxEmpty, "rival avatar and score have no surrounding panel")
+	check(not (screen.human_score_panel.get_node("HumanScoreBox/Portrait") as FramedPlayerAvatar).show_ring, "human avatar has no teal ring")
+	check(not (screen.ai_score_panel.get_node("AiScoreBox/Portrait") as FramedPlayerAvatar).show_ring, "rival avatar has no teal ring")
 	var refreshes: Array[int] = []
 	screen.controller.state_changed.connect(func() -> void: refreshes.append(1))
 	var turn: TurnState = screen.controller.get_session().get_turn_state()
 	screen.controller.update_turn_clock(turn.deadline_unix_seconds - 20.0)
-	check_eq(human.seconds_left, 20, "the ring follows the controller's whole seconds")
+	check_eq(clock.text, "0:20", "the compact countdown follows controller seconds")
 	check(refreshes.is_empty(), "clock ticks do not rebuild the board or interrupt input")
-	var art: Control = human.get_parent() as Control
-	var reduced_motion: bool = AccessibilitySettings.reduced_motion()
-	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, false)
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds - 10.0)
-	var warning: Tween = art.get("_warning_tween") as Tween
-	check(warning != null, "ten seconds starts a small avatar and panel shake")
-	for seconds: int in range(9, 0, -1):
+	var art: Control = screen.human_score_panel.get_node("HumanScoreBox") as Control
+	var art_origin: Vector2 = art.position
+	for seconds: int in range(10, 0, -1):
 		screen.controller.update_turn_clock(turn.deadline_unix_seconds - float(seconds))
-		var next_warning: Tween = art.get("_warning_tween") as Tween
-		check(next_warning != null and next_warning != warning, "human warning restarts at %d seconds" % seconds)
-		check(not warning.is_valid(), "the previous shake is stopped before the next starts")
-		warning = next_warning
-		screen._on_turn_clock_changed(TurnEnums.HUMAN_PLAYER_ID, seconds)
-		check_eq(art.get("_warning_tween"), warning, "duplicate updates within one second do not restart the shake")
-		check(rival.get_parent().get("_warning_tween") == null, "inactive rival does not shake")
+		check_eq(clock.text, "0:%02d" % seconds, "countdown continues without an avatar warning")
+		check_eq(art.position, art_origin, "human avatar and score stay still at %d seconds" % seconds)
+	check(not screen.human_score_panel.has_node("HumanScoreBox/TurnOutline"), "human avatar has no timer border")
+	check(not screen.ai_score_panel.has_node("AiScoreBox/TurnOutline"), "rival avatar has no timer border")
 	check(refreshes.is_empty(), "repeated warning ticks do not rebuild the board")
 	screen.bottom_navigation.buttons[&"Swap"].pressed.emit()
 	screen._on_deck_tile_toggled(screen.controller.human_deck()[0].tile_id)
 	screen.command_drawer.open_settings()
 	screen.controller.update_turn_clock(turn.deadline_unix_seconds)
 	check(not screen.is_swap_mode(), "expiry clears swap selection")
-	check_eq(human.seconds_left, 0, "expired human border disappears")
-	check_eq(rival.seconds_left, 60, "rival starts with a full border")
-	check_eq(screen._toast_label.text, "Time up, play moves to other player", "expiry displays the requested toast")
-	check(screen._toast_panel.visible, "the expiry toast is visible")
-	check(art.get("_warning_tween") == null, "expiry stops any unfinished shake")
-	var rival_art: Control = rival.get_parent() as Control
-	warning = null
-	for seconds: int in range(10, 0, -1):
-		screen.controller.update_turn_clock(turn.deadline_unix_seconds - float(seconds))
-		var next_warning: Tween = rival_art.get("_warning_tween") as Tween
-		check(next_warning != null and next_warning != warning, "rival warning restarts at %d seconds" % seconds)
-		check(art.get("_warning_tween") == null, "inactive human does not shake")
-		warning = next_warning
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds)
-	check(rival_art.get("_warning_tween") == null, "rival expiry stops the shake")
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds - 10.0)
-	check(art.get("_warning_tween") != null, "a later human turn warns again")
-	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, reduced_motion)
+	check_eq(clock.text, "1:00", "rival starts with a full text countdown")
+	check_eq(screen.turn_status_label.text, "Rival's turn", "concept row names the active rival turn")
+	check_eq(screen.get_node("%BoardMessageLabel").text, "Time up, play moves to other player", "expiry notice appears below the board")
+	check(screen.feedback_layer.find_child("ToastLayout", true, false) == null, "expiry creates no toast overlay")
 	_release(screen)
 
 
-func test_avatar_timer_repeated_warning_respects_reduced_motion() -> void:
+func test_turn_clock_uses_concept_format_type_and_position() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
-	var reduced_motion: bool = AccessibilitySettings.reduced_motion()
-	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, false)
+	var expected: Dictionary = {
+		0: "0:00", 1: "0:01", 9: "0:09", 42: "0:42", 59: "0:59", 60: "1:00", 125: "2:05", -1: "0:00",
+	}
+	for seconds: int in expected:
+		check_eq(screen._format_turn_clock(seconds), expected[seconds], "seconds format as compact m:ss")
+	check_eq(screen.turn_clock_label.get_theme_font_size("font_size"), 16, "timer uses the enlarged label size")
+	check_eq(screen.turn_clock_label.get_theme_color("font_color"), Color("#173D42"), "timer uses deep teal ink")
+	check_eq(screen.turn_clock_label.get_theme_font("font"), TABLETOP_THEME.SEMIBOLD, "timer uses Fredoka Semibold")
+	check_eq(screen.turn_status_label.get_theme_font_size("font_size"), 16, "turn label uses the enlarged label size")
+	check_eq(screen.turn_status_label.get_theme_font("font"), TABLETOP_THEME.REGULAR, "turn label remains Fredoka Regular")
+	check(screen.turn_clock_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT, "timer aligns at the right edge of its row")
+	check(screen.turn_info_panel.get_index() > screen.get_node("Root/Column/Hud").get_index() and screen.turn_info_panel.get_index() < screen.get_node("Root/Column/Body").get_index(), "turn information sits between the scores and board")
+	var info_surface: StyleBoxFlat = screen.turn_info_panel.get_theme_stylebox("panel") as StyleBoxFlat
+	check(info_surface != null and info_surface.bg_color == TABLETOP_THEME.CANVAS_ALT, "turn information uses the soft-ivory surface distinct from the canvas")
+	var board_frame: NinePatchRect = screen.get_node("%BoardFrame") as NinePatchRect
+	screen._fit_turn_info_margins()
+	var turn_panel_rect: Rect2 = screen.turn_info_panel.get_global_rect()
+	var board_frame_rect: Rect2 = board_frame.get_global_rect()
+	check(is_equal_approx(info_surface.content_margin_left, board_frame_rect.position.x - turn_panel_rect.position.x), "Your turn text starts at the board frame's left outer edge")
+	check(is_equal_approx(info_surface.content_margin_right, turn_panel_rect.end.x - board_frame_rect.end.x), "the timer text ends at the board frame's right outer edge")
+	check_eq(screen.turn_info_row.get_child(0), screen.turn_status_label, "turn caption anchors at the left")
+	check_eq(screen.turn_info_row.get_child(1), screen.get_node("%OpponentRack"), "compact rival tiles sit between the caption and timer")
+	check_eq(screen.turn_info_row.get_child(2), screen.turn_clock_label, "timer anchors at the right")
+	check_eq(screen.available_tiles_label.text, "%d left" % screen.controller.remaining_tiles(), "pot count follows the concept's 'N left' label")
+	check_eq(screen.available_tiles_label.get_theme_font_size("font_size"), 14, "pot count uses the enlarged label size")
+	check_eq(screen.available_tiles_label.get_theme_color("font_color"), Color("#173D42"), "pot count uses the concept's deep teal")
+	check_eq(screen.available_tiles_label.get_theme_font("font"), TABLETOP_THEME.REGULAR, "pot count uses the regular concept font")
+	check(screen.tile_pile_view._stack_rect.end.y < screen.available_tiles_label.position.y, "pot count sits below the stack icon")
+	check_eq(TilePileView.POT_TEXTURE.resource_path, "res://assets/ui/tile_pot.png", "pot uses supplied tile pot artwork")
+	_release(screen)
+
+
+func test_game_header_matches_modern_tabletop_concept() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var brand: Label = screen.get_node("%Brand") as Label
+	var divider: ColorRect = screen.get_node("%HeaderDivider") as ColorRect
+	var back_button: Button = screen.get_node("%BackToHubButton") as Button
+	var menu_button: Button = screen.get_node("%HeaderSpacer") as Button
+	var human_portrait: TextureRect = screen.human_score_panel.get_node("HumanScoreBox/Portrait") as TextureRect
+	var rival_portrait: TextureRect = screen.ai_score_panel.get_node("AiScoreBox/Portrait") as TextureRect
+	var human_art: Control = screen.human_score_panel.get_node("HumanScoreBox") as Control
+	var rival_art: Control = screen.ai_score_panel.get_node("AiScoreBox") as Control
+	var human_title: Label = human_art.get_node("HumanScoreTitle") as Label
+	var rival_title: Label = rival_art.get_node("AiScoreTitle") as Label
+	check_eq(brand.get_theme_font("font"), TABLETOP_THEME.BOLD, "the header wordmark uses the requested bold weight")
+	check_eq(brand.get_theme_font_size("font_size"), 22, "the wordmark uses the compact concept header size")
+	check_eq(brand.get_theme_color("font_color"), Color("#173D42"), "the wordmark uses deep teal")
+	check(human_portrait.scale.is_equal_approx(Vector2.ONE * 1.25), "the human avatar matches the enlarged concept scale")
+	check(rival_portrait.scale.is_equal_approx(Vector2.ONE * 1.25), "the rival avatar matches the enlarged concept scale")
+	var human_visual_right: float = human_portrait.position.x + human_portrait.size.x * 1.125
+	var rival_visual_left: float = rival_portrait.position.x - rival_portrait.size.x * 0.125
+	check(human_title.position.x - human_visual_right >= 13.0, "human name and score clear the scaled avatar with a concept-sized gap")
+	check(rival_visual_left - rival_title.position.x - rival_title.size.x >= 13.0, "rival name and score clear the scaled avatar with a concept-sized gap")
+	check(absf(human_portrait.get_global_rect().get_center().y - rival_portrait.get_global_rect().get_center().y) < 1.0,
+		"enlarged avatars stay vertically aligned")
+	check(brand.size_flags_horizontal == Control.SIZE_EXPAND_FILL and brand.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER,
+		"the wordmark stays centered between equal-width header controls")
+	check(divider.get_index() == brand.get_parent().get_index() + 1, "a horizontal divider sits immediately below the wordmark row")
+	check_eq(divider.custom_minimum_size.y, 1.0, "the wordmark divider is a thin concept-style line")
+	check_eq(back_button.icon.resource_path, "res://assets/ui/modern_tabletop/game_back.svg", "the back control uses the concept chevron")
+	check_eq(back_button.get_theme_color("icon_normal_color"), TABLETOP_THEME.INK, "the chevron uses the primary ink color")
+	check_eq(menu_button.icon.resource_path, "res://assets/ui/modern_tabletop/menu.svg", "the menu control uses the concept ellipsis")
+	check(not back_button.expand_icon and not menu_button.expand_icon, "header icons keep their intrinsic compact scale inside the touch targets")
+	_release(screen)
+
+
+func test_board_uses_supplied_sage_cells_and_rounded_teal_frame() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var frame: NinePatchRect = screen.get_node("%BoardFrame") as NinePatchRect
+	check_eq(BoardTileLayer.DEFAULT_CELL_TEXTURE.resource_path, "res://assets/board/board_cell_default.png", "empty cells use the supplied sage artwork")
+	check_eq(BoardTileLayer.GRID_LINE, TABLETOP_THEME.INK, "cell spacing uses the deep-teal frame colour")
+	check_eq(BoardTileLayer.CELL_INSET, 1.0, "adjacent board cells leave a compact 2px separator")
+	check_eq(BoardView.PADDING, 20.0, "board has a substantial deep-teal outer border")
+	check_eq(frame.patch_margin_left, 40, "frame nine-patch preserves rounded corners at board scale")
+	check(is_equal_approx(float(frame.patch_margin_left) * BoardView.PADDING / BoardView.FRAME_PATCH_INSET, BoardView.PADDING), "the frame inner edge meets the board without a gap")
+	check_eq(frame.texture.resource_path, "res://assets/ui/modern_tabletop/board_frame.svg", "board retains the deep-teal rounded frame artwork")
+	_release(screen)
+
+
+func test_notices_use_board_caption_and_restore_the_current_turn() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var turn_status: Label = screen.turn_indicator
+	var board_message: Label = screen.get_node("%BoardMessageLabel")
+	check(screen.get_node_or_null("%HeaderTurnStatus") == null, "no top message label is present")
+	check_eq(board_message.text, "Pinch to explore the board", "the board hint appears below the board by default")
+	check_eq(board_message.get_theme_font_size("font_size"), 14, "the board hint uses the concept caption size")
+	check_eq(board_message.get_theme_color("font_color"), Color("#173D42"), "the board hint uses the concept deep-teal text")
+	check(board_message.get_parent() == screen.get_node("Root/Column") and board_message.get_index() < screen.deck_bar.get_index(),
+		"the board hint sits between the board and the tile rack")
+	screen._on_notice(GameSessionController.NO_VALID_MOVE_NOTICE)
+	check_eq(board_message.text, GameSessionController.NO_VALID_MOVE_NOTICE, "notification occupies the concept hint position")
+	check_eq(turn_status.text, "Your turn", "notification leaves the turn status unchanged")
+	check(screen.feedback_layer.find_child("ToastLayout", true, false) == null, "notifications never create a board overlay")
+	screen._refresh_all()
+	check_eq(board_message.text, GameSessionController.NO_VALID_MOVE_NOTICE, "HUD refresh preserves the notification")
+	for message: String in [GameSessionController.INVALID_POKER_HAND_NOTICE, GameSessionController.NOT_CONNECTED_NOTICE]:
+		screen._on_notice(message)
+		check_eq(board_message.text, message, "placement warning appears below the board: %s" % message)
+		check(screen._is_header_notice(message), "placement warning uses the below-board notification route: %s" % message)
+		check_eq(screen._board_preview_reason(message), "", "placement warning is omitted from the board render state: %s" % message)
+		check(BoardEffectLayer.HEADER_ONLY_REASONS.has(message), "placement warning is suppressed on the board: %s" % message)
+	screen._on_notice("That cell is already taken")
+	check_eq(board_message.text, "That cell is already taken", "latest message replaces the previous message")
+	check(not screen._header_notice_timer.is_stopped(), "a fresh notification restarts its display period")
+	screen._header_notice_timer.timeout.emit()
+	check_eq(turn_status.text, "Your turn", "expiry leaves current turn status unchanged")
+	check_eq(board_message.text, "Pinch to explore the board", "expiry restores the board hint")
+	check(screen._header_notice_timer.is_stopped(), "expiry leaves no running notice timer")
 	var turn: TurnState = screen.controller.get_session().get_turn_state()
-	var art: Control = screen.human_score_panel.get_node("HumanScoreBox") as Control
-	var origin: Vector2 = art.position
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds - 10.0)
-	check(art.get("_warning_tween") != null, "warning starts when motion is enabled")
-	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, true)
-	for seconds: int in range(9, 0, -1):
-		screen.controller.update_turn_clock(turn.deadline_unix_seconds - float(seconds))
-		check(art.get("_warning_tween") == null, "reduced motion suppresses every subsequent shake")
-		check_eq(art.position, origin, "suppressed warnings leave artwork at its original position")
-	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, reduced_motion)
+	screen.controller.update_turn_clock(turn.deadline_unix_seconds)
+	check_eq(board_message.text, GameSessionController.TURN_TIMEOUT_NOTICE, "timeout notice survives the automatic turn handover")
+	screen._header_notice_timer.timeout.emit()
+	check_eq(turn_status.text, "Rival's turn", "expiry leaves the new player's turn status unchanged")
+	check_eq(board_message.text, "Pinch to explore the board", "timeout expiry restores the board hint")
+	screen._on_notice("A temporary message")
+	screen._on_restart_pressed()
+	check_eq(turn_status.text, "Your turn", "a new match clears old notifications")
+	check_eq(board_message.text, "Pinch to explore the board", "a new match restores the board hint")
+	check(screen._header_notice_timer.is_stopped(), "restart cancels the old notification timer")
+	screen._on_notice("A temporary message")
+	var session: GameSessionState = screen.controller.get_session()
+	session.finish(TurnEnums.MatchOutcome.DRAW, TurnEnums.EndReason.BOARD_FULL)
+	screen._on_match_ended(MatchResult.build(session))
+	check_eq(turn_status.text, "Match over", "match end updates the turn status")
+	check_eq(board_message.text, "Pinch to explore the board", "match end clears the transient notice")
+	_release(screen)
+
+
+func test_placement_warning_in_board_caption_clears_when_the_line_is_fixed() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var pair: Array[TileDefinition] = _rank_pair(screen.controller.human_deck(), 2)
+	var cells: Array[Vector2i] = _line_cells(screen.controller.get_board(), 2)
+	if not check(pair.size() == 2 and cells.size() == 2, "fixture has an opening pair"):
+		_release(screen)
+		return
+	screen.controller.stage_tile(pair[0].tile_id, cells[0])
+	check_eq(screen.get_node("%BoardMessageLabel").text, GameScreen.OPENING_NOTICE_TEXT, "single-tile opening warning appears below the board")
+	screen.controller.stage_tile(pair[1].tile_id, cells[1])
+	check_eq(screen.get_node("%BoardMessageLabel").text, "Pinch to explore the board", "fixing the line restores the board hint")
 	_release(screen)
 
 
@@ -2514,7 +2793,7 @@ func test_command_drawer_opens_closes_and_returns_to_rack_for_swap() -> void:
 	for removed: String in ["ConfirmButton", "RotateButton", "SwapButton", "CancelButton", "MatchToggle", "MenuTab"]:
 		check(drawer.find_child(removed, true, false) == null, "%s is absent from the drawer" % removed)
 	check(not drawer.is_open, "drawer starts folded")
-	(screen.get_node("%OpenMenuButton") as Button).pressed.emit()
+	(screen.get_node("%HeaderSpacer") as Button).pressed.emit()
 	check(drawer.panel.visible and drawer.scrim.visible, "open menu blocks covered board input")
 	for option: String in ["DifficultyPicker", "RestartButton", "MenuHubButton"]:
 		check((screen.get_node("%" + option) as Control).is_visible_in_tree(), "%s is visible immediately" % option)
@@ -2556,7 +2835,222 @@ func test_command_preview_matches_commit_without_mutating_board() -> void:
 	_release(screen)
 
 
-func test_pinch_zoom_keeps_anchor_and_existing_button_steps() -> void:
+func _finish_opening_deal(screen: GameScreen) -> void:
+	screen.deck_view.size = Vector2(720, 96)
+	screen.board_view.size = Vector2(640, 640)
+	screen._refresh_all()
+	screen.deal_layer._process(10.0)
+
+
+func _finish_hand_score_feedback(screen: GameScreen) -> void:
+	var reveal: ScoreRevealLayer = screen.board_view.reveal_layer
+	reveal._process(
+		reveal.ripple_duration() + 0.1
+	)
+	# Advance the popup lifecycle without waiting for rendered frames.
+	for popup: Node in screen.floating_scores.get_children():
+		popup.free()
+
+
+func test_committed_hand_returns_to_centered_overview_after_scores_and_refill() -> void:
+	for score_first: bool in [true, false]:
+		var screen: GameScreen = _host_screen()
+		if screen == null:
+			return
+		_finish_opening_deal(screen)
+		screen.board_view.pan_by(Vector2(100, 60))
+		var result: LineResult = _stage_and_commit_opening_line(screen)
+		if not check(result != null and result.was_committed(), "fixture commits a scored hand"):
+			_release(screen)
+			continue
+		check(screen.controller.human_score() > 0, "points have been awarded")
+		check(screen.deal_layer.is_playing(), "replacement tiles are being dealt")
+		check(screen.board_view.reveal_layer.has_marks(), "score feedback is visible")
+		screen._process(0.0)
+		check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "commit keeps the close view during effects")
+		if score_first:
+			_finish_hand_score_feedback(screen)
+		else:
+			screen.deal_layer._process(10.0)
+		screen._process(0.0)
+		check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "camera waits for both scoring and refill")
+		if score_first:
+			screen.deal_layer._process(10.0)
+		else:
+			_finish_hand_score_feedback(screen)
+		screen._process(0.0)
+		check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "completed hand returns to full board")
+		check(screen.board_view.global_board_rect().get_center().is_equal_approx(screen.board_view.global_visible_rect().get_center()), "overview centers the whole board")
+		check(not screen.is_processing(), "camera completion stops polling")
+		screen.board_view.set_close_view(true)
+		check(screen.board_view.global_board_rect().get_center().is_equal_approx(screen.board_view.global_visible_rect().get_center()), "old pan was discarded")
+		screen._process(0.0)
+		check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "completed reset runs only once")
+		_release(screen)
+
+
+func test_hand_overview_handles_reduced_motion_and_partial_or_empty_refill() -> void:
+	var reduced: Variant = ProjectSettings.get_setting(AccessibilitySettings.REDUCED_MOTION_PATH, false)
+	for available: int in [0, 1, 2]:
+		var screen: GameScreen = _host_screen()
+		if screen == null:
+			continue
+		_finish_opening_deal(screen)
+		ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, available == 2)
+		var source: TileSource = screen.controller.get_session().get_tile_source()
+		while screen.controller.remaining_tiles() > available:
+			source.draw()
+		var result: LineResult = _stage_and_commit_opening_line(screen)
+		if check(result != null and result.was_committed(), "limited-pot hand commits"):
+			if available == 2:
+				screen.deal_layer._finish_deal_immediately()
+			else:
+				screen.deal_layer._process(10.0)
+			screen._process(0.0)
+			check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "score display still finishes before overview")
+			_finish_hand_score_feedback(screen)
+			screen._process(0.0)
+			check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "overview does not require a full animated refill")
+		ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, reduced)
+		_release(screen)
+
+
+func test_rival_hand_overview_waits_for_placement_refill_and_score_feedback() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	_finish_opening_deal(screen)
+	_commit_rival_opening(screen)
+	screen._process(0.0)
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "rival flight keeps the current camera")
+	screen.rival_move_layer._process(screen.rival_move_layer.total_duration())
+	screen._process(0.0)
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "rival score feedback remains visible after refill")
+	_finish_hand_score_feedback(screen)
+	screen._process(0.0)
+	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "completed rival hand returns to overview")
+	_release(screen)
+
+
+func test_hand_overview_does_not_interrupt_new_placement_or_survive_restart() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	_finish_opening_deal(screen)
+	screen._process(0.0)
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "opening deal alone does not reset camera")
+	screen._on_confirm_pressed()
+	check(not screen._hand_overview_pending, "refused hand does not schedule a reset")
+	_commit_rival_opening(screen)
+	screen.rival_move_layer._process(screen.rival_move_layer.total_duration())
+	check(_begin_deck_drag(screen, 0), "next player can start a placement")
+	screen._process(0.0)
+	check(not screen._hand_overview_pending, "new placement supersedes the old reset")
+	screen.deck_view.cancel_drag()
+	_finish_hand_score_feedback(screen)
+	screen._process(0.0)
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "old effects cannot zoom out the new turn's placement")
+	screen._set_hand_overview_pending(true)
+	screen._on_restart_pressed()
+	check(not screen._hand_overview_pending, "restart discards pending camera reset")
+	screen._process(0.0)
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "new match keeps its starting close view")
+	_release(screen)
+
+
+func test_overview_drop_zooms_after_acceptance_and_centers_the_tile() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	screen._set_board_zoom(false)
+	check(_begin_deck_drag(screen, 0), "overview deck drag starts")
+	var cell := Vector2i(5, 5)
+	var point: Vector2 = _drag_point_for(screen, cell)
+	_send_motion(screen.deck_view, point)
+	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "aiming keeps the full board visible")
+	_send_release(screen.deck_view, point)
+	check_eq(screen.controller.staged_cells(), [cell], "drop stages the intended overview cell")
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "accepted overview drop zooms to 2x")
+	var tile_center: Vector2 = BoardMetrics.cell_center(screen.board_view.global_board_rect(), cell)
+	check(tile_center.is_equal_approx(screen.board_view.global_visible_rect().get_center()), "placed interior tile is centered")
+	check_eq(screen.board_view.cell_at_global(tile_center), cell, "hit testing follows the focused camera")
+	check_eq(screen.controller.get_board().get_revision(), 0, "camera focus does not commit the pending tile")
+	screen._set_board_zoom(false)
+	check(_begin_deck_drag(screen, 0), "second drag starts")
+	_send_release(screen.deck_view, _drag_point_for(screen, cell))
+	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "occupied-cell refusal keeps overview")
+	check_eq(screen.controller.staged_count(), 1, "refused drop adds no tile")
+	_release(screen)
+
+
+func test_moving_staged_tile_in_overview_focuses_destination_but_rotation_does_not() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var origin := Vector2i(5, 5)
+	var destination := Vector2i(6, 5)
+	screen.controller.select_deck_tile(screen.controller.human_deck()[0].tile_id)
+	check(screen.stage_at(origin), "fixture stages one tile")
+	screen._set_board_zoom(false)
+	var point: Vector2 = _board_point_for(screen, origin)
+	_send_board_touch(screen, 2, point, true)
+	_send_board_touch(screen, 2, point, false)
+	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "rotation leaves overview unchanged")
+	_send_board_touch(screen, 2, point, true)
+	var target: Vector2 = _board_point_for(screen, destination)
+	_send_board_touch_drag(screen, 2, target)
+	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "staged drag does not zoom before release")
+	_send_board_touch(screen, 2, target, false)
+	check_eq(screen.controller.staged_cells(), [destination], "touch drop moves the staged tile")
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "accepted staged move zooms in")
+	var center: Vector2 = BoardMetrics.cell_center(screen.board_view.global_board_rect(), destination)
+	check(center.is_equal_approx(screen.board_view.global_visible_rect().get_center()), "camera follows the new cell")
+	_release(screen)
+
+
+func test_placement_focus_clamps_edges_and_preserves_other_zoom_levels() -> void:
+	var view := BoardView.new()
+	for fill: bool in [false, true]:
+		view.fill_available_space = fill
+		for dimensions: Vector2 in [Vector2(320, 400), Vector2(540, 700), Vector2(800, 320)]:
+			view.size = dimensions
+			for cell: Vector2i in [Vector2i(0, 0), Vector2i(11, 0), Vector2i(0, 11), Vector2i(11, 11), Vector2i(5, 6)]:
+				view.set_close_view(false)
+				view.focus_placed_tile(cell)
+				var visible: Rect2 = view.global_visible_rect()
+				var board: Rect2 = view.global_board_rect()
+				var tile: Rect2 = BoardMetrics.cell_rect(board, cell)
+				check_eq(view.zoom, BoardView.CLOSE_ZOOM, "overview switches to close view at every viewport size")
+				check(board.grow(0.01).encloses(visible), "focused board fills viewport without blank margins")
+				check(visible.grow(0.01).encloses(tile), "focused tile remains fully visible")
+				if cell.x == 0:
+					check(is_equal_approx(board.position.x, visible.position.x), "left edge reaches pan limit")
+				elif cell.x == 11:
+					check(is_equal_approx(board.end.x, visible.end.x), "right edge reaches pan limit")
+				else:
+					check(is_equal_approx(tile.get_center().x, visible.get_center().x), "interior tile centers horizontally")
+				if cell.y == 0:
+					check(is_equal_approx(board.position.y, visible.position.y), "top edge reaches pan limit")
+				elif cell.y == 11:
+					check(is_equal_approx(board.end.y, visible.end.y), "bottom edge reaches pan limit")
+				else:
+					check(is_equal_approx(tile.get_center().y, visible.get_center().y), "interior tile centers vertically")
+				var camera: Rect2 = view.global_board_rect()
+				view.focus_placed_tile(Vector2i(3, 3))
+				check_eq(view.global_board_rect(), camera, "already-close placement preserves pan")
+	view.set_close_view(false)
+	view.focus_placed_tile(BoardMetrics.NO_CELL)
+	check_eq(view.zoom, BoardView.OVERVIEW_ZOOM, "invalid cell cannot zoom")
+	var midpoint: Vector2 = view.global_visible_rect().get_center()
+	view.pinch_by(1.5, midpoint, midpoint)
+	var partial_camera: Rect2 = view.global_board_rect()
+	view.focus_placed_tile(Vector2i(5, 5))
+	check_eq(view.zoom, 1.5, "intermediate pinch zoom is retained")
+	check_eq(view.global_board_rect(), partial_camera, "intermediate camera position is retained")
+	view.free()
+
+
+func test_pinch_zoom_keeps_anchor_and_mouse_wheel_steps() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
@@ -2573,20 +3067,22 @@ func test_pinch_zoom_keeps_anchor_and_existing_button_steps() -> void:
 	var rect: Rect2 = screen.board_view.global_board_rect()
 	var midpoint: Vector2 = (left + right + Vector2(60.0, 0.0)) * 0.5
 	check((rect.position + rect.size * anchor).is_equal_approx(midpoint), "pinch anchor follows the moving midpoint")
-	check(not screen.get_node("%ZoomInButton").disabled and not screen.get_node("%ZoomOutButton").disabled,
-		"both zoom buttons remain available between the endpoints")
+	check(screen.get_node_or_null("%ZoomInButton") == null and screen.get_node_or_null("%ZoomOutButton") == null,
+		"the header no longer includes zoom buttons")
 	_send_board_touch_drag(screen, 9, right + Vector2(600.0, 0.0))
 	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "pinch cannot exceed the close view")
-	check(screen.get_node("%ZoomInButton").disabled, "zoom in disables at the upper limit")
 	_send_board_touch_drag(screen, 9, left + Vector2(10.0, 0.0))
 	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "pinch cannot shrink below the full board")
-	check(screen.get_node("%ZoomOutButton").disabled, "zoom out disables at the lower limit")
 	_send_board_touch(screen, 4, left, false)
 	_send_board_touch(screen, 9, right, false)
-	screen.get_node("%ZoomInButton").pressed.emit()
-	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "plus retains its existing 2x step")
-	screen.get_node("%ZoomOutButton").pressed.emit()
-	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "minus retains its existing 1x step")
+	var wheel := InputEventAction.new()
+	wheel.pressed = true
+	wheel.action = &"mouse_wheel_zoom_in"
+	screen._unhandled_input(wheel)
+	check_eq(screen.board_view.zoom, BoardView.CLOSE_ZOOM, "mouse wheel retains its existing 2x step")
+	wheel.action = &"mouse_wheel_zoom_out"
+	screen._unhandled_input(wheel)
+	check_eq(screen.board_view.zoom, BoardView.OVERVIEW_ZOOM, "mouse wheel retains its existing 1x step")
 	_release(screen)
 
 
@@ -2676,6 +3172,75 @@ func _send_board_touch_drag(screen: GameScreen, index: int, point: Vector2) -> v
 	screen.board_input._input(event)
 
 
+func test_rack_drag_eases_live_insertion_and_keeps_tile_identity() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var deck: Array[TileDefinition] = screen.controller.human_deck()
+	var row: DeckView = screen.deck_view
+	check(_begin_deck_drag(screen, 1), "rack drag begins")
+	var before: Rect2 = row.tile_global_rect_for(deck[1].tile_id)
+	var neighbor_before: Rect2 = row.tile_global_rect_for(deck[2].tile_id)
+	var target: Vector2 = (row.tile_rect_at(3).get_center() + row.tile_rect_at(4).get_center()) * 0.5
+	_send_motion(row, target)
+	check(row.is_dragging(), "moving within rack keeps the drag alive")
+	row._process(1.0 / 60.0)
+	var moving_tile: Rect2 = row.tile_global_rect_for(deck[1].tile_id)
+	var moving_neighbor: Rect2 = row.tile_global_rect_for(deck[2].tile_id)
+	check(moving_tile.position.x > before.position.x, "the dragged tile's slot opens during the drag")
+	check(moving_neighbor.position.x < neighbor_before.position.x, "neighboring tiles ease toward the open slot")
+	check(moving_tile.position.distance_to(before.position) < before.size.x, "one frame never jumps a full tile width")
+	_send_release(row, target)
+	check(not row.is_dragging(), "release ends rack drag")
+	for frame: int in range(60):
+		row._process(1.0 / 60.0)
+	check(row.tile_rect_at(3).position.x < row.tile_rect_at(1).position.x, "tile inserts after its left neighbor")
+	check(row.tile_rect_at(1).position.x < row.tile_rect_at(4).position.x, "tile inserts before its right neighbor")
+	screen._refresh_all()
+	_tap_deck_fully(screen, 2)
+	check_eq(screen.controller.selected_deck_tile_id(), deck[2].tile_id, "tap after reorder selects the drawn identity")
+	check_eq(screen.controller.staged_count(), 0, "rack reorder stages nothing")
+	check_eq(screen.controller.get_board().get_revision(), 0, "rack reorder never commits")
+	check_eq(screen.controller.human_deck(), deck, "rack order does not mutate match ownership")
+	_release(screen)
+
+
+func test_staged_tile_returns_to_chosen_rack_position_with_touch_and_mouse() -> void:
+	for touch: bool in [true, false]:
+		var screen: GameScreen = _host_screen()
+		if screen == null:
+			return
+		var deck: Array[TileDefinition] = screen.controller.human_deck()
+		var row: DeckView = screen.deck_view
+		row.size = Vector2(720, 96)
+		var neighbor: Rect2 = row.tile_global_rect_for(deck[2].tile_id)
+		var cell := Vector2i(5, 5)
+		screen.controller.select_deck_tile(deck[1].tile_id)
+		check(screen.stage_at(cell), "fixture stages middle rack tile")
+		check_eq(row.tile_global_rect_for(deck[2].tile_id), neighbor, "staging preserves neighboring slot")
+		# Put the row below the board without depending on a deferred layout pass.
+		var origin: Vector2 = _board_point_for(screen, cell)
+		row.global_position = screen.board_view.global_board_rect().end + Vector2(0, 20)
+		var target: Vector2 = row.get_global_transform() * Vector2(row.size.x - 1, row.size.y * 0.5)
+		if touch:
+			_send_board_touch(screen, 2, origin, true)
+			_send_board_touch_drag(screen, 2, target)
+			_send_board_touch(screen, 2, target, false)
+		else:
+			screen.board_input._handle_press(origin, true)
+			var release := InputEventMouseButton.new()
+			release.button_index = MOUSE_BUTTON_LEFT
+			release.position = target
+			screen.board_input._input(release)
+		check_eq(screen.controller.staged_count(), 0, "board release into rack unstages tile")
+		check_eq(row.deck_size(), deck.size(), "returned tile is visible again")
+		for frame: int in range(60):
+			row._process(1.0 / 60.0)
+		check(row.tile_rect_at(1).position.x > row.tile_rect_at(5).position.x, "returned tile inserts at requested end")
+		check_eq(screen.controller.get_board().get_revision(), 0, "return never commits a tile")
+		_release(screen)
+
+
 func _host_screen() -> GameScreen:
 	var screen: GameScreen = _instantiate(GAME_SCREEN_SCENE) as GameScreen
 	if not check_not_null(screen, "the game screen must instantiate as a GameScreen"):
@@ -2721,3 +3286,119 @@ func _release(node: Node) -> void:
 	if parent != null:
 		parent.remove_child(node)
 	node.free()
+
+
+## Commit a real, legal AI pair while the tree is paused between process frames.
+func _commit_rival_opening(screen: GameScreen) -> LineResult:
+	var controller: GameSessionController = screen.controller
+	var session: GameSessionState = controller.get_session()
+	var pair: Array[TileDefinition] = _rank_pair(session.deck_for(TurnEnums.AI_PLAYER_ID), 2)
+	if not check(pair.size() == 2, "AI fixture has a pair"):
+		return null
+	var turn: TurnState = session.get_turn_state()
+	turn.active_player_id = TurnEnums.AI_PLAYER_ID
+	turn.phase = TurnEnums.MatchPhase.AWAIT_ACTION
+	var snapshots: Array[TileSnapshot] = [
+		TileSnapshot.create(pair[0], Vector2i(5, 5), 90),
+		TileSnapshot.create(pair[1], Vector2i(6, 5), 180),
+	]
+	return controller._commit_line(TurnEnums.AI_PLAYER_ID, snapshots)
+
+
+func test_rival_tiles_fly_from_rack_then_refill_without_changing_state() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var pot_before: int = screen.controller.remaining_tiles()
+	var result: LineResult = _commit_rival_opening(screen)
+	if not check(result != null and result.was_committed(), "AI fixture commits a legal pair"):
+		_release(screen)
+		return
+	var layer: RivalMoveLayer = screen.rival_move_layer
+	var rack: OpponentRackView = screen.get_node("%OpponentRack")
+	var revision: int = screen.controller.get_board().get_revision()
+	check(layer.is_playing(), "AI commit starts its flight")
+	check_eq(layer._snapshots, result.staged_tiles, "flight uses committed faces and rotations only")
+	check_eq(screen.controller.remaining_tiles(), pot_before - 2, "rules refill exactly the two spent tiles")
+	check_eq(layer._refill_count, 2, "presentation refills the actual replacement count")
+	check_eq(screen.board_view._state.concealed_cells.size(), 2, "board conceals tiles still in flight")
+	check_eq(rack._concealed, [0], "first card leaves its existing rack slot immediately")
+	check(not screen.board_input.enabled, "board input waits for the rival presentation")
+	screen._on_swap_pressed()
+	check(not screen.is_swap_mode(), "swap cannot race the rival presentation")
+	screen._refresh_all()
+	check_eq(rack._concealed, [0], "state refresh does not reveal flying rack tiles")
+	layer._process(RivalMoveLayer.FLIGHT + 0.01)
+	check_eq(screen.board_view._state.concealed_cells.size(), 1, "each tile becomes visible only after landing")
+	check(not screen._rival_score_events.is_empty(), "score reveal waits for the full line to land")
+	layer._process(RivalMoveLayer.STAGGER)
+	check(screen.board_view._state.concealed_cells.is_empty(), "landed line is fully visible")
+	check(screen._rival_score_events.is_empty(), "score feedback releases after placement")
+	check_eq(rack._tile_count - rack._concealed.size(), 4, "rack temporarily shows only the four unplayed tiles")
+	var elapsed: float = layer._elapsed
+	screen.board_view.set_close_view(false)
+	rack.size.x += 20.0
+	check_eq(layer._elapsed, elapsed, "layout and zoom do not restart the animation")
+	layer._process(layer.total_duration())
+	check(not layer.is_playing(), "refill completes")
+	check_eq(rack._tile_count, screen.controller.opponent_deck_count(), "rack ends at authoritative count")
+	check(rack._concealed.is_empty(), "replacement backs appear after landing")
+	check(screen.board_input.enabled, "human input returns after refill")
+	check_eq(screen.controller.get_board().get_revision(), revision, "animation never mutates the committed board")
+	_release(screen)
+
+
+func test_rival_refill_uses_only_remaining_pot_tiles() -> void:
+	for available: int in [0, 1]:
+		var screen: GameScreen = _host_screen()
+		if screen == null:
+			return
+		var source: TileSource = screen.controller.get_session().get_tile_source()
+		while screen.controller.remaining_tiles() > available:
+			source.draw()
+		var result: LineResult = _commit_rival_opening(screen)
+		if check(result != null and result.was_committed(), "limited-pot AI pair commits"):
+			var layer: RivalMoveLayer = screen.rival_move_layer
+			check_eq(layer._refill_count, available, "no replacement is invented when pot runs out")
+			layer._process(layer.total_duration())
+			check_eq(screen.get_node("%OpponentRack")._tile_count, 4 + available, "short hand displays its real size")
+			check_eq(screen.controller.remaining_tiles(), 0, "refill exhausts only available tiles")
+		_release(screen)
+
+
+func test_rival_animation_clears_on_restart_and_respects_reduced_motion() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	_commit_rival_opening(screen)
+	screen.rival_move_layer._process(0.2)
+	screen._on_restart_pressed()
+	check(not screen.rival_move_layer.is_playing(), "restart cancels the old move animation")
+	check(screen.board_view._state.concealed_cells.is_empty(), "restart leaves no concealed cells")
+	check(screen.get_node("%OpponentRack")._concealed.is_empty(), "restart leaves no concealed rack slots")
+	check(screen._rival_score_events.is_empty(), "restart clears delayed score feedback")
+	var reduced: Variant = ProjectSettings.get_setting(AccessibilitySettings.REDUCED_MOTION_PATH, false)
+	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, true)
+	_commit_rival_opening(screen)
+	check(not screen.rival_move_layer.is_playing(), "reduced motion skips all flight and flip effects")
+	check(screen.board_view._state.concealed_cells.is_empty(), "reduced motion shows the committed board immediately")
+	check_eq(screen.get_node("%OpponentRack")._tile_count, screen.controller.opponent_deck_count(), "reduced motion shows the authoritative refill immediately")
+	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, reduced)
+	_release(screen)
+
+
+func test_rival_final_move_finishes_before_results_cover_board() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	_commit_rival_opening(screen)
+	var session: GameSessionState = screen.controller.get_session()
+	session.finish(TurnEnums.MatchOutcome.AI_WIN, TurnEnums.EndReason.BOARD_FULL)
+	screen._on_match_ended(MatchResult.build(session))
+	check(not screen.summary_overlay.visible, "results wait for the final rival flight")
+	screen.rival_move_layer._process(screen.rival_move_layer.total_duration())
+	check(not screen.summary_overlay.visible, "results wait on the completed board after all rival tiles land")
+	check(screen.board_view._state.concealed_cells.is_empty(), "final move leaves no hidden board cells")
+	screen._on_final_board_pause_finished()
+	check(screen.summary_overlay.visible, "results appear after the final-board pause")
+	_release(screen)

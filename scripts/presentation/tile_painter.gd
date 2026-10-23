@@ -18,11 +18,15 @@ extends RefCounted
 ## decides when to redraw.
 
 ## Card face and border.
-const CARD_FACE: Color = Color(0.96, 0.96, 0.94, 1.0)
-const CARD_BORDER: Color = Color(0.20, 0.21, 0.25, 1.0)
+const CARD_FACE: Color = Color("#F6F2E9")
+const CARD_BORDER: Color = Color("#173D42")
+
+## Temporary dark side visible as a tile turns edge-on.
+const FLIP_EDGE_COLOR: Color = Color(0.20, 0.20, 0.22, 1.0)
+const FLIP_DEPTH_RATIO: float = 0.20
 
 ## Empty board cell.
-const EMPTY_CELL: Color = Color(0.16, 0.18, 0.22, 1.0)
+const EMPTY_CELL: Color = Color("#89A69C")
 
 ## Edge colours, indexed by `TileEnums.EdgeColor`.
 ##
@@ -48,8 +52,8 @@ const EDGE_COLORS: Array[Color] = [
 
 ## Face colours, indexed by `TileEnums.FaceColor`.
 const FACE_COLORS: Array[Color] = [
-	Color(0.80, 0.18, 0.22, 1.0),
-	Color(0.13, 0.14, 0.18, 1.0),
+	Color("#B83137"),
+	Color("#192B30"),
 	Color(0.48, 0.30, 0.65, 1.0),
 ]
 
@@ -65,11 +69,9 @@ const GLYPH_RATIO: float = 0.46
 ## here as the single place a later art pass changes it. It is resolved on first
 ## use rather than preloaded, so a project that supplies no image still runs: the
 ## drawn card is the fallback.
-const TILE_BACK_TEXTURE: String = "res://assets/textures/tile_background_default.png"
+const TILE_BACK_TEXTURE: String = "res://assets/ui/modern_tabletop/tile_back.svg"
+const OPPONENT_TILE_BACK_TEXTURE: String = "res://assets/textures/tile_background_teal.png"
 
-## Border thickness of a face-down tile, as a fraction of its shorter side. Kept
-## in step with the face's own border so a turning tile does not change shape.
-const BACK_BORDER_RATIO: float = 0.05
 
 ## Fraction of a stack tile's size that each successive layer is offset by.
 const STACK_OFFSET_RATIO: float = 0.09
@@ -77,7 +79,7 @@ const STACK_OFFSET_RATIO: float = 0.09
 ## Tile art: a tile is composed as a stack of images, bottom layer first.
 ##
 ## Order is the authorised tile composition: `tile_base.png` as the base, then the
-## face, then one overlay per edge, then `tile_shine.png`. Every layer is drawn
+## face, then one overlay per edge. Every layer is drawn
 ## into the whole tile rectangle, so a layer image may be authored at any size and
 ## is scaled to the tile it is drawn on.
 ##
@@ -85,8 +87,10 @@ const STACK_OFFSET_RATIO: float = 0.09
 ## partly supplied art set still renders a readable board and improves layer by
 ## layer as images are added. A project with no art at all renders exactly as it
 ## did before this existed.
+# Preserve the supplied base's lower lip; the flat SVG omits that depth.
 const TILE_BASE_TEXTURE: String = "res://assets/tiles/tile_base.png"
-const TILE_SHINE_TEXTURE: String = "res://assets/tiles/tile_shine.png"
+const TILE_SHADOW_TEXTURE: String = "res://assets/tiles/tile_shadow.png"
+const TILE_GLIMMER_TEXTURE: String = "res://assets/tiles/tile_glimmer.png"
 const TILE_EDGE_DIR: String = "res://assets/tiles/edges/"
 const TILE_FACE_DIR: String = "res://assets/tiles/suits/"
 
@@ -170,7 +174,128 @@ static func paint_tile(
 	for position: int in range(TileEnums.EDGE_COUNT):
 		var color: int = int(edges[position]) if position < edges.size() else -1
 		_paint_edge_layer(canvas, rect, position, color, alpha)
-	_paint_shine_layer(canvas, rect, alpha)
+
+
+## Draws the deck's soft shadow beneath a tile before its face is painted.
+##
+## The supplied art keeps its olive colour. Its visible silhouette is in the
+## bottom half of the source image, so draw that cropped portion as a shallow
+## underlay that extends below the tile. Drawing the full image behind a tile
+## would hide almost all of it.
+static func paint_tile_shadow(canvas: CanvasItem, rect: Rect2) -> void:
+	if not is_drawable(rect):
+		return
+	var shadow: Texture2D = _art_for(TILE_SHADOW_TEXTURE)
+	if shadow == null:
+		return
+	var source_size: Vector2 = shadow.get_size()
+	if source_size.x <= 0.0 or source_size.y <= 0.0:
+		return
+	var source: Rect2 = Rect2(
+		Vector2(0.0, source_size.y * 0.55),
+		Vector2(source_size.x, source_size.y * 0.45)
+	)
+	var shadow_rect: Rect2 = Rect2(
+		Vector2(rect.position.x, rect.position.y + rect.size.y * 0.65),
+		Vector2(rect.size.x, rect.size.y * 0.45)
+	)
+	canvas.draw_texture_rect_region(shadow, shadow_rect, source)
+
+
+## Draws a clipped, 45-degree glimmer strip at one point in its deck sweep.
+static func paint_tile_glimmer(canvas: CanvasItem, rect: Rect2, progress: float) -> void:
+	if not is_drawable(rect):
+		return
+	var texture: Texture2D = _art_for(TILE_GLIMMER_TEXTURE)
+	if texture == null:
+		return
+	var texture_size: Vector2 = texture.get_size()
+	if texture_size.x <= 0.0 or texture_size.y <= 0.0:
+		return
+	var strip_ratio: float = 0.26
+	var strip_size := Vector2(rect.size.x * strip_ratio, rect.size.y)
+	var sweep: float = clampf(progress, 0.0, 1.0)
+	var left_center: Vector2 = Vector2(rect.position.x, rect.get_center().y)
+	var right_center: Vector2 = Vector2(rect.end.x, rect.get_center().y)
+	var center: Vector2 = left_center.lerp(right_center, sweep)
+	var rotation: float = deg_to_rad(-45.0)
+	var local_corners: Array[Vector2] = [
+		Vector2(-strip_size.x * 0.5, -strip_size.y * 0.5),
+		Vector2(strip_size.x * 0.5, -strip_size.y * 0.5),
+		Vector2(strip_size.x * 0.5, strip_size.y * 0.5),
+		Vector2(-strip_size.x * 0.5, strip_size.y * 0.5),
+	]
+	var source_width: float = texture_size.x * strip_ratio
+	var source_uvs: Array[Vector2] = [
+		Vector2(0.0, 0.0),
+		Vector2(source_width / texture_size.x, 0.0),
+		Vector2(source_width / texture_size.x, 1.0),
+		Vector2(0.0, 1.0),
+	]
+	var polygon: Array[Vector4] = []
+	for index: int in range(local_corners.size()):
+		var point: Vector2 = center + local_corners[index].rotated(rotation)
+		polygon.append(Vector4(point.x, point.y, source_uvs[index].x, source_uvs[index].y))
+	polygon = _clip_glimmer_polygon(polygon, 0, rect.position.x, true)
+	polygon = _clip_glimmer_polygon(polygon, 0, rect.end.x, false)
+	polygon = _clip_glimmer_polygon(polygon, 1, rect.position.y, true)
+	polygon = _clip_glimmer_polygon(polygon, 1, rect.end.y, false)
+	if polygon.size() < 3:
+		return
+	var points := PackedVector2Array()
+	var uvs := PackedVector2Array()
+	for vertex: Vector4 in polygon:
+		points.append(Vector2(vertex.x, vertex.y))
+		uvs.append(Vector2(vertex.z, vertex.w))
+	canvas.draw_colored_polygon(points, Color.WHITE, uvs, texture)
+
+
+## Clips position and UV tuples against one axis-aligned tile boundary.
+static func _clip_glimmer_polygon(
+	polygon: Array[Vector4], axis: int, boundary: float, keep_greater: bool
+) -> Array[Vector4]:
+	var clipped: Array[Vector4] = []
+	if polygon.is_empty():
+		return clipped
+	var previous: Vector4 = polygon[polygon.size() - 1]
+	var previous_value: float = previous.x if axis == 0 else previous.y
+	var previous_inside: bool = previous_value >= boundary if keep_greater else previous_value <= boundary
+	for current: Vector4 in polygon:
+		var current_value: float = current.x if axis == 0 else current.y
+		var current_inside: bool = current_value >= boundary if keep_greater else current_value <= boundary
+		if current_inside != previous_inside:
+			var amount: float = (boundary - previous_value) / (current_value - previous_value)
+			var intersection: Vector4 = previous.lerp(current, amount)
+			if axis == 0:
+				intersection.x = boundary
+			else:
+				intersection.y = boundary
+			clipped.append(intersection)
+		if current_inside:
+			clipped.append(current)
+		previous = current
+		previous_value = current_value
+		previous_inside = current_inside
+	return clipped
+
+
+## Draws the tile's perceived side, reaching 20% of its width at the half-turn.
+static func paint_flip_depth(canvas: CanvasItem, rect: Rect2, progress: float) -> void:
+	var side: Rect2 = flip_depth_rect(rect, progress)
+	if side.has_area():
+		canvas.draw_rect(side, FLIP_EDGE_COLOR, true)
+
+
+## Returns the tall center strip used for the edge-on part of a flip.
+static func flip_depth_rect(rect: Rect2, progress: float) -> Rect2:
+	if not is_drawable(rect) or progress <= 0.0 or progress >= 1.0:
+		return Rect2()
+	var edge_amount: float = 1.0 - absf(progress * 2.0 - 1.0)
+	var depth: float = rect.size.x * FLIP_DEPTH_RATIO * edge_amount
+	return Rect2(
+		Vector2(rect.get_center().x - depth * 0.5, rect.position.y),
+		Vector2(depth, rect.size.y)
+	)
 
 
 ## Cached tile art, keyed by path.
@@ -179,6 +304,42 @@ static func paint_tile(
 ## stall the animation. A null entry records "resolved, and this image is absent"
 ## so a missing file is looked for once rather than on every draw.
 static var _art: Dictionary = {}
+
+
+## Returns every tile texture used by the painter, including optional art. The
+## splash uses this list to resolve resources before a deal can hit a cold asset.
+static func warmable_art_paths() -> PackedStringArray:
+	var paths := PackedStringArray([
+		TILE_BASE_TEXTURE,
+		TILE_SHADOW_TEXTURE,
+		TILE_GLIMMER_TEXTURE,
+		TILE_BACK_TEXTURE,
+		OPPONENT_TILE_BACK_TEXTURE,
+	])
+	for directory: String in [TILE_FACE_DIR, TILE_EDGE_DIR]:
+		var files: PackedStringArray = _png_files_in(directory)
+		for file_name: String in files:
+			paths.append(directory.path_join(file_name))
+	return paths
+
+
+## Resolves one texture into the same caches used by normal tile drawing.
+static func warm_art_path(path: String) -> void:
+	if path == TILE_BACK_TEXTURE:
+		tile_back_texture()
+	else:
+		_art_for(path)
+
+
+static func _png_files_in(directory: String) -> PackedStringArray:
+	var result := PackedStringArray()
+	var access: DirAccess = DirAccess.open(directory)
+	if access == null:
+		return result
+	for file_name: String in access.get_files():
+		if file_name.get_extension().to_lower() == "png":
+			result.append(file_name)
+	return result
 
 
 ## Returns the texture at `path`, or null when the project supplies none.
@@ -226,7 +387,9 @@ static func _paint_face_layer(
 ) -> void:
 	var art: Texture2D = _art_for(_face_path(tile))
 	if art != null:
-		canvas.draw_texture_rect(art, rect, false, Color(1.0, 1.0, 1.0, alpha))
+		var ink: Color = face_color_for(int(tile.face_color))
+		ink.a *= alpha
+		canvas.draw_texture_rect(art, rect, false, ink)
 		return
 	_paint_glyph(canvas, rect, int(tile.rank), alpha)
 
@@ -265,15 +428,6 @@ static func _paint_edge_layer(
 	canvas.draw_rect(_edge_band(rect, position, band), drawn, true)
 
 
-## Draws the shine above every other layer. It is optional: a project without it
-## gets the flat tile.
-static func _paint_shine_layer(canvas: CanvasItem, rect: Rect2, alpha: float) -> void:
-	var art: Texture2D = _art_for(TILE_SHINE_TEXTURE)
-	if art == null:
-		return
-	canvas.draw_texture_rect(art, rect, false, Color(1.0, 1.0, 1.0, alpha))
-
-
 ## Cached tile-back image, resolved once.
 ##
 ## A deal redraws every frame, so loading the resource per tile would stall the
@@ -299,11 +453,9 @@ static func tile_back_texture() -> Texture2D:
 ## nobody has drawn and a face here would publish information the game does not
 ## give the player.
 ##
-## The image's largest centred region that already has the tile's shape is cropped
-## into `rect`, so an image that is not the same shape as a tile is neither
-## distorted nor allowed to spill past the tile. The border matches the face's, so
-## a tile mid-turn neither gains nor loses its outline. Pass a narrowed rect to
-## draw the tile part-way through turning over.
+## The back artwork shares the face's visible bounds and fills the same target
+## rectangle. Do not add a second outline or crop to the animated aspect ratio:
+## the flip must compress the whole back exactly as it compresses the face.
 static func paint_tile_back(canvas: CanvasItem, rect: Rect2, alpha: float = 1.0) -> void:
 	if not is_drawable(rect):
 		return
@@ -312,34 +464,24 @@ static func paint_tile_back(canvas: CanvasItem, rect: Rect2, alpha: float = 1.0)
 		var plain: Color = CARD_FACE
 		plain.a *= alpha
 		canvas.draw_rect(rect, plain, true)
-	else:
-		var source: Vector2 = back.get_size()
-		if source.x > 0.0 and source.y > 0.0:
-			# Crop the largest centred region of the image that already has the
-			# tile's shape, and draw that region INTO the tile rectangle. Drawing
-			# the whole image scaled to cover instead would let an image that is
-			# not tile-shaped spill past the tile and overlap whatever is beside
-			# or behind the stack.
-			var target_aspect: float = rect.size.x / rect.size.y
-			var region: Vector2 = source
-			if source.x / source.y > target_aspect:
-				region.x = source.y * target_aspect
-			else:
-				region.y = source.x / target_aspect
-			canvas.draw_texture_rect_region(
-				back,
-				rect,
-				Rect2((source - region) * 0.5, region),
-				Color(1.0, 1.0, 1.0, alpha)
-			)
-	var border: Color = CARD_BORDER
-	border.a *= alpha
-	canvas.draw_rect(
-		rect,
-		border,
-		false,
-		maxf(1.0, minf(rect.size.x, rect.size.y) * BACK_BORDER_RATIO)
-	)
+		return
+	canvas.draw_texture_rect(back, rect, false, Color(1.0, 1.0, 1.0, alpha))
+
+
+## Draws the supplied ornamental teal back in the opponent's compact rack.
+##
+## The image carries its own artwork, so this path adds no painter-generated
+## border or outline around the rendered tile.
+static func paint_opponent_tile_back(canvas: CanvasItem, rect: Rect2, alpha: float = 1.0) -> void:
+	if not is_drawable(rect):
+		return
+	var back: Texture2D = _art_for(OPPONENT_TILE_BACK_TEXTURE)
+	if back == null:
+		var fallback := Color("#0B737B")
+		fallback.a *= alpha
+		canvas.draw_rect(rect, fallback, true)
+		return
+	canvas.draw_texture_rect(back, rect, false, Color(1.0, 1.0, 1.0, alpha))
 
 
 ## Draws a face-down stack of `layers` tiles filling `area`.

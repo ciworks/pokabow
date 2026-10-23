@@ -14,6 +14,11 @@ itself rename runtime labels or identifiers.
 
 This document is the source of truth for the approved game design and technical requirements for the project.
 
+The approved visual standard is [Pokabow Design System — Modern Tabletop](DESIGN_SYSTEM.md),
+decided on 2026-10-17 in [ADR-020](decisions/ADR-020-modern-tabletop-design-system.md).
+It governs all new or redesigned UI elements, pages, graphics and layouts.
+Visual approval is separate from runtime implementation status.
+
 The game is a mobile, turn-based 2D tile-placement game inspired by Scrabble and Poker.
 
 The initial launch/demo mode is Human vs AI.
@@ -401,8 +406,10 @@ The board/game systems remain responsible for validating and applying those acti
 
 Screen orientation (decided 2026-10-05): the game is portrait-only, including
 splash, hub, and matches. Use a 540x960 reference canvas with aspect-preserving
-scaling. Wide windows retain a portrait play area with unused space at the
-sides; device rotation must not enable landscape gameplay.
+scaling. Taller phones expand the logical canvas vertically to fill the available
+height (responsive portrait update, 2026-10-12); the 540x960 canvas is a reference,
+not a fixed aspect ratio. Wide windows retain a portrait play area with unused
+space at the sides; device rotation must not enable landscape gameplay.
 
 ## 7.1 Input
 
@@ -414,10 +421,13 @@ The mobile interaction model includes:
 
 Board navigation (decided 2026-10-06): drag the board to pan and use a two-finger
 pinch for continuous zoom between the full-board 1x view and close 2x view.
-The existing zoom buttons retain their 1x/2x steps. Pinching changes only the
-view and cancels any pending tile-drag gesture without changing staged tiles.
+The close-view target adapts to viewport width, showing the maximum number of
+columns that preserves 64 logical pixels per cell, capped at 12 columns and 2x.
+Pinching remains available up to 2x. Zooming changes only the view and cancels
+any pending tile-drag gesture without changing staged tiles.
 The configured `mouse_wheel_zoom_in` and `mouse_wheel_zoom_out` actions follow
-the same 2x and 1x button steps and stop at their respective zoom limits.
+the adaptive close-view and full-board 1x steps and stop at their respective zoom
+limits.
 
 ## 7.2 Placement Feedback
 
@@ -429,10 +439,22 @@ The UI should:
 
 **Implemented presentation of ADR-011 staging:** A selected deck tile appears at
 its staged board cell even while the line is incomplete or invalid, with separate
-validity feedback. The visible deck row excludes staged tiles and shows them
-again if they are un-staged or the pending line is cancelled. The authoritative
+validity feedback. The visible deck row leaves staged tiles' slots vacant and shows them
+again if they are un-staged or the pending line is cancelled. As requested on
+2026-10-17, dropping a tile back between rack tiles (or at either end) inserts it
+there and shifts the intervening slots into the new order. The authoritative
 match deck retains those tiles until the valid line commits. This display flow
 does not add a gameplay rule.
+
+Decided and implemented (2026-10-17): successfully dropping a tile onto the
+board from the full-board 1x view switches to 2x and centers the destination
+cell as far as the board boundaries allow. This also applies when repositioning
+a staged tile. Drag previews, refused drops, rotation, and rack returns do not
+trigger this camera change; existing close or intermediate pinch zoom is retained.
+After a committed hand's score feedback and replacement-tile animations finish,
+the view returns to the centered full-board 1x overview. This applies to both
+players' committed hands. A new placement takes priority over a camera reset
+still waiting for the preceding hand's effects.
 
 ## 7.3 Edge and Cluster Feedback
 
@@ -446,7 +468,10 @@ The source specification suggests:
 - Animation.
 - Particle effects.
 
-The exact visual style is not specified.
+Visual treatment follows [the Modern Tabletop design system](DESIGN_SYSTEM.md)
+(ADR-020): restrained effects, readable tile faces and the established four edge
+colours. Preserve scoring feedback and reduced-motion behaviour. Exact effect
+timing and device tuning remain implementation details to validate.
 
 ## 7.4 Score Feedback
 
@@ -455,11 +480,24 @@ The UI should provide floating score popups for:
 - Poker-hand points.
 - Edge bonuses.
 
+After a committed hand awards points, the game screen's top label should state
+which player scored and the combined point total for that move.
+
 ## 7.5 Haptics
 
 Optional haptic feedback is supported.
 
 Haptics should not be required for the core game to be playable.
+
+## 7.6 Visual design standard (Decided, 2026-10-17)
+
+[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) defines the approved palette, typography,
+spacing, tiles, avatars, buttons, page structure, component states and UI review
+requirements. Its written requirements take precedence over the illustrative
+reference and earlier styling notes. Read it for every new or redesigned screen,
+including screens absent from the reference image. Current gameplay and feature
+contracts remain unchanged; existing screens migrate incrementally. No runtime
+visual migration is implied by this documentation decision.
 
 ---
 
@@ -508,6 +546,31 @@ considered cheat-resistant. Achievement failures while offline must not block
 gameplay; unlock IDs are queued in local account state and retried when an
 authenticated session becomes available.
 
+The expanded account catalogue includes `two_pair_10` (ten distinct committed
+human Two Pair hand events across matches) and `perfect_match` (one committed
+human five-tile Full House with all four suits represented and all four internal
+hand boundaries matching by rotated edge colour). Progress events have stable
+per-account IDs, are queued offline, and are deduplicated by the API. These
+milestones do not change poker scoring or placement legality. Additional
+catalogue entries may use registered progress metrics and thresholds; new
+trigger types require a specification update and tested detection code.
+
+The first three engagement achievements were approved on 2026-10-20:
+
+| ID | Name | Unlock condition |
+|---|---|---|
+| `first_login` | First Login | First authenticated app visit recorded after the engagement feature is deployed. |
+| `streak_starter` | Streak Starter | Authenticated app visits on seven consecutive UTC calendar days. |
+| `loyal_user` | Loyal User | Authenticated app visits on 100 distinct UTC calendar days in total. |
+
+An app visit occurs when an authenticated game session starts or the app resumes.
+The API records at most one visit per account per UTC day, determines the day
+using its database clock, and awards these milestones once per account. Repeated
+logins, token refreshes and multiple devices cannot add extra days. Existing
+account creation dates are not evidence of earlier visits; days before the
+engagement tracking migration are not backfilled. Night Owl and Power User
+remain proposed and are not tracked by this feature.
+
 These are not required for the base game unless separately approved.
 
 ## 8.4 Future Features
@@ -522,25 +585,39 @@ Future features identified by the specification include:
 
 These should not be treated as part of the base game.
 
-## 8.5 Credits and Cosmetic Economy (Proposed, 2026-10-05)
+## 8.5 Gems and Match Pot (partly Decided, 2026-10-22)
 
-The owner has requested persistent cosmetic rewards for match participation,
-including wins and losses, with possible rewards for achievements, daily logins,
-and particular hands. The owner chose separate earned and premium currencies;
-both are restricted to cosmetics, with no pay-to-win benefits. Purchasing
-premium currency belongs to a later shop proposal.
+The owner chose **Gems** as the earned in-game currency, replacing the earlier
+proposed earned Credits. In the first release, only online matches generate a
+shared, system-funded Gem pot: qualifying hands played by either player add to
+the pot without debiting either player's balance. Every distinct committed
+poker-hand event contributes, even when the same category is scored again.
+The winner receives the pot; a draw splits it evenly. A player who completes a
+normal match receives a fixed completion grant outside the pot. A resigning
+player receives no completion grant and the opponent receives the pot only,
+with no completion grant. The same reward outcome is intended
+for a future match-ending timeout/forfeit; existing turn timeouts only pass a
+turn and are unchanged. AI matches do not generate pot or completion Gems in
+the first release. Achievement and optional rewarded-ad grants are desired
+sources; the existing result interstitial is not a rewarded ad. Tournament entry
+will spend Gems when tournaments launch; prices and tournament rules are open.
 
-The [Credits and Cosmetic Economy proposal](sections/10-credits-and-cosmetics.md)
-contains researched comparisons, candidate reward rules, illustrative earning
-and pricing values, cosmetic boundaries, and open decisions.
-[ADR-016](decisions/ADR-016-cosmetic-currencies.md) proposes the account wallet,
-transaction history, duplicate protection, offline behavior, and trust boundary.
+For the first balancing pass, each distinct committed hand contributes an even
+Gem amount to the pot: Pair 2, Two Pair 4, 3-straight 6, Three-of-a-Kind 8,
+4-straight 10, Full House 12 and 4-of-a-Kind 14. A normal completed match
+awards 10 additional Gems to each player. The amounts are provisional and
+separate from poker points; all draw pots therefore divide evenly.
 
-Only currency separation and cosmetic-only use are confirmed direction. Reward
-amounts, catalog overlap, earning eligibility, offline policy, architecture, and
-release timing remain Proposed. No currency feature is implemented by these
-documents, and no current scoring or turn rule changes. Existing achievement
-unlocks remain as defined in section 8.3; attaching Credit rewards is Proposed.
+[Gems and Online Match Pot](sections/11-gems-and-match-pot.md) records the
+settled direction, proposed accounting model and open decisions. The online
+gameplay screen now shows a live pot projection and gain animation from
+committed score events. Final balancing, edge cases, tournament pricing and
+rules, achievement/ad grant policy and rollout remain Proposed. No Gem wallet
+or payout settlement is implemented. The earlier [Credits and Cosmetic
+Economy proposal](sections/10-credits-and-cosmetics.md) and
+[ADR-016](decisions/ADR-016-cosmetic-currencies.md) are superseded where they
+conflict with the Gem direction. A future separate premium currency remains a
+proposal; no purchase or conversion rule is approved.
 
 ---
 
@@ -757,11 +834,11 @@ Need to define:
 Decided and implemented (2026-10-05, [ADR-017](decisions/ADR-017-turn-timer.md)):
 both players have 60 seconds per action phase. A line or swap still ends the
 turn immediately. At zero, return unconfirmed tiles to the rack and pass without
-placing or scoring. The active avatar panel's yellow border loses one sixtieth
-of its perimeter per second; it disappears at zero and resets for the next
-player. Existing match-end conditions still apply. The deadline continues while
-away; on return, expire only the abandoned turn, then start the next player's
-full 60 seconds. The settings drawer does not pause the timer.
+placing or scoring. The remaining time is shown as a compact `m:ss` text timer
+in the gameplay information row, as amended in [ADR-017](decisions/ADR-017-turn-timer.md).
+Existing match-end conditions still apply. The deadline continues while away;
+on return, expire only the abandoned turn, then start the next player's full
+60 seconds. The settings drawer does not pause the timer.
 
 Need to define:
 
@@ -773,7 +850,8 @@ Need to define:
 - Starting player rules.
 
 Decided (2026-10-10, [ADR-018](decisions/ADR-018-resignation.md)): a human may
-resign an active match from the settings drawer. Resignation ends the match
+resign an active match from the settings drawer or gameplay action bar. Both
+entries open the same confirmation. Resignation ends the match
 immediately and awards the rival the win regardless of the score; committed
 scores remain unchanged. The final local snapshot records outcome `AI_WIN` and
 end reason `RESIGNATION`, and the game API receives it with completed status.
@@ -787,6 +865,7 @@ Decided (ADR-004, ADR-010, ADR-014):
 - Face and edge probabilities are uniform unless a design decision changes them.
 - Duplicate tile configurations are permitted; identity is by tile ID.
 - The pot holds at most 4 Joker-ranked tiles.
+- The live pot drawer shows the faces, suits and edges of all remaining tiles, without tile IDs or future draw order. Both online seats see the same unordered inventory.
 
 Resolved by ADR-004 (finite seeded bag, uniform rank/colour/edge selection,
 duplicates permitted) and ADR-014 (at most 4 Jokers in one pot).
@@ -843,6 +922,14 @@ launches, it restores local user state and attempts login with saved credentials
 The API's `openapi.json` is the endpoint and payload contract; see
 `sections/07-godot-structure.md` for the current integration status.
 
+Decided and implemented (2026-10-14): if login using saved credentials returns
+HTTP 401, treat the old account as unavailable. Clear its local credentials,
+profile, account settings, match saves, achievement queues and synchronization
+state, then restart at new-account setup. Retain the configured Server IP.
+A protected request's expired token first triggers login; network failures and
+other inconclusive login failures retain the account and offer retry. Account
+reset does not send a remote deletion request or change gameplay rules.
+
 Local match persistence remains authoritative. The client creates a matching
 server game, submits every committed move using the API's `turnId` and
 `expectedVersion` contract, and calls `PATCH /games/{gameId}` with the latest
@@ -859,11 +946,19 @@ The hub labels its primary action **New Game** when no local saved session is
 present and **Resume** when one is present. New Game shows a pre-match reveal
 with a difficulty picker. It cycles through images in the selected difficulty's
 rival folder, randomly settles on one, and starts the local match with that AI
-difficulty and portrait. Online matchmaking is not implemented. Empty folders
+difficulty and portrait. Online matchmaking pairs authenticated accounts into a lobby; both players can ready up for server-authoritative live PvP (see `ONLINE_PLAY.md` and `MATCHMAKING.md`). Empty folders
 temporarily use the legacy shared portraits. Resume skips the reveal and
 restores the saved match. Starting a new match creates or reconnects its
 matching Tiletopia game record; resuming reuses the local match identity and
 associated API record.
+
+Decided (2026-10-20): Table Level is a separate account progression marker.
+Only a completed, server-verified online match awards XP, equally for wins,
+draws and losses. Online pairing uses a separate skill rating. See
+`sections/06-game-modes.md` for the initial thresholds and `MATCHMAKING.md`
+for search behavior. Migration 012 was verified on the configured local database
+on 2026-10-20; tournament
+access and mystery-tile unlock rules remain Future.
 
 The Settings panel provides **Clear game cache**, which deletes the local saved
 match and its client-side API sync record. If the sync record contains a server
@@ -1036,6 +1131,7 @@ A review may recommend amendments; it must not silently alter a decision.
 | - | Incremental scoring architecture | ADR-007; whole-line transactions in ADR-011 | Accepted; ADR-011 Decided |
 | - | Godot project architecture | ADR-008 | Proposed; technical approval remains open in the ADR |
 | - | Tile scoring multipliers and expanded tile values | ADR-013 | Accepted |
+| - | Visual identity and reusable UI design standard | ADR-020 | Decided; runtime adoption pending |
 
 ADR-009 was reserved for clusters but not used; ADR-002 records that decision.
 The status above reports the ADR files' current status. Implementation and tests

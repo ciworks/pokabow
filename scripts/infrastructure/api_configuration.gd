@@ -58,3 +58,10 @@ static func register_url() -> String:
 
 static func login_url() -> String:
 	return api_base_url() + "/auth/login"
+
+
+static func reset_runtime() -> void:
+	_server_ip = ""
+	var defaults := ConfigFile.new()
+	defaults.load("res://project.godot")
+	ProjectSettings.set_setting(SERVER_IP_SETTING_PATH, defaults.get_value("pokabow", "server_ip", DEFAULT_SERVER_IP))

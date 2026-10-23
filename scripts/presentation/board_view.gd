@@ -4,7 +4,7 @@ extends Control
 ## The 12 x 12 board, drawn (ADR-008 sections 4 and 9).
 ##
 ## `BoardView` is a thin orchestrator: it owns one `BoardRenderState`, keeps it
-## square and centred inside whatever space the layout allots, and asks its four
+## centred inside whatever space the layout allots, and asks its four
 ## layers to redraw. Each layer reads that shared state, so the layers cannot
 ## disagree with each other.
 ##
@@ -13,20 +13,26 @@ extends Control
 ## `BoardState`. `BoardView` never validates, never scores, and never mutates the
 ## board.
 ##
-## Responsiveness is a pure calculation (`BoardMetrics.fit_square`), so the board
-## stays square and inside safe bounds on any viewport - a 1280x720 desktop
-## window or a landscape phone.
+## The default viewport shows six columns and eight rows of square cells.
+## Zooming out fits the full square board inside the available space.
 
 ## Space around the grid reserved for its decorative frame.
-const PADDING: float = 14.0
+const PADDING: float = 20.0
 ## Distance from the sprite's outer edge to its clear interior, in source pixels.
-const FRAME_SOURCE_INSET: float = 96.0
+## Source-space nine-patch margin that maps to the board's visible frame width.
+const FRAME_PATCH_INSET: float = 40.0
 
 signal zoom_changed
 const CLOSE_ZOOM: float = 2.0
 const OVERVIEW_ZOOM: float = 1.0
+const DEFAULT_VISIBLE_CELLS: Vector2 = Vector2(6.0, 8.0)
+## Keep the widest close view large enough for reliable touch placement.
+const MIN_CLOSE_CELL_SIZE: float = 64.0
+## Game-screen layout can fill its central window; standalone views retain 6x8.
+@export var fill_available_space: bool = false
 var zoom: float = CLOSE_ZOOM
 var _camera_center := Vector2(0.5, 0.5)
+var _last_close_zoom: float = CLOSE_ZOOM
 var _canvas: Control
 
 var _state: BoardRenderState = BoardRenderState.new()
@@ -47,6 +53,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if not resized.is_connected(_on_resized):
 		resized.connect(_on_resized)
+	zoom = close_zoom_for_width()
+	_last_close_zoom = zoom
 	resync()
 
 
@@ -122,16 +130,84 @@ func global_board_rect() -> Rect2:
 	return Rect2(visible_rect.position + camera.position, camera.size)
 
 
+## The cell side visible when the full board is zoomed out, independent of the
+## current camera zoom. Used to keep the concealed rival tiles in scale with
+## the board's overview grid.
+func overview_cell_size() -> float:
+	var overview_rect: Rect2 = BoardMetrics.fit_square(Rect2(Vector2.ZERO, size), PADDING)
+	return BoardMetrics.cell_size(overview_rect, BoardEnums.BOARD_WIDTH)
+
+
 ## The stationary, clipped play area. UI sizing must use this, not the enlarged grid.
 func global_visible_rect() -> Rect2:
-	return BoardMetrics.fit_square(Rect2(global_position, size), PADDING)
+	var viewport_rect: Rect2 = _viewport_rect()
+	return Rect2(global_position + viewport_rect.position, viewport_rect.size)
+
+
+func _viewport_rect() -> Rect2:
+	var close_zoom: float = close_zoom_for_width()
+	var amount: float = 0.0
+	if close_zoom > OVERVIEW_ZOOM:
+		amount = clampf((zoom - OVERVIEW_ZOOM) / (close_zoom - OVERVIEW_ZOOM), 0.0, 1.0)
+	var close_aspect: float = DEFAULT_VISIBLE_CELLS.x / DEFAULT_VISIBLE_CELLS.y
+	if fill_available_space:
+		var inner: Vector2 = (size - Vector2.ONE * PADDING * 2.0).max(Vector2.ONE)
+		close_aspect = maxf(0.5, inner.x / inner.y)
+	var aspect: float = lerpf(1.0, close_aspect, amount)
+	return BoardMetrics.fit_aspect(Rect2(Vector2.ZERO, size), aspect, PADDING)
+
+
+## Uses the widest close view that keeps cells at least the mobile touch size.
+## The 12-column rule still caps the result when a wider viewport has room.
+func close_zoom_for_width() -> float:
+	if not fill_available_space:
+		return CLOSE_ZOOM
+	var available_width: float = maxf(0.0, size.x - PADDING * 2.0)
+	var max_visible_columns: int = mini(
+		BoardEnums.BOARD_WIDTH,
+		int(floor(available_width / MIN_CLOSE_CELL_SIZE))
+	)
+	if max_visible_columns <= 0:
+		return CLOSE_ZOOM
+	return clampf(
+		float(BoardEnums.BOARD_WIDTH) / float(max_visible_columns),
+		OVERVIEW_ZOOM,
+		CLOSE_ZOOM
+	)
 
 
 func set_close_view(close: bool) -> void:
-	var target: float = CLOSE_ZOOM if close else OVERVIEW_ZOOM
+	var target: float = close_zoom_for_width() if close else OVERVIEW_ZOOM
 	if zoom == target:
 		return
 	zoom = target
+	if close:
+		_last_close_zoom = target
+	clear_drag()
+	_redraw_all()
+	zoom_changed.emit()
+
+
+## Return to the full board and discard the previous close-view pan.
+func show_centered_overview() -> void:
+	_camera_center = Vector2(0.5, 0.5)
+	set_close_view(false)
+
+
+## An accepted placement in overview returns to the close view around that tile.
+## Clamp against the new viewport so edge tiles stay as central as possible
+## without exposing space outside the board. Other zoom levels stay untouched.
+func focus_placed_tile(cell: Vector2i) -> void:
+	if not is_equal_approx(zoom, OVERVIEW_ZOOM) or not BoardMetrics.is_valid_cell(cell, _state.grid):
+		return
+	zoom = close_zoom_for_width()
+	_last_close_zoom = zoom
+	var viewport_size: Vector2 = _viewport_rect().size
+	var side: float = maxf(viewport_size.x * zoom, viewport_size.y)
+	var target: Vector2 = (Vector2(cell) + Vector2.ONE * 0.5) / float(_state.grid)
+	if side > 0.0:
+		var half_visible: Vector2 = viewport_size / (2.0 * side)
+		_camera_center = target.clamp(half_visible, Vector2.ONE - half_visible)
 	clear_drag()
 	_redraw_all()
 	zoom_changed.emit()
@@ -146,9 +222,11 @@ func pinch_by(factor: float, previous_midpoint: Vector2, midpoint: Vector2) -> v
 	var anchor: Vector2 = (previous_midpoint - old_rect.position) / old_rect.size
 	var previous_zoom: float = zoom
 	zoom = clampf(zoom * factor, OVERVIEW_ZOOM, CLOSE_ZOOM)
-	var half_visible: float = 0.5 / zoom
-	_camera_center = (anchor - (midpoint - visible_rect.get_center()) / (visible_rect.size * zoom)).clamp(
-		Vector2.ONE * half_visible, Vector2.ONE * (1.0 - half_visible))
+	visible_rect = global_visible_rect()
+	var side: float = visible_rect.size.x * zoom
+	var half_visible: Vector2 = visible_rect.size / (2.0 * side)
+	_camera_center = (anchor - (midpoint - visible_rect.get_center()) / side).clamp(
+		half_visible, Vector2.ONE - half_visible)
 	_redraw_all()
 	if zoom != previous_zoom:
 		zoom_changed.emit()
@@ -158,9 +236,9 @@ func pan_by(delta: Vector2) -> void:
 	var side: float = global_visible_rect().size.x * zoom
 	if zoom == OVERVIEW_ZOOM or side <= 0.0:
 		return
-	var half_visible: float = 0.5 / zoom
+	var half_visible: Vector2 = global_visible_rect().size / (2.0 * side)
 	_camera_center = (_camera_center - delta / side).clamp(
-		Vector2.ONE * half_visible, Vector2.ONE * (1.0 - half_visible))
+		half_visible, Vector2.ONE - half_visible)
 	_redraw_all()
 
 
@@ -181,7 +259,9 @@ func cell_at_global(point: Vector2) -> Vector2i:
 ## Points the view at the board it should render.
 func set_board(board: BoardState) -> void:
 	if _state.board != board:
-		zoom = CLOSE_ZOOM
+		_state.concealed_cells.clear()
+		zoom = close_zoom_for_width()
+		_last_close_zoom = zoom
 		_camera_center = Vector2(0.5, 0.5)
 		zoom_changed.emit()
 	_state.board = board
@@ -468,12 +548,16 @@ func get_last_committed_cell() -> Vector2i:
 
 
 func _on_resized() -> void:
+	var next_close_zoom: float = close_zoom_for_width()
+	if is_equal_approx(zoom, _last_close_zoom):
+		zoom = next_close_zoom
+	_last_close_zoom = next_close_zoom
 	resync()
 
 
 ## Recomputes the square board area for the current control size.
 func _recompute_rect() -> void:
-	var viewport_rect: Rect2 = BoardMetrics.fit_square(Rect2(Vector2.ZERO, size), PADDING)
+	var viewport_rect: Rect2 = _viewport_rect()
 	_state.board_rect = BoardMetrics.camera_rect(viewport_rect.size, zoom, _camera_center)
 	if _canvas != null:
 		_canvas.position = viewport_rect.position
@@ -481,7 +565,7 @@ func _recompute_rect() -> void:
 	if _frame != null:
 		var frame_rect: Rect2 = viewport_rect.grow(PADDING)
 		# Scale the source corners uniformly; nine-patch stretches only the rails.
-		var frame_scale: float = PADDING / FRAME_SOURCE_INSET
+		var frame_scale: float = PADDING / FRAME_PATCH_INSET
 		_frame.scale = Vector2.ONE * frame_scale
 		_frame.position = frame_rect.position
 		_frame.size = frame_rect.size / frame_scale
@@ -517,3 +601,42 @@ func _redraw_all() -> void:
 		debug_overlay.queue_redraw()
 	if effect_layer != null:
 		effect_layer.queue_redraw()
+
+
+## Conceal only the presentation of tiles currently flying to their committed cells.
+func set_concealed_cells(cells: Array[Vector2i]) -> void:
+	if _state.concealed_cells == cells:
+		return
+	_state.concealed_cells = cells.duplicate()
+	if tile_layer != null:
+		tile_layer.queue_redraw()
+
+
+func tile_global_rect(cell: Vector2i) -> Rect2:
+	var rect: Rect2 = BoardMetrics.cell_rect(global_board_rect(), cell, BoardEnums.BOARD_WIDTH)
+	if rect.size.x <= BoardTileLayer.CELL_INSET * 2.0 or rect.size.y <= BoardTileLayer.CELL_INSET * 2.0:
+		return Rect2()
+	return rect.grow(-BoardTileLayer.CELL_INSET)
+
+
+## Keep an arriving rival line visible, including moves near the board edges.
+func reveal_cells(cells: Array[Vector2i]) -> void:
+	if cells.is_empty() or not tile_global_rect(cells[0]).has_area():
+		return
+	var visible: Rect2 = global_visible_rect().grow(1.0)
+	var all_visible: bool = true
+	for cell: Vector2i in cells:
+		all_visible = all_visible and visible.encloses(tile_global_rect(cell))
+	if all_visible:
+		return
+	var low: Vector2 = Vector2(cells[0])
+	var high: Vector2 = low
+	for cell: Vector2i in cells:
+		low = low.min(Vector2(cell))
+		high = high.max(Vector2(cell))
+	_camera_center = (low + high + Vector2.ONE) * 0.5 / float(BoardEnums.BOARD_WIDTH)
+	_redraw_all()
+	for cell: Vector2i in cells:
+		if not global_visible_rect().grow(1.0).encloses(tile_global_rect(cell)):
+			set_close_view(false)
+			break

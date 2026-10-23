@@ -1,6 +1,19 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+/artifacts/
+/.tmp/
+
+# Ignore PDF files anywhere in the repository.
+*.pdf
+
+# Preserve tile downscaling settings even when local excludes ignore imports.
+!assets/tiles/tile_base.png.import
+!assets/tiles/tile_shadow.png.import
+!assets/tiles/tile_glimmer.png.import
+!assets/tiles/edges/*.png.import
+!assets/tiles/suits/*.png.import
+!assets/ui/modern_tabletop/tile_back.svg.import
 
 # Summer Engine local-only state
 .summer/local/

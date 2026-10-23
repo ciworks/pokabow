@@ -1,6 +1,6 @@
 # ADR-016 - Earned and Premium Cosmetic Currencies
 
-- **Status:** Proposed. Separate currencies and cosmetic-only use are owner direction; the architecture and reward policies below await review.
+- **Status:** Historical proposal, superseded in part on 2026-10-22 by [Gems and Online Match Pot](../sections/11-gems-and-match-pot.md). Earned Credits and cosmetic-only earned use are no longer owner direction; the accounting ideas below remain proposals.
 - **Date:** 2026-10-05
 - **Resolves:** GAME_SPEC 8.5 and 13.10 (proposed economy); implications for sections 11.5 and 14.
 - **Related:** ADR-007 (score events), ADR-003/010/011 (match lifecycle), ADR-012 (hand categories), ADR-015 (achievements).

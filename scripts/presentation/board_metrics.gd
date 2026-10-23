@@ -27,10 +27,22 @@ const NO_CELL: Vector2i = Vector2i(-1, -1)
 ## can be dragged into the viewport. Shared by drawing and hit testing.
 static func camera_rect(viewport_size: Vector2, zoom: float, center: Vector2) -> Rect2:
 	var bounded_zoom: float = maxf(1.0, zoom)
-	var half_visible: float = 0.5 / bounded_zoom
-	var bounded_center := center.clamp(Vector2.ONE * half_visible, Vector2.ONE * (1.0 - half_visible))
-	var board_size: Vector2 = viewport_size * bounded_zoom
+	var side: float = maxf(viewport_size.x * bounded_zoom, viewport_size.y)
+	if side <= 0.0:
+		return Rect2()
+	var board_size: Vector2 = Vector2.ONE * side
+	var half_visible: Vector2 = viewport_size / (2.0 * side)
+	var bounded_center := center.clamp(half_visible, Vector2.ONE - half_visible)
 	return Rect2(viewport_size * 0.5 - bounded_center * board_size, board_size)
+
+
+## Fits a centered viewport without stretching its square board cells.
+static func fit_aspect(available: Rect2, aspect: float, padding: float = 0.0) -> Rect2:
+	var inner: Vector2 = (available.size - Vector2.ONE * maxf(padding, 0.0) * 2.0).max(Vector2.ZERO)
+	var ratio: float = maxf(aspect, 0.001)
+	var width: float = minf(inner.x, inner.y * ratio)
+	var fitted: Vector2 = Vector2(width, width / ratio)
+	return Rect2(available.position + (available.size - fitted) * 0.5, fitted)
 
 
 ## Returns the largest centred square that fits inside `available` once

@@ -115,8 +115,16 @@ func return_to_pot(tile: TileDefinition) -> bool:
 		return false
 	if tile == null or not tile.is_valid():
 		return false
-	_bag.append(tile)
-	return true
+	# Move the original drawn entry to the tail. Appending another copy makes
+	# save DTOs invalid (duplicate IDs) and prevents resuming after a swap.
+	for index: int in range(_next_draw_index):
+		if _bag[index].tile_id == tile.tile_id:
+			var original: TileDefinition = _bag[index]
+			_bag.remove_at(index)
+			_next_draw_index -= 1
+			_bag.append(original)
+			return true
+	return false
 
 
 ## Returns how many tiles are still available to draw.
@@ -124,6 +132,36 @@ func remaining_count() -> int:
 	if not _initialized:
 		return 0
 	return _bag.size() - _next_draw_index
+
+
+## Public inventory of undrawn faces and edges, without IDs or draw positions.
+## The presentation sorts by appearance so its sequence cannot imply bag order.
+func remaining_tile_faces() -> Array[Dictionary]:
+	var faces: Array[Dictionary] = []
+	if not _initialized:
+		return faces
+	for index: int in range(_next_draw_index, _bag.size()):
+		var tile: TileDefinition = _bag[index]
+		var edges: Array[int] = []
+		for edge: TileEnums.EdgeColor in tile.get_base_edges():
+			edges.append(int(edge))
+		faces.append({
+			"rank": int(tile.rank),
+			"face_color": int(tile.face_color),
+			"suit": int(tile.suit),
+			"edges": edges,
+		})
+	faces.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _face_key(a) < _face_key(b)
+	)
+	return faces
+
+
+static func _face_key(face: Dictionary) -> String:
+	var values: Array[String] = [str(face["rank"]), str(face["suit"]), str(face["face_color"])]
+	for edge: int in face["edges"]:
+		values.append(str(edge))
+	return "-".join(values)
 
 
 ## Returns true when no tile remains available.
@@ -165,10 +203,9 @@ func get_bag_size() -> int:
 
 ## Returns the complete bag in generated order.
 ##
-## Deliberately named `debug_` so gameplay code cannot mistake it for a legal
-## information source: ADR-004 section 7 hides undrawn tiles and draw order from
-## both the player-facing UI and the AI decision interface. Intended for tests,
-## replay verification, and save serialization.
+## Deliberately named `debug_` so gameplay code cannot mistake it for the
+## player-facing inventory. This exposes IDs and draw order, unlike
+## `remaining_tile_faces()`. Intended for tests, replay and save serialization.
 func debug_bag_snapshot() -> Array[TileDefinition]:
 	return _bag.duplicate()
 

@@ -116,14 +116,16 @@ Drawing and assignment form one atomic state change. If assignment fails, the ba
 
 ### 7. Information visibility
 
+As amended by the owner on 2026-10-22:
+
 - The active human tile and its canonical face/edge values are visible to the human.
 - The AI receives its active tile when its turn begins.
 - A committed tile is public information to both players.
-- Undrawn bag contents and future draw order are hidden from both the player-facing UI and the AI decision interface.
-- The remaining tile count may be shown, but ranks, face colors, edges, and order are not revealed.
-- Debug tooling may inspect the bag only behind an explicit development flag.
+- The player-facing tile-pot drawer shows the faces, suits, and four edges of every undrawn tile. The same unordered inventory is public to both online players.
+- The future draw order and generated tile IDs remain hidden. Inventory tiles are sorted by appearance, independent of bag order.
+- The AI decision interface does not receive the bag or its draw order. Debug tooling may inspect the complete ordered bag only behind an explicit development flag.
 
-The AI may know the generation probabilities and public history, but it cannot inspect future tiles.
+The AI may know the generation probabilities and public history, but it cannot inspect future draw order.
 
 ### 8. Configuration and balance
 
@@ -170,6 +172,9 @@ func is_exhausted() -> bool:
 ```
 
 `draw()` returns no tile only when the bag is exhausted or a recoverable error is reported separately. It must never silently generate an extra tile after the configured bag is depleted.
+The current implementation also exposes `remaining_tile_faces()` as an
+appearance-sorted, ID-free player inventory. This accessor does not advance
+the bag or reveal draw order.
 
 ## Save and replay requirements
 
@@ -261,6 +266,8 @@ The gameplay owner accepted the complete proposal on 2026-09-21. This confirms t
 7. Phase 1 prohibits exchanges, discards, redraws, and returning tiles to the bag.
 
 These rules are authoritative for Phase 1 unless this ADR is superseded or explicitly amended.
+Item 5 was amended on 2026-10-22: undrawn faces and edges are now visible in
+the player-facing pot inventory; IDs and future draw order remain hidden.
 
 ## Implementation follow-up
 
@@ -274,6 +281,7 @@ These rules are authoritative for Phase 1 unless this ADR is superseded or expli
 
 - 2026-09-21: The initial proposal was accepted without changes.
 - 2026-09-22: Section 6 (draw timing and ownership) is superseded by ADR-010. Tiles are no longer drawn one at a time at TURN_START: each player holds a deck of six, dealt from the shared pot at match setup and topped back up to six when a turn ends. Sections 1 to 5 and 7 to 9 stand unchanged, including the finite pot, the hidden future order, and the tile-conservation save requirements.
+- 2026-10-22: Owner-approved tile-pot drawer amends section 7. Undrawn faces, suits and edge colours are public as an unordered inventory. Their IDs and future draw order remain private. The pot count still comes from the shared source; online views send the same inventory to both seats without opponent-hand contents.
 - 2026-09-22: Engine-forced rename. Section 4 declares the domain tile type as
   `TileData`, but Godot 4 ships a native `TileData` class (the TileSet tile
   resource). `class_name TileData` is a GDScript analyzer error ("Class

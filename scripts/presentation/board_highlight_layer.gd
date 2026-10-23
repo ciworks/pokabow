@@ -9,15 +9,15 @@ extends Control
 ## input it will refuse (ADR-008 section 8).
 
 ## Legal-placement wash drawn under the frontier.
-const FRONTIER_FILL: Color = Color(0.45, 0.62, 0.95, 0.18)
+const FRONTIER_FILL: Color = Color(0.09, 0.24, 0.26, 0.10)
 
 ## Live drag target the rules would accept (AGENTS.md section 8: valid-placement
 ## highlighting). Deliberately green rather than the frontier's blue, so the cell
 ## the finger is over cannot be confused with the cells a tap could choose.
-const DROP_LEGAL_FILL: Color = Color(0.30, 0.92, 0.52, 0.28)
+const DROP_LEGAL_FILL: Color = Color("#009E73", 0.22)
 
 ## Live drag target the rules would refuse: the release will change nothing.
-const DROP_ILLEGAL_FILL: Color = Color(0.76, 0.20, 0.24, 0.30)
+const DROP_ILLEGAL_FILL: Color = Color("#B83137", 0.22)
 
 ## Current render state, assigned by `BoardView`.
 var state: BoardRenderState = null

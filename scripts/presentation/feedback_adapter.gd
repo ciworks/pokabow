@@ -1,6 +1,11 @@
 class_name FeedbackAdapter
 extends Node
 
+## Reports the number of sound cues loaded during startup, so the splash can
+## show real progress rather than a timed animation.
+signal audio_preload_progress(completed: int, total: int)
+signal audio_preload_completed
+
 ## The platform feedback service: haptics and sound, the two channels ADR-008
 ## section 5 calls the platform feedback adapter (Milestone 8,
 ## docs/sections/05-mobile-ux.md sections 5 and 6).
@@ -18,12 +23,9 @@ extends Node
 ## ADR-008 section 6 forbids and the screen already holds this adapter by
 ## injection.
 ##
-## The screen calls these cues at the moment a human gesture resolved, rather
-## than this adapter subscribing to controller signals. That is deliberate: the
-## controller emits the same events for the rival's move - `line_committed` and
-## `score_awarded` fire for the opponent too - so a subscriber would buzz the
-## player's phone on the rival's turn, which tells them nothing they do not
-## already see. Only the player's own actions cue here.
+## The screen calls player-action cues when a human gesture resolves. Deal-card
+## sounds are the exception: both human and rival refill animations call them as
+## each card leaves the pot, because those visible flights deserve the same cue.
 ##
 ## It is created by `AppRoot` and injected into the screen (ADR-008 section 5),
 ## so no scene script reaches for a global and a headless screen simply has no
@@ -63,12 +65,13 @@ const CUE_PLACE: String = "place"
 const CUE_SCORE: String = "score"
 const CUE_REFUSE: String = "refuse"
 const CUE_MATCH_END: String = "match_end"
+const CUE_DEAL_CARD: String = "deal_card"
+const CUE_TILE_FLIP: String = "tile_flip"
 
 ## The sound file behind each cue, loaded once in `_ready` and cached here.
 ##
-## Every file is a short one-shot the importer trims to mono 44.1 kHz, a few tens
-## of KB each, so the whole set costs roughly 280 KB of the mobile download. A cue
-## pointed at an empty string is silent ON PURPOSE: a missing or absent sound is a
+## The cues are short one-shots loaded and cached once. A cue pointed at an empty
+## string is silent ON PURPOSE: a missing or absent sound is a
 ## correct outcome for a cue that nothing suitable was found for, so it must read
 ## as a quiet no-op rather than as a fault the player can hear or the log reports.
 const CUE_SOUNDS: Dictionary = {
@@ -77,12 +80,14 @@ const CUE_SOUNDS: Dictionary = {
 	CUE_SCORE: "res://assets/audio/sfx_score_chime.wav",
 	CUE_REFUSE: "res://assets/audio/sfx_refuse_dull_tap.wav",
 	CUE_MATCH_END: "res://assets/audio/sfx_match_end_resolve.wav",
+	CUE_DEAL_CARD: "res://assets/audio/deal-tile.mp3",
+	CUE_TILE_FLIP: "res://assets/audio/tile-pop.mp3",
 }
 
 ## Per-cue gain in decibels.
 ##
 ## Every value is negative, because a positive `volume_db` clips and one-shots
-## belong between -24 and 0. The select tick is the quietest of the five on
+## belong between -24 and 0. The select tick is the quietest of the six on
 ## purpose: it fires on every deck tap, so it has to survive repetition. The
 ## placement thud carries the most weight, because it is the sound that says the
 ## move happened.
@@ -92,6 +97,10 @@ const CUE_VOLUMES_DB: Dictionary = {
 	CUE_SCORE: -10.0,
 	CUE_REFUSE: -9.0,
 	CUE_MATCH_END: -7.0,
+	# Halved the current amplitude from -12.5 dB, adding about 6 dB attenuation.
+	CUE_DEAL_CARD: -18.5,
+	# Quarter amplitude after a 75% reduction from the cue's nominal 0 dB level.
+	CUE_TILE_FLIP: -18.0,
 }
 
 ## How many players the sound pool holds.
@@ -128,6 +137,8 @@ var _players: Array[AudioStreamPlayer] = []
 ## Which player the next cue takes. Round-robin, so a burst of awards spreads
 ## across the pool instead of replaying over the first voice.
 var _next_voice: int = 0
+var _audio_loading: bool = false
+var _audio_loaded: bool = false
 
 
 func _ready() -> void:
@@ -158,8 +169,6 @@ func is_haptics_enabled() -> bool:
 ## player is mid-tap, and a cue that had no sound stays silent.
 func set_audio_enabled(enabled: bool) -> void:
 	audio_enabled = enabled
-	if enabled:
-		_build_audio()
 
 
 ## Returns whether cue sounds are currently playing.
@@ -195,6 +204,21 @@ func cue_refuse() -> void:
 func cue_match_end() -> void:
 	_vibrate(CUE_MATCH_END_MS)
 	_play_cue(CUE_MATCH_END)
+
+
+## A card left the pot for either player's hand.
+func cue_deal_card() -> void:
+	_play_cue(CUE_DEAL_CARD)
+
+
+## Plays the sound as a dealt tile starts turning face up.
+func cue_tile_flip() -> void:
+	_play_cue(CUE_TILE_FLIP)
+
+
+func cue_duration_seconds(cue: String) -> float:
+	var stream: AudioStream = _streams.get(cue) as AudioStream
+	return 0.0 if stream == null else stream.get_length()
 
 
 ## Fires one handheld vibration, or does nothing when haptics are off.
@@ -238,30 +262,58 @@ func _play_cue(cue: String) -> void:
 ## and loading a resource inside that call would stall the frame the tap landed
 ## in. The pool is built here too so the cue path only ever assigns and plays.
 func _build_audio() -> void:
-	for cue: String in CUE_SOUNDS:
-		_streams[cue] = _load_cue_stream(String(CUE_SOUNDS[cue]))
-	if not _players.is_empty():
+	if _audio_loading or _audio_loaded:
 		return
-	for index: int in VOICE_POOL_SIZE:
-		var player: AudioStreamPlayer = AudioStreamPlayer.new()
-		player.name = "CueVoice%d" % index
-		add_child(player)
-		_players.append(player)
+	_audio_loading = true
+	if _players.is_empty():
+		for index: int in VOICE_POOL_SIZE:
+			var player: AudioStreamPlayer = AudioStreamPlayer.new()
+			player.name = "CueVoice%d" % index
+			add_child(player)
+			_players.append(player)
+	var total: int = CUE_SOUNDS.size()
+	var completed: int = 0
+	for cue: String in CUE_SOUNDS:
+		var path: String = String(CUE_SOUNDS[cue])
+		var stream: AudioStream = _load_cue_stream(path)
+		_streams[cue] = stream
+		completed += 1
+		audio_preload_progress.emit(completed, total)
+		if completed < total:
+			await get_tree().process_frame
+	_audio_loading = false
+	_audio_loaded = true
+	audio_preload_completed.emit()
 
 
 ## Loads one cue sound as an `AudioStream`, or `null` when there is nothing to
 ## play.
 ##
-## `ResourceLoader.exists` guards the load, so a cue mapped to no file, or a file
-## stripped from an export, caches as `null` and plays silence instead of raising
-## a load error. Caching it that way is the point: a cue with no sound stops being
-## retried on every tap for the rest of the session.
+## Prefers the imported resource, then falls back to source MP3 bytes if needed.
+## Missing or stripped assets cache as `null` and play silence.
 func _load_cue_stream(path: String) -> AudioStream:
 	if path.is_empty():
 		return null
-	if not ResourceLoader.exists(path):
+	var stream: AudioStream = null
+	if ResourceLoader.exists(path):
+		stream = load(path) as AudioStream
+	if stream == null and path.get_extension().to_lower() == "mp3":
+		stream = _load_mp3_source(path)
+	return stream
+
+
+## Uses the source MP3 bytes when the imported resource is not available.
+func _load_mp3_source(path: String) -> AudioStream:
+	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if file == null:
 		return null
-	return load(path) as AudioStream
+	var bytes: PackedByteArray = file.get_buffer(int(file.get_length()))
+	file.close()
+	if bytes.is_empty():
+		return null
+	var stream: AudioStreamMP3 = AudioStreamMP3.new()
+	stream.data = bytes
+	return stream
 
 
 ## Hands out the next player in the pool and advances the cursor.

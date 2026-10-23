@@ -15,6 +15,21 @@ const WIDE: Vector2 = Vector2(1920.0, 900.0)
 const PORTRAIT: Vector2 = Vector2(400.0, 800.0)
 
 
+func test_six_by_eight_view_keeps_square_cells_and_clamps_both_axes() -> void:
+	for size: Vector2 in [DESKTOP, WIDE, PORTRAIT]:
+		var available: Rect2 = Rect2(Vector2(20, 30), size)
+		var viewport: Rect2 = BoardMetrics.fit_aspect(available, 6.0 / 8.0, 14.0)
+		check(available.encloses(viewport), "portrait board view fits the available space")
+		check(viewport.get_center().is_equal_approx(available.get_center()), "viewport stays centered")
+		for center: Vector2 in [Vector2(0.5, 0.5), Vector2(-10, -10), Vector2(10, 10)]:
+			var board: Rect2 = BoardMetrics.camera_rect(viewport.size, 2.0, center)
+			var cell: float = BoardMetrics.cell_size(board)
+			check(is_equal_approx(viewport.size.x / cell, 6.0), "default view shows six columns")
+			check(is_equal_approx(viewport.size.y / cell, 8.0), "default view shows eight rows")
+			check(is_equal_approx(board.size.x, board.size.y), "cells remain square")
+			check(board.grow(0.001).encloses(Rect2(Vector2.ZERO, viewport.size)), "panning cannot expose blank space")
+
+
 func test_the_board_stays_a_centred_square_on_every_viewport() -> void:
 	var viewports: Array[Vector2] = [DESKTOP, WIDE, PORTRAIT, Vector2(1440.0, 1440.0)]
 	for viewport_size: Vector2 in viewports:

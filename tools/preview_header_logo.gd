@@ -23,7 +23,7 @@ func _run() -> void:
 		await create_timer(0.5).timeout
 		await RenderingServer.frame_post_draw
 		var logo: TextureRect = screen.get_node("Root/Column/HeaderTools/Brand")
-		var menu: Button = screen.get_node("%OpenMenuButton")
+		var menu: Button = screen.get_node("%HeaderSpacer") as Button
 		var viewport_rect := screen.get_global_rect()
 		var logo_rect := logo.get_global_rect()
 		var art_size := logo.texture.get_size()
@@ -50,7 +50,7 @@ func _run() -> void:
 		print(filename, " logo=", drawn_rect, " board=", board_rect)
 	# The centered artwork must not intercept the settings control.
 	screen.command_drawer.set_open(false, false)
-	var menu: Button = screen.get_node("%OpenMenuButton")
+	var menu: Button = screen.get_node("%HeaderSpacer") as Button
 	for pressed: bool in [true, false]:
 		var event := InputEventMouseButton.new()
 		event.button_index = MOUSE_BUTTON_LEFT

@@ -1,51 +1,51 @@
 class_name ScoreRevealLayer
 extends Control
 
-## Briefly shows committed poker-hand and edge-cluster awards (AGENTS.md section 8,
+## Shows committed poker-hand awards (AGENTS.md section 8,
 ## GAME_SPEC section 7.3, docs/sections/05-mobile-ux.md section 4).
 ##
-## The layer outlines the scored hands and paying edge clusters for the latest
-## move. Poker hands also bounce; floating score popups report their points.
+## A tactile ripple and honey perimeter identify scored poker hands. High-value
+## hands also receive a brief chip stamp; popups report the move's total points.
 ##
 ## ADR-008 section 4 keeps presentation out of the rules, so this layer is handed
-## finished `ScoreEvent`s and reads only what they already carry: `cells` and the
-## colour in `evidence` (ADR-002 section 7 records both). It never reads
+## finished `ScoreEvent`s and reads only their cells and hand category. It never reads
 ## `BoardState`, never re-derives a match, and never decides what scored, so the
 ## reveal can only ever show an award that was really made - which is also why a
 ## refused placement reveals nothing.
 ##
-## The bounce moves a tile on screen without moving the board: a draw scale is
+## The lift moves a tile on screen without moving the board: a draw scale is
 ## written into the shared render state, which `BoardTileLayer` reads, and is
 ## cleared when the animation ends or the reveal is dropped.
 
-## Total lifetime: fade from full visibility to hidden over three seconds.
-const FADE: float = 3.0
+## Time from full visibility to hidden.
+const FADE: float = 2.0
 
-## Perimeter stroke thickness, half the former hand-tile border width.
-const OUTLINE_RATIO: float = 0.055
-
-## How much bigger a bouncing tile grows at the peak, as a fraction of its size.
+## How much bigger a lifted tile grows at the peak, as a fraction of its size.
 ##
 ## The board is 2D, so the Z axis is expressed as scale: growing about the cell's
 ## centre reads as the tile rising toward the viewer. A positional hop would read
 ## as sliding across the grid, which could be mistaken for a different cell.
-const BOUNCE_ZOOM_RATIO: float = 0.30
+const BOUNCE_ZOOM_RATIO: float = 0.07
 
 ## How long one tile's bounce lasts, in seconds.
-const BOUNCE_DURATION: float = 0.34
+const BOUNCE_DURATION: float = 0.28
 
 ## Gap between one tile starting its bounce and the next, in seconds.
-const BOUNCE_STAGGER: float = 0.13
+const BOUNCE_STAGGER: float = 0.11
 
-## Green perimeter around the tiles that scored.
-const REVEAL_COLOR: Color = Color(0.25, 0.92, 0.42, 1.0)
+const TRACE_DURATION: float = 0.72
+const CHIP_START: float = 0.60
+const CHIP_DURATION: float = 0.62
+const CHIP_FONT_SIZE: int = 19
+const CHIP_HEIGHT: float = 34.0
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 
 ## Emitted every frame while the bounce runs, so `BoardView` repaints the tile
 ## layer whose tiles the scale has grown.
 signal redraw_requested
 
-## Scored groups to outline: `{cells: Array[Vector2i]}`, one entry per award.
-var _groups: Array = []
+## Poker hands to highlight: `{cells: Array[Vector2i], category: String}`.
+var _hand_groups: Array = []
 
 ## The poker hand's tiles in the order they read, which bounce in sequence.
 var _wave_cells: Array[Vector2i] = []
@@ -58,8 +58,9 @@ var _fade: Tween = null
 ## Seconds since the current reveal started, driving the bounce.
 var _elapsed: float = 0.0
 
-## True while the bounce is advancing, so `_process` is not left running.
+## True while the ripple or a chip stamp is advancing.
 var _bouncing: bool = false
+var _has_chip: bool = false
 
 
 func _ready() -> void:
@@ -68,8 +69,8 @@ func _ready() -> void:
 	set_process(false)
 
 
-## Reveals only the hands and edge clusters in this move's committed events.
-## Replacing a reveal cancels its timer, even when the new move scored nothing.
+## Reveals poker hands from this move's committed events. Edge-only awards do
+## not identify a poker hand. Replacing a reveal clears the previous cue.
 func reveal(events: Array) -> void:
 	clear_reveal()
 	for raw: Variant in events:
@@ -79,22 +80,22 @@ func reveal(events: Array) -> void:
 		if event.cells.is_empty():
 			continue
 		if event.category == ScoringEnums.ScoreCategory.POKER_HAND:
-			_wave_cells.append_array(event.cells)
-		elif event.category != ScoringEnums.ScoreCategory.EDGE_CLUSTER:
-			# Individual edge-match points do not outline a tile group.
-			continue
-		_groups.append({"cells": event.cells.duplicate()})
-	if _groups.is_empty() and _wave_cells.is_empty():
+			var cells: Array[Vector2i] = event.cells.duplicate()
+			var category: String = String(event.evidence.get("category", ""))
+			_hand_groups.append({"cells": cells, "category": category})
+			if category == "FULL_HOUSE" or category == "FOUR_OF_A_KIND":
+				_has_chip = true
+			for cell: Vector2i in cells:
+				if not _wave_cells.has(cell):
+					_wave_cells.append(cell)
+	if _hand_groups.is_empty():
 		return
 	if AccessibilitySettings.reduced_motion():
-		# Reduced motion: the marks still appear. Which tiles scored is
-		# information, not decoration, so suppressing it would take away the
-		# answer rather than the movement - what goes is the bounce and the
-		# fade, which are the two animations the player asked to be spared.
+		# Reduced motion: hold the complete trace and hand name without movement.
 		_start_hold_only()
 		return
 	if not _wave_cells.is_empty():
-		_start_bounce()
+		_start_ripple()
 	_restart_fade()
 
 
@@ -110,9 +111,9 @@ func clear_reveal() -> void:
 	_clear_marks()
 
 
-## Returns how many scored groups are outlined. For smoke tests.
+## Returns how many poker hands have an overlay. For smoke tests.
 func group_count() -> int:
-	return _groups.size()
+	return _hand_groups.size()
 
 
 ## Returns the tiles that bounce, in order. For smoke tests.
@@ -122,7 +123,19 @@ func wave_cells() -> Array[Vector2i]:
 
 ## Returns true while anything is drawn, for smoke tests.
 func has_marks() -> bool:
-	return not _groups.is_empty()
+	return not _hand_groups.is_empty()
+
+
+## Returns true while the tile ripple or chip stamp is still animating.
+func is_animating() -> bool:
+	return _bouncing
+
+
+## Delay before online Gems travel, leaving the tile ripple readable first.
+func ripple_duration() -> float:
+	if AccessibilitySettings.reduced_motion() or _wave_cells.is_empty():
+		return 0.0
+	return maxf(TRACE_DURATION, float(_wave_cells.size() - 1) * BOUNCE_STAGGER + BOUNCE_DURATION)
 
 
 func _process(delta: float) -> void:
@@ -130,20 +143,18 @@ func _process(delta: float) -> void:
 		return
 	_elapsed += delta
 	var pops: Dictionary = {}
-	var running: bool = false
 	for index: int in range(_wave_cells.size()):
 		var scale: float = _bounce_zoom(index)
 		if scale > 1.0:
 			pops[_wave_cells[index]] = scale
-		if _elapsed - float(index) * BOUNCE_STAGGER < BOUNCE_DURATION:
-			running = true
 	state.cell_zoom = pops
-	if not running:
+	if _elapsed >= maxf(ripple_duration(), CHIP_START + CHIP_DURATION if _has_chip else 0.0):
 		# The wave is over: settle every tile back and stop ticking, so a
 		# finished animation leaves the board exactly as the state describes it.
 		_bouncing = false
 		set_process(false)
 		state.cell_zoom = {}
+	queue_redraw()
 	redraw_requested.emit()
 
 
@@ -159,7 +170,7 @@ func _bounce_zoom(index: int) -> float:
 	return 1.0 + BOUNCE_ZOOM_RATIO * sin(PI * local / BOUNCE_DURATION)
 
 
-func _start_bounce() -> void:
+func _start_ripple() -> void:
 	if _wave_cells.is_empty() or state == null:
 		_bouncing = false
 		set_process(false)
@@ -169,13 +180,7 @@ func _start_bounce() -> void:
 	set_process(true)
 
 
-## Holds the marks for the usual time and then clears them without animating
-## anything, for a player who has asked for reduced motion.
-##
-## The timer is still a tween, but it animates no property: it waits and then
-## calls `_clear_marks`. That keeps the marks on screen for exactly as long as
-## the animated reveal does, so the player is not rushed to read which tiles
-## scored, while the opacity stays at full and no tile ever moves.
+## Holds the trace and hand label for the normal duration without animation.
 func _start_hold_only() -> void:
 	if _fade != null and _fade.is_valid():
 		_fade.kill()
@@ -188,7 +193,7 @@ func _start_hold_only() -> void:
 	_fade.tween_callback(_clear_marks)
 
 
-## Each new move starts fully visible and fades once, without a hold or loop.
+## Fades the trace once, clearing it at the end of the two-second fade.
 func _restart_fade() -> void:
 	if _fade != null and _fade.is_valid():
 		_fade.kill()
@@ -200,8 +205,10 @@ func _restart_fade() -> void:
 
 
 func _clear_marks() -> void:
-	_groups = []
+	_hand_groups = []
 	_wave_cells = []
+	_has_chip = false
+	_elapsed = 0.0
 	_bouncing = false
 	set_process(false)
 	if state != null:
@@ -213,43 +220,66 @@ func _clear_marks() -> void:
 func _draw() -> void:
 	if state == null or not state.board_rect.has_area():
 		return
-	var line: float = maxf(
-		1.0, BoardMetrics.cell_size(state.board_rect, state.grid) * OUTLINE_RATIO
-	)
-	for group: Dictionary in _groups:
-		_outline_group(group["cells"], line)
+	var progress: float = 1.0 if AccessibilitySettings.reduced_motion() else clampf(_elapsed / TRACE_DURATION, 0.0, 1.0)
+	for group: Dictionary in _hand_groups:
+		var bounds: Rect2 = _hand_bounds(group)
+		if not bounds.has_area():
+			continue
+		_draw_trace(bounds.grow(3.0), progress)
+		var category: String = String(group.get("category", ""))
+		if category == "FULL_HOUSE" or category == "FOUR_OF_A_KIND":
+			_draw_chip(bounds, category)
 
 
-## Draws the outside perimeter of one scored group.
-##
-## Shared sides between tiles in the same group are omitted, so joined hands read
-## as one shape instead of showing borders on their touching edges.
-func _outline_group(cells: Array, line: float) -> void:
-	var members: Dictionary = {}
-	for raw: Variant in cells:
-		var candidate: Vector2i = raw
-		if BoardMetrics.is_valid_cell(candidate, state.grid):
-			members[candidate] = true
-	if members.is_empty():
+func _hand_bounds(group: Dictionary) -> Rect2:
+	var bounds := Rect2()
+	for cell: Vector2i in group["cells"]:
+		if not BoardMetrics.is_valid_cell(cell, state.grid):
+			continue
+		var tile_rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, state.grid)
+		bounds = tile_rect if not bounds.has_area() else bounds.merge(tile_rect)
+	return bounds
+
+
+## Trace the outside of the completed line without painting over rank or edges.
+func _draw_trace(bounds: Rect2, progress: float) -> void:
+	var corners: Array[Vector2] = [bounds.position, Vector2(bounds.end.x, bounds.position.y), bounds.end, Vector2(bounds.position.x, bounds.end.y), bounds.position]
+	var remaining: float = 2.0 * (bounds.size.x + bounds.size.y) * progress
+	var width: float = clampf(bounds.size.y * 0.035, 2.0, 3.5)
+	for index: int in 4:
+		var length: float = corners[index].distance_to(corners[index + 1])
+		if remaining <= 0.0:
+			break
+		var endpoint: Vector2 = corners[index].lerp(corners[index + 1], minf(1.0, remaining / length))
+		draw_line(corners[index], endpoint, Tabletop.honey(), width, true)
+		remaining -= length
+
+
+## A quiet tabletop chip marks only the two highest hand categories.
+func _draw_chip(bounds: Rect2, category: String) -> void:
+	var local: float = _elapsed - CHIP_START
+	var reduced: bool = AccessibilitySettings.reduced_motion()
+	if not reduced and (local < 0.0 or local >= CHIP_DURATION):
 		return
-	var offsets: Array[Vector2i] = BoardEnums.neighbor_offsets()
-	for raw: Variant in members.keys():
-		var cell: Vector2i = raw
-		var rect: Rect2 = BoardMetrics.cell_rect(state.board_rect, cell, state.grid)
-		var scale: float = state.zoom_for(cell)
-		if scale > 1.0:
-			var grown: Vector2 = rect.size * scale
-			rect = Rect2(rect.get_center() - grown * 0.5, grown)
-		var inner: Rect2 = rect.grow(-line * 0.5)
-		var top_left: Vector2 = inner.position
-		var top_right: Vector2 = Vector2(inner.end.x, inner.position.y)
-		var bottom_left: Vector2 = Vector2(inner.position.x, inner.end.y)
-		var bottom_right: Vector2 = inner.end
-		if not members.has(cell + offsets[TileEnums.EdgePosition.TOP]):
-			draw_line(top_left, top_right, REVEAL_COLOR, line)
-		if not members.has(cell + offsets[TileEnums.EdgePosition.RIGHT]):
-			draw_line(top_right, bottom_right, REVEAL_COLOR, line)
-		if not members.has(cell + offsets[TileEnums.EdgePosition.BOTTOM]):
-			draw_line(bottom_left, bottom_right, REVEAL_COLOR, line)
-		if not members.has(cell + offsets[TileEnums.EdgePosition.LEFT]):
-			draw_line(top_left, bottom_left, REVEAL_COLOR, line)
+	var label: String = category.replace("_", " ")
+	var font: Font = Tabletop.SEMIBOLD
+	var width: float = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, CHIP_FONT_SIZE).x + 28.0
+	var scale: float = 1.0 if reduced else lerpf(0.86, 1.0, smoothstep(0.0, 0.20, local / CHIP_DURATION))
+	var opacity: float = 1.0 if reduced else 1.0 - smoothstep(0.72, 1.0, local / CHIP_DURATION)
+	var center: Vector2 = bounds.get_center() + Vector2(0.0, -bounds.size.y * 0.5 - CHIP_HEIGHT * 0.6)
+	if center.y - CHIP_HEIGHT * 0.5 < state.board_rect.position.y:
+		center.y = bounds.end.y + CHIP_HEIGHT * 0.6
+	center.x = clampf(center.x, state.board_rect.position.x + width * 0.5, state.board_rect.end.x - width * 0.5)
+	var chip_rect := Rect2(center - Vector2(width, CHIP_HEIGHT) * scale * 0.5, Vector2(width, CHIP_HEIGHT) * scale)
+	var fill: Color = Tabletop.honey()
+	fill.a = opacity
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill
+	style.set_corner_radius_all(14)
+	style.set_border_width_all(1)
+	style.border_color = Tabletop.ink()
+	style.border_color.a = opacity
+	draw_style_box(style, chip_rect)
+	var ink: Color = Tabletop.ink()
+	ink.a = opacity
+	draw_string(font, Vector2(chip_rect.position.x, center.y + CHIP_FONT_SIZE * 0.34), label, HORIZONTAL_ALIGNMENT_CENTER, chip_rect.size.x, CHIP_FONT_SIZE, ink)

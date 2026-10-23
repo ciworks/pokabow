@@ -462,6 +462,11 @@ Once the approval questions are resolved:
   (a scene rendering `MatchPhase.RECOVERY_ERROR`) is still not built: a refused
   restore reports through `notice` and starts a fresh match, which is the
   behaviour a boot-time failure needs.
+- 2026-10-17: Expanded local persistence to independent per-match save files.
+  The hub lists saved AI matches and the account's current online match, with
+  both scores and a Resume action per card. New local games do not overwrite
+  earlier in-progress matches. Legacy `match_save.json` remains discoverable;
+  the online API currently exposes one resumable match per account.
 - 2026-09-24: Development overlays and replay/export fixture support, the other
   two Milestone 7 deliverables, are not implemented. They are diagnostics with no
   effect on play, and they remain open.
@@ -500,31 +505,31 @@ Once the approval questions are resolved:
 - 2026-09-25: Completed Milestone 7's three outstanding deliverables, all of them
   diagnostics that leave match state untouched.
   1. *Recovery screen.* `GameSessionController` gained a `recovery_failed(reason)`
-     signal, emitted by `_recovery_failed()` alongside the existing notice, so a
-     refused restore is a state the player resolves rather than one line of
-     status. `game_screen.tscn` gained a `RecoveryOverlay` under `FeedbackLayer`
-     (dim, centred panel, reason, and a "Start a fresh match" button), and
-     `GameScreen._on_recovery_failed()` renders it while creating no session. The
-     unreadable save is deliberately left on disk, so the refusal preserves the
-     last valid transaction instead of destroying it. The overlay is visible only
-     after a failure, so it cannot block input in a normal session.
+	 signal, emitted by `_recovery_failed()` alongside the existing notice, so a
+	 refused restore is a state the player resolves rather than one line of
+	 status. `game_screen.tscn` gained a `RecoveryOverlay` under `FeedbackLayer`
+	 (dim, centred panel, reason, and a "Start a fresh match" button), and
+	 `GameScreen._on_recovery_failed()` renders it while creating no session. The
+	 unreadable save is deliberately left on disk, so the refusal preserves the
+	 last valid transaction instead of destroying it. The overlay is visible only
+	 after a failure, so it cannot block input in a normal session.
   2. *Development overlays.* A new `DebugOverlay` control, last child of
-     `BoardView` so it draws above every board layer, rendering cell coordinates,
+	 `BoardView` so it draws above every board layer, rendering cell coordinates,
 	 the legal frontier from `BoardState`, the last move's committed cells, and a
 	 panel of board revision, pot, move count, difficulty, and the latest award's
-     score events. It is off unless the `debug/overlays` project setting is on,
-     toggled with F3, and it never calls `set_input_as_handled`, so it cannot
-     swallow a board gesture (AGENTS.md section 17 keeps debug tooling out of the
-     player experience). It reads only what the controller and the committed
-     `ScoreEvent` list already report, so it cannot invent a diagnostic.
+	 score events. It is off unless the `debug/overlays` project setting is on,
+	 toggled with F3, and it never calls `set_input_as_handled`, so it cannot
+	 swallow a board gesture (AGENTS.md section 17 keeps debug tooling out of the
+	 player experience). It reads only what the controller and the committed
+	 `ScoreEvent` list already report, so it cannot invent a diagnostic.
   3. *Replay/export.* `GameSessionController.export_fixture()`, bound to F4 in the
-     overlay, writes the same versioned snapshot the autosave writes - complete
-     bag, both decks, board, ledger, and the ordered move history the replay
-     verifier consumes - to `user://match_fixture.json`, wrapped with the export
-     time, engine version, and difficulty. It is the snapshot rather than a second
-     summary of the match, so a fixture cannot describe a position the rules could
-     not produce, and loading it back exercises the same restore path a saved
-     match uses. The location is a `fixture_path` property defaulting to that
+	 overlay, writes the same versioned snapshot the autosave writes - complete
+	 bag, both decks, board, ledger, and the ordered move history the replay
+	 verifier consumes - to `user://match_fixture.json`, wrapped with the export
+	 time, engine version, and difficulty. It is the snapshot rather than a second
+	 summary of the match, so a fixture cannot describe a position the rules could
+	 not produce, and loading it back exercises the same restore path a saved
+	 match uses. The location is a `fixture_path` property defaulting to that
 	 constant, so a test does not overwrite a developer's export.
 - 2026-09-25: Implemented the platform feedback adapter's second and third
   channels, closing Milestone 8's audio-and-haptics deliverable. `AppRoot` now

@@ -26,8 +26,8 @@ extends Control
 ## Seconds between one tile starting its flight and the next.
 ##
 ## The timings below are the whole speed of a deal: `STAGGER` spaces the tiles out,
-## `FLIGHT` is one tile's travel, and `HOLD` plus `FLIP` are the turn that reveals
-## a tile's face.
+## `FLIGHT` is one tile's travel, and `HOLD` plus `flip_duration` are the wait and
+## turn that reveal a tile's face.
 const STAGGER: float = 0.1125
 
 ## Seconds one tile takes to travel.
@@ -36,8 +36,20 @@ const FLIGHT: float = 0.375
 ## Seconds a tile rests face down in its place before it turns over.
 const HOLD: float = 1.0
 
-## Seconds one tile's turn takes.
-const FLIP: float = 0.32
+## Fallback turn duration until the app supplies the loaded audio duration.
+const DEFAULT_FLIP_DURATION: float = 0.32
+
+## The visual turn finishes before the pop clip ends, keeping the reveal crisp
+## when the audio's soft tail would otherwise make the animation feel delayed.
+const AUDIO_SYNC_RATIO: float = 0.6
+
+## Play the pop once the tile has begun visibly turning, rather than on the
+## first frame of the animation.
+const FLIP_SOUND_PROGRESS: float = 0.5
+
+## The flip length follows the loaded tile-pop clip, so the overall turn remains
+## matched to its sound. The pop cue fires halfway through the visual turn.
+var flip_duration: float = DEFAULT_FLIP_DURATION
 
 ## How far a tile rises above the straight line between the two ends, in pixels.
 const ARC_LIFT: float = 44.0
@@ -49,6 +61,12 @@ const START_SCALE: float = 0.55
 ## screen uses it to stop concealing those tiles in the row.
 signal progressed(revealed: int)
 
+## Emitted once for each card when its flight from the pot begins.
+signal tile_flight_started
+
+## Emitted when a dealt tile reaches the sound cue point in its turn.
+signal tile_flip_sound_due
+
 ## Emitted once, after the last tile has turned over.
 signal finished
 
@@ -57,12 +75,15 @@ var _to: Array[Rect2] = []
 var _from: Vector2 = Vector2.ZERO
 var _elapsed: float = 0.0
 var _revealed: int = 0
+var _flight_started: int = 0
+var _flip_started: int = 0
 var _playing: bool = false
 var _origin_provider: Callable
 var _destination_providers: Array[Callable] = []
 
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	# Decorative: pointer events pass straight through to the board and the row.
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# A deal may have been requested before this node entered the tree, so the
@@ -80,6 +101,11 @@ func revealed_count() -> int:
 	return _revealed
 
 
+func set_flip_duration(duration: float) -> void:
+	if duration > 0.0:
+		flip_duration = duration
+
+
 ## Starts a deal.
 ##
 ## Providers return GLOBAL coordinates, converted to this layer's local space
@@ -94,6 +120,8 @@ func deal(
 	_refresh_geometry()
 	_elapsed = 0.0
 	_revealed = 0
+	_flight_started = 0
+	_flip_started = 0
 	_playing = not _tiles.is_empty() and _tiles.size() == _to.size()
 	set_process(_playing)
 	queue_redraw()
@@ -107,6 +135,7 @@ func deal(
 		_playing = false
 		set_process(false)
 		call_deferred("_finish_deal_immediately")
+		return
 
 
 ## Drops an in-flight deal at once, revealing nothing further.
@@ -122,6 +151,8 @@ func cancel() -> void:
 	_origin_provider = Callable()
 	_destination_providers.clear()
 	_revealed = 0
+	_flight_started = 0
+	_flip_started = 0
 	_elapsed = 0.0
 	set_process(false)
 	queue_redraw()
@@ -147,6 +178,12 @@ func _process(delta: float) -> void:
 	if not _playing:
 		return
 	_elapsed += delta
+	while _flight_started < _tiles.size() and _elapsed >= float(_flight_started) * STAGGER:
+		_flight_started += 1
+		tile_flight_started.emit()
+	while _flip_started < _tiles.size() and _elapsed >= _flip_sound_at(_flip_started):
+		_flip_started += 1
+		tile_flip_sound_due.emit()
 	var revealed: int = _count_revealed()
 	if revealed != _revealed:
 		_revealed = revealed
@@ -186,7 +223,7 @@ func _draw() -> void:
 			# Waiting its turn, in place and still face down.
 			TilePainter.paint_tile_back(self, target)
 			continue
-		var turn_progress: float = (_elapsed - turn_at) / FLIP
+		var turn_progress: float = (_elapsed - turn_at) / flip_duration
 		if turn_progress >= 1.0:
 			# Turned over: the row draws its face from here on.
 			continue
@@ -232,10 +269,11 @@ func _draw_turn(index: int, target: Rect2, progress: float) -> void:
 	var rect: Rect2 = Rect2(target.get_center() - half, half * 2.0)
 	if closing:
 		TilePainter.paint_tile_back(self, rect)
-		return
-	TilePainter.paint_tile(
-		self, rect, TileSnapshot.create(_tiles[index], BoardMetrics.NO_CELL, 0)
-	)
+	else:
+		TilePainter.paint_tile(
+			self, rect, TileSnapshot.create(_tiles[index], BoardMetrics.NO_CELL, 0)
+		)
+	TilePainter.paint_flip_depth(self, target, progress)
 
 
 ## Returns how many tiles have finished turning face up.
@@ -249,12 +287,22 @@ func _count_revealed() -> int:
 
 ## Returns the moment one tile has finished turning face up.
 func _turn_done_at(index: int) -> float:
-	return float(index) * STAGGER + FLIGHT + HOLD + FLIP
+	return _turn_at(index) + flip_duration
+
+
+## Returns the moment one tile begins turning face up.
+func _turn_at(index: int) -> float:
+	return float(index) * STAGGER + FLIGHT + HOLD
+
+
+## Returns the moment the tile has turned halfway through its flip.
+func _flip_sound_at(index: int) -> float:
+	return _turn_at(index) + flip_duration * FLIP_SOUND_PROGRESS
 
 
 ## Returns the moment the last tile has finished turning face up.
 func _total_duration() -> float:
-	return float(_tiles.size() - 1) * STAGGER + FLIGHT + HOLD + FLIP
+	return float(_tiles.size() - 1) * STAGGER + FLIGHT + HOLD + flip_duration
 
 
 ## Returns a decelerating 0-1 curve, so a tile eases into its place.

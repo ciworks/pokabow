@@ -1,54 +1,111 @@
 [gd_scene format=3 uid="uid://djaraq68y4mas"]
 
-[ext_resource type="Texture2D" path="res://assets/branding/pokabow-header-logo-v2.tres" id="1_logo"]
+[ext_resource type="Script" path="res://scripts/presentation/splash_screen.gd" id="1_screen"]
+[ext_resource type="Texture2D" path="res://assets/splash/mark.svg" id="2_mark"]
+[ext_resource type="Texture2D" path="res://assets/splash/welcome-hero-v1.png" id="3_hero"]
+[ext_resource type="Script" path="res://scripts/presentation/splash_loading_progress.gd" id="4_progress"]
 
-[node name="SplashScreen" type="Control" unique_id=188141419]
+[node name="SplashScreen" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+script = ExtResource("1_screen")
 
-[node name="Background" type="ColorRect" parent="." unique_id=418681045]
-layout_mode = 0
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.07, 0.086, 0.118, 1)
+mouse_filter = 2
+color = Color(0.964706, 0.94902, 0.913725, 1)
 
-[node name="CenterContainer" type="CenterContainer" parent="." unique_id=1803799492]
-layout_mode = 0
+[node name="CenterContainer" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 
-[node name="TitleBlock" type="VBoxContainer" parent="CenterContainer" unique_id=8520111]
-layout_mode = 2
-theme_override_constants/separation = 14
-alignment = 1
-
-[node name="Logo" type="TextureRect" parent="CenterContainer/TitleBlock" unique_id=75332960]
-custom_minimum_size = Vector2(440, 84)
+[node name="TitleBlock" type="VBoxContainer" parent="CenterContainer"]
 layout_mode = 2
 mouse_filter = 2
-texture = ExtResource("1_logo")
+alignment = 1
+
+[node name="TopSpace" type="Control" parent="CenterContainer/TitleBlock"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.2
+mouse_filter = 2
+
+[node name="Logo" type="TextureRect" parent="CenterContainer/TitleBlock"]
+custom_minimum_size = Vector2(80, 80)
+layout_mode = 2
+size_flags_horizontal = 4
+mouse_filter = 2
+texture = ExtResource("2_mark")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="AccentRow" type="CenterContainer" parent="CenterContainer/TitleBlock" unique_id=53789931]
+[node name="Brand" type="Label" parent="CenterContainer/TitleBlock"]
 layout_mode = 2
+text = "POKABOW"
+horizontal_alignment = 1
 
-[node name="Accent" type="ColorRect" parent="CenterContainer/TitleBlock/AccentRow" unique_id=1588714412]
-custom_minimum_size = Vector2(180, 3)
+[node name="Tagline" type="Label" parent="CenterContainer/TitleBlock"]
 layout_mode = 2
-color = Color(1, 0.86, 0.42, 1)
+text = "Make your next move."
+horizontal_alignment = 1
 
-[node name="Tagline" type="Label" parent="CenterContainer/TitleBlock" unique_id=2096776128]
+[node name="MiddleSpace" type="Control" parent="CenterContainer/TitleBlock"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.68, 0.76, 1)
-theme_override_font_sizes/font_size = 20
-text = "Place tiles. Form hands. Match edges."
+size_flags_vertical = 3
+size_flags_stretch_ratio = 0.5
+mouse_filter = 2
+
+[node name="Hero" type="TextureRect" parent="CenterContainer/TitleBlock"]
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.2
+mouse_filter = 2
+texture = ExtResource("3_hero")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="LowerSpace" type="Control" parent="CenterContainer/TitleBlock"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 0.5
+mouse_filter = 2
+
+[node name="LoadingProgress" type="ProgressBar" parent="CenterContainer/TitleBlock"]
+custom_minimum_size = Vector2(116, 24)
+layout_mode = 2
+size_flags_horizontal = 4
+mouse_filter = 2
+show_percentage = false
+script = ExtResource("4_progress")
+
+[node name="LoadingCaption" type="Label" parent="CenterContainer/TitleBlock"]
+layout_mode = 2
+text = "Setting the table..."
+horizontal_alignment = 1
+
+[node name="BottomSpace" type="Control" parent="CenterContainer/TitleBlock"]
+layout_mode = 2
+size_flags_vertical = 3
+size_flags_stretch_ratio = 0.7
+mouse_filter = 2
+
+[node name="VersionLabel" type="Label" parent="CenterContainer/TitleBlock"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
 horizontal_alignment = 1

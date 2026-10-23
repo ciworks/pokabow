@@ -14,10 +14,28 @@ user state are stored separately from match state. On a later launch, the app
 restores the cached user state and attempts login with the saved credentials;
 the hub remains available if that login request cannot reach the API.
 
+The profile's single **Save changes** action uploads its normalized 195×195 PNG
+to authenticated `PUT /auth/me/avatar`, then updates `displayName` through
+`PATCH /auth/me`. `GET /auth/me/avatar` restores the portrait on another device;
+the API returns PNG bytes and persists them in PostgreSQL through its existing
+`user_avatars` table and migration `009_user_avatars.sql`. The client updates
+its local avatar cache only after upload success. The username and avatar
+requests are separate writes, so a username failure after avatar success is
+reported as partial success and keeps the draft available for retry. Email
+remains read-only.
+
 The current local account record contains the generated username, email, and
 password. Treat this as device-local prototype behavior: credentials should be
 protected appropriately before production release, and account recovery or
 credential migration is not specified here.
+
+Owner-directed unavailable-account recovery (implemented, 2026-10-14): a 401
+from saved-credential login clears local account/profile/settings and associated
+match, achievement and sync state, then reloads the shell at first-time account
+setup. The Server IP is retained. Existing services are stopped before cleanup
+to prevent late responses from restoring old state. Cleanup failure offers a
+local retry before registration can proceed. Expired bearer tokens first retry
+login; transport failures and other inconclusive responses do not erase accounts.
 
 The API provides authenticated game CRUD, turn submission, and pass endpoints.
 `GameSyncApiClient` creates one server game for each local match, stores the
@@ -32,18 +50,18 @@ responses advance the stored API version; pending operations retry across
 launches, and repeated turn IDs are idempotent. The client keeps local match
 state authoritative; it does not restore gameplay from the server record.
 
-The hub's primary action reflects local persistence: it reads **New Game** when
-there is no saved session and **Resume** when a saved session exists. Both
-actions enter the same composition-root boot path; that path resumes the save
-when available, otherwise it starts a new session and creates the corresponding
-API game record.
+The hub's primary action starts a new game. The Active Games panel below the
+Online lobby lists saved local AI matches and the current resumable online match.
+Each card shows the rival and both current scores, and its Resume button opens
+that exact match. Local AI snapshots use a match-specific save file; the legacy
+`match_save.json` remains discoverable and resumable. The online API currently
+exposes one resumable match per account, so at most one online card is shown.
 
-The hub Settings panel offers **Clear game cache**. It removes the local match
-save and the matching `GameSyncApiClient` record, so the next Play starts a new
-game. When that record contains a server game ID and an authenticated token is
-available, the client sends `DELETE /games/{gameId}`. Deletion is best-effort;
-the local save is cleared even if the server cannot be reached or refuses the
-request.
+The hub Settings panel offers **Clear game cache**. It removes all local match
+saves and the matching `GameSyncApiClient` record. When that record contains a
+server game ID and an authenticated token is available, the client sends
+`DELETE /games/{gameId}`. Deletion is best-effort; local saves are cleared even
+if the server cannot be reached or refuses the request.
 
 The Settings panel also stores the API server IP in `user://settings.cfg`. Auth,
 game sync, and achievement requests build their endpoint URLs from this shared
@@ -62,7 +80,8 @@ are mirrored through that account's authenticated turn endpoint.
 |---|---|
 | First-launch registration and login | Implemented |
 | Returning-account login | Implemented |
-| Local match save/resume | Implemented; separate from API account state |
+| Multiple local AI match save/resume | Implemented; match-specific files with legacy save discovery |
+| Hub Active Games cards | Implemented; local AI matches and current online match |
 | Server game creation, committed-turn submission, and match snapshot updates | Implemented; local match remains authoritative |
 | Clear local match cache and best-effort server game deletion | Implemented; creator-authenticated `DELETE /games/{gameId}` |
 | Server pass synchronization and server-authoritative restore | Not implemented |

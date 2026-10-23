@@ -12,6 +12,7 @@ const PRIVACY_URL: String = "https://tiletopia.com/privacy"
 const USERNAME_PREFIX: String = "Player_"
 const EMAIL_DOMAIN: String = "@tiletopia.com"
 const KEY_DIGITS: int = 9
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 
 static func json_headers() -> PackedStringArray:
 	return PackedStringArray([
@@ -33,10 +34,41 @@ var _busy: bool = false
 
 
 func _ready() -> void:
+	_apply_modern_tabletop_style()
 	_close_button.pressed.connect(_on_close_pressed)
 	_accept_button.pressed.connect(_on_accept_pressed)
 	_http.request_completed.connect(_on_request_completed)
 	_set_status("")
+
+
+func _apply_modern_tabletop_style() -> void:
+	theme = Tabletop.create()
+	var panel: PanelContainer = $Scroll/Center/Panel
+	var panel_style := Tabletop.panel(Tabletop.canvas(), 24, 28)
+	panel_style.set_border_width_all(1)
+	panel_style.border_color = Color("#D8D0C2")
+	panel.add_theme_stylebox_override("panel", panel_style)
+	%Heading.add_theme_font_override("font", Tabletop.BOLD)
+	%Heading.add_theme_color_override("font_color", Tabletop.ink())
+	%Eyebrow.add_theme_font_override("font", Tabletop.SEMIBOLD)
+	%Eyebrow.add_theme_color_override("font_color", Tabletop.muted())
+	%Copy.add_theme_font_override("font", Tabletop.REGULAR)
+	%Copy.add_theme_color_override("font_color", Tabletop.muted())
+	%TermsLink.add_theme_font_override("font", Tabletop.SEMIBOLD)
+	%PrivacyLink.add_theme_font_override("font", Tabletop.SEMIBOLD)
+	for link: LinkButton in [%TermsLink, %PrivacyLink]:
+		for state: String in ["normal", "hover", "pressed", "disabled", "focus"]:
+			link.add_theme_stylebox_override(state, Tabletop.button_style("quiet", state))
+		link.add_theme_color_override("font_color", Tabletop.ink())
+		link.add_theme_color_override("font_hover_color", Tabletop.ink())
+		link.add_theme_color_override("font_pressed_color", Tabletop.ink())
+		link.add_theme_font_size_override("font_size", 20)
+	Tabletop.style_button(_accept_button, "primary")
+	Tabletop.style_button(_close_button, "secondary")
+	_accept_button.add_theme_font_size_override("font_size", 26)
+	_close_button.add_theme_font_size_override("font_size", 20)
+	_status_label.add_theme_font_override("font", Tabletop.REGULAR)
+	_status_label.add_theme_color_override("font_color", Tabletop.muted())
 
 
 ## Tests point this at a temporary user:// file before the dialog is used.
@@ -158,6 +190,7 @@ func _parse_body(body: PackedByteArray) -> Dictionary:
 func _fail(message: String) -> void:
 	_pending_account = {}
 	_set_status(message)
+	_status_label.add_theme_color_override("font_color", Tabletop.danger())
 	failed.emit(message)
 
 
@@ -165,6 +198,7 @@ func _set_status(message: String) -> void:
 	if _status_label == null:
 		return
 	_status_label.text = message
+	_status_label.add_theme_color_override("font_color", Tabletop.muted())
 	_status_label.visible = not message.is_empty()
 
 

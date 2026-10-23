@@ -1,329 +1,449 @@
 class_name MatchEndPresentation
 extends Control
-
-## Presentation-only storyboard matching assets/competition_scene_1..5.png.
-## A single timeline makes restart, resize, reduced motion and QA deterministic.
-# Storyboard: panels join, portraits land, score plates slide out, then detail.
-const PANEL_JOIN_START: float = 0.22
-const PANEL_JOIN_DURATION: float = 0.72
-const PLAYER_DROP_START: float = 0.98
-const RIVAL_DROP_START: float = 1.16
-const DROP_DURATION: float = 0.47
-const SETTLE_START: float = 1.7
-const SETTLE_DURATION: float = 0.55
-const SCORE_SLIDE_START: float = SETTLE_START + SETTLE_DURATION
-const SCORE_SLIDE_DURATION: float = 0.51
-const DETAIL_SLIDE_START: float = SCORE_SLIDE_START + SCORE_SLIDE_DURATION + 0.12
-const DETAIL_SLIDE_DURATION: float = 0.48
-const RESULT_REVEAL_START: float = SCORE_SLIDE_START
-const BODY_REVEAL_START: float = DETAIL_SLIDE_START + 0.12
-const BUTTON_REVEAL_START: float = DETAIL_SLIDE_START + DETAIL_SLIDE_DURATION
-const DURATION: float = BUTTON_REVEAL_START + 0.35
-const BLUE: Color = Color("123da5")
-const RED: Color = Color("c90000")
-const BLUE_AVATAR: Texture2D = preload("res://assets/board/characters/avatar_default_rival.png")
-const RED_AVATAR: Texture2D = preload("res://assets/board/characters/avatar_default.png")
-const BLUE_PLATE: Texture2D = preload("res://assets/ui/avatar_panel_rival.png")
-const RED_PLATE: Texture2D = preload("res://assets/ui/avatar_panel_default.png")
-
-var _elapsed: float = 0.0
-var _animation: Tween = null
-var _result: MatchResult = null
-var _celebrating: bool = false
+## Modern Tabletop results. MatchResult remains the sole source of scoring.
+signal share_requested
+const T = preload("res://scripts/presentation/modern_tabletop_theme.gd")
+const PORTRAIT = preload("res://scripts/presentation/matchup_portrait.gd")
+const ACCENT = preload("res://scripts/presentation/result_accent.gd")
+const GEM_ICON = preload("res://scripts/presentation/gem_reward_icon.gd")
+const DURATION: float = 0.8
+const ACCENT_CYCLE_SECONDS: float = 2.4
+var _elapsed: float = DURATION
+var _animation: Tween
+var _accent_animation: Tween
+var _accent_elapsed: float = 0.0
 var _result_key: String = ""
-var _background: GradientTexture2D
-var _blue_avatar: TextureRect
-var _red_avatar: TextureRect
-var _blue_clip: Control
-var _red_clip: Control
-var _detail_clip: Control
-var _blue_plate: NinePatchRect
-var _red_plate: NinePatchRect
-var _detail_plate: NinePatchRect
-var _you_name: Label
-var _you_score: Label
-var _rival_name: Label
-var _rival_score: Label
-var _detail_title: Label
-var _detail_values: Label
+var _result: MatchResult
+var _margin: MarginContainer
+var _column: VBoxContainer
+var _content: VBoxContainer
+var _scroll: ScrollContainer
+var _brand: Label
+var _mark: TextureRect
+var _eyebrow: Label
+var _subtitle: Label
 var _title: Label
 var _body: Label
 var _button: Button
-var _confetti: ConfettiLayer
-
+var _footer: HBoxContainer
+var _share_button: Button
+var _share_feedback: Label
+var _card_slot: Control
+var _card: PanelContainer
+var _card_row: HBoxContainer
+var _reward_card: PanelContainer
+var _reward_heading: Label
+var _reward_pending: Label
+var _reward_names: Array[Label] = []
+var _reward_values: Array[Label] = []
+var _reward_details: Array[Label] = []
+var _breakdown_title: Label
+var _rows: VBoxContainer
+var _portraits: Array[TextureRect] = []
+var _badges: Array[Label] = []
+var _scores: Array[Label] = []
+var _names: Array[Label] = []
+var _units: Array[Label] = []
+var _accents: Array[Control] = []
+var _terms: Dictionary = {}
+var _factor: float = 1.0
 
 func _ready() -> void:
+	if _margin != null:
+		return
+	theme = T.create()
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	clip_contents = true
-	_title = get_node("SummaryTitle") as Label
-	_body = get_node("SummaryBody") as Label
-	_button = get_node("SummaryHubButton") as Button
-	_confetti = get_node("ConfettiLayer") as ConfettiLayer
-	var gradient := Gradient.new()
-	gradient.set_color(0, Color.BLACK)
-	gradient.set_color(1, Color("040e22"))
-	_background = GradientTexture2D.new()
-	_background.gradient = gradient
-	_background.fill_from = Vector2.ZERO
-	_background.fill_to = Vector2(0, 1)
-	_detail_clip = _make_clip("PlayerDetailReveal")
-	_detail_plate = _make_plate(_detail_clip, BLUE_PLATE)
-	_detail_title = _make_label(_detail_plate, "POINTS BREAKDOWN")
-	_detail_values = _make_label(_detail_plate, "")
-	_blue_clip = _make_clip("PlayerScoreReveal")
-	_blue_plate = _make_plate(_blue_clip, BLUE_PLATE)
-	_you_name = _make_label(_blue_plate, "You")
-	_you_score = _make_label(_blue_plate, "0")
-	_red_clip = _make_clip("RivalScoreReveal")
-	_red_plate = _make_plate(_red_clip, RED_PLATE)
-	_rival_name = _make_label(_red_plate, "Rival")
-	_rival_score = _make_label(_red_plate, "0")
-	_blue_avatar = _make_avatar("PlayerAvatar", BLUE_AVATAR)
-	_red_avatar = _make_avatar("RivalAvatar", RED_AVATAR)
-	# Confetti is above the color panels, below portraits/text/actions.
-	move_child(_confetti, 0)
-	for node: Control in [_title, _body, _button]:
-		move_child(node, get_child_count() - 1)
-	resized.connect(_render_frame)
+	z_index = 100
+	_title = get_node("SummaryTitle")
+	_body = get_node("SummaryBody")
+	_button = get_node("SummaryHubButton")
+	get_node("ConfettiLayer").hide()
+	var background := ColorRect.new()
+	background.color = T.canvas()
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(background)
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	move_child(background, 0)
+	_margin = MarginContainer.new()
+	add_child(_margin)
+	_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_column = VBoxContainer.new()
+	_margin.add_child(_column)
+	var header := HBoxContainer.new()
+	header.alignment = BoxContainer.ALIGNMENT_CENTER
+	_column.add_child(header)
+	_mark = TextureRect.new()
+	_mark.texture = preload("res://assets/ui/modern_tabletop/mark.svg")
+	_mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(_mark)
+	_brand = _label(header, "POKABOW", T.BOLD)
+	_separator(_column)
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_column.add_child(_scroll)
+	_content = VBoxContainer.new()
+	_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(_content)
+	_eyebrow = _label(_content, "MATCH COMPLETE")
+	_eyebrow.add_theme_color_override("font_color", T.muted())
+	_move_to(_title, _content)
+	_title.uppercase = false
+	_title.add_theme_color_override("font_shadow_color", Color.TRANSPARENT)
+	_title.add_theme_font_override("font", T.BOLD)
+	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_subtitle = _label(_content, "Well played.")
+	_subtitle.add_theme_color_override("font_color", T.muted())
+	_card_slot = Control.new()
+	_content.add_child(_card_slot)
+	_card = PanelContainer.new()
+	_card_slot.add_child(_card)
+	_card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_card_row = HBoxContainer.new()
+	_card.add_child(_card_row)
+	for i: int in range(2):
+		if i == 1:
+			var divider := VSeparator.new()
+			var line := StyleBoxLine.new()
+			line.color = T.sage().darkened(0.1)
+			line.vertical = true
+			divider.add_theme_stylebox_override("separator", line)
+			_card_row.add_child(divider)
+		var player := VBoxContainer.new()
+		player.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_card_row.add_child(player)
+		var portrait: TextureRect = PORTRAIT.new()
+		portrait.name = "PlayerAvatar" if i == 0 else "RivalAvatar"
+		portrait.texture = load("res://assets/ui/modern_tabletop/avatars/%s" % ("players/player_01.tres" if i == 0 else "rivals/rival_01.tres"))
+		portrait.show_ring = false
+		portrait.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		player.add_child(portrait)
+		_portraits.append(portrait)
+		var accent: Control = ACCENT.new()
+		accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		portrait.add_child(accent)
+		accent.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_accents.append(accent)
+		var badge := _label(player, "✓ Winner", T.SEMIBOLD)
+		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		badge.add_theme_stylebox_override("normal", T.panel(T.honey(), 16, 4))
+		_badges.append(badge)
+		_names.append(_label(player, "You" if i == 0 else "Rival", T.SEMIBOLD))
+		_scores.append(_label(player, "0", T.BOLD))
+		_units.append(_label(player, "points"))
+	_reward_card = PanelContainer.new()
+	_reward_card.name = "GemRewards"
+	_reward_card.visible = false
+	_content.add_child(_reward_card)
+	var reward_column := VBoxContainer.new()
+	_reward_card.add_child(reward_column)
+	var reward_header := HBoxContainer.new()
+	reward_column.add_child(reward_header)
+	_reward_heading = _label(reward_header, "GEMS EARNED", T.SEMIBOLD)
+	_reward_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_reward_pending = _label(reward_header, "Pending", T.MEDIUM)
+	_reward_pending.add_theme_color_override("font_color", T.muted())
+	var reward_row := HBoxContainer.new()
+	reward_column.add_child(reward_row)
+	for i: int in range(2):
+		if i == 1:
+			var divider := VSeparator.new()
+			var line := StyleBoxLine.new()
+			line.color = T.sage().darkened(0.1)
+			line.vertical = true
+			divider.add_theme_stylebox_override("separator", line)
+			reward_row.add_child(divider)
+		var player_reward := VBoxContainer.new()
+		player_reward.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		reward_row.add_child(player_reward)
+		_reward_names.append(_label(player_reward, "You" if i == 0 else "Rival", T.SEMIBOLD))
+		var amount_row := HBoxContainer.new()
+		amount_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		player_reward.add_child(amount_row)
+		var gem: Control = GEM_ICON.new()
+		amount_row.add_child(gem)
+		var amount := _label(amount_row, "+0", T.BOLD)
+		_reward_values.append(amount)
+		var detail := _label(player_reward, "", T.REGULAR)
+		detail.add_theme_color_override("font_color", T.muted())
+		detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_reward_details.append(detail)
+	_breakdown_title = _label(_content, "Score breakdown", T.SEMIBOLD)
+	_breakdown_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_rows = VBoxContainer.new()
+	_content.add_child(_rows)
+	_table_row("", "You", "Rival")
+	var keys: Array[String] = ["poker", "edge", "cluster"]
+	var titles: Array[String] = ["Poker hands", "Edge matches", "Clusters"]
+	for i: int in range(3):
+		_separator(_rows)
+		_terms[keys[i]] = _table_row(titles[i], "0", "0")
+	_separator(_rows)
+	_move_to(_body, _content)
+	_body.add_theme_font_override("font", T.REGULAR)
+	_share_feedback = _label(_column, "")
+	_share_feedback.add_theme_color_override("font_color", T.muted())
+	_share_feedback.hide()
+	_footer = HBoxContainer.new()
+	_footer.add_theme_constant_override("separation", 8)
+	_column.add_child(_footer)
+	_share_button = Button.new()
+	_share_button.name = "ShareWinButton"
+	_share_button.text = "Share"
+	_share_button.icon = preload("res://assets/ui/modern_tabletop/share.svg")
+	_share_button.add_theme_constant_override("icon_max_width", 24)
+	_share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	T.style_button(_share_button, "secondary")
+	_share_button.pressed.connect(func() -> void: share_requested.emit())
+	_footer.add_child(_share_button)
+	_move_to(_button, _footer)
+	_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	T.style_button(_button, "primary")
+	_button.text = "Back to hub"
+	_card.minimum_size_changed.connect(_sync_card_height)
+	resized.connect(_fit_layout)
 	visibility_changed.connect(_on_visibility_changed)
-	_render_frame()
+	_fit_layout()
 
+func _move_to(node: Node, parent: Node) -> void:
+	var scene_owner: Node = node.owner
+	node.owner = null
+	node.reparent(parent, false)
+	node.owner = scene_owner
 
-func play(result: MatchResult) -> void:
+func _sync_card_height() -> void:
+	_card_slot.custom_minimum_size.y = _card.get_combined_minimum_size().y
+
+func _label(parent: Node, text: String, font: Font = T.REGULAR) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", font)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(label)
+	return label
+
+func _separator(parent: Node) -> void:
+	var separator := HSeparator.new()
+	var line := StyleBoxLine.new()
+	line.color = T.sage()
+	line.thickness = 1
+	separator.add_theme_stylebox_override("separator", line)
+	parent.add_child(separator)
+
+func _table_row(caption: String, human: String, rival: String) -> Array[Label]:
+	var row := HBoxContainer.new()
+	_rows.add_child(row)
+	var cells: Array[Label] = []
+	for text: String in [caption, human, rival]:
+		var label := _label(row, text, T.MEDIUM)
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.size_flags_stretch_ratio = 2.0 if cells.is_empty() else 1.0
+		if cells.is_empty():
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		cells.append(label)
+	return cells
+
+func play(result: MatchResult, projected_rewards: Dictionary = {}) -> void:
 	if result == null:
 		return
-	var key := "%d:%d:%d:%d" % [result.outcome, result.human_score, result.ai_score, result.move_count]
-	if visible and _result_key == key:
+	var result_key: String = JSON.stringify(result.to_dictionary()) + JSON.stringify(projected_rewards)
+	if visible and _result_key == result_key:
 		return
 	_stop_animation()
 	_result = result
-	_result_key = key
-	_celebrating = false
-	_confetti.clear()
-	_you_score.text = str(result.human_score)
-	_rival_score.text = str(result.ai_score)
-	var points: Dictionary = result.terms_for(TurnEnums.HUMAN_PLAYER_ID)
-	_detail_values.text = "Poker %d\nEdges %d  ·  Clusters %d" % [
-		int(points.get("poker", 0)), int(points.get("edge", 0)), int(points.get("cluster", 0))]
+	_result_key = result_key
+	_share_button.visible = result.winner_id() == TurnEnums.HUMAN_PLAYER_ID
+	_share_feedback.hide()
+	_scores[0].text = str(result.human_score)
+	_scores[1].text = str(result.ai_score)
+	_reward_card.visible = not projected_rewards.is_empty()
+	if _reward_card.visible:
+		for i: int in range(2):
+			var prefix: String = "human" if i == 0 else "rival"
+			var pot: int = int(projected_rewards.get(prefix + "_pot", 0))
+			var completion: int = int(projected_rewards.get(prefix + "_completion", 0))
+			_reward_values[i].text = "+%d" % int(projected_rewards.get(prefix + "_total", 0))
+			if result.is_draw():
+				_reward_details[i].text = "%d share + %d completion" % [pot, completion]
+			elif pot > 0 and completion > 0:
+				_reward_details[i].text = "%d pot + %d completion" % [pot, completion]
+			elif pot > 0:
+				_reward_details[i].text = "%d pot" % pot
+			elif completion > 0:
+				_reward_details[i].text = "Completion bonus"
+			else:
+				_reward_details[i].text = "No Gems"
+	_eyebrow.text = "MATCH INCOMPLETE" if result.is_incomplete() else "MATCH COMPLETE"
+	_subtitle.text = "Scores at interruption." if result.is_incomplete() else ("Honours shared." if result.is_draw() else ("Well played." if result.winner_id() == TurnEnums.HUMAN_PLAYER_ID else "Until the next match."))
+	for i: int in range(2):
+		var player: StringName = TurnEnums.HUMAN_PLAYER_ID if i == 0 else TurnEnums.AI_PLAYER_ID
+		var winner: bool = result.winner_id() == player
+		_accents[i].winner = winner
+		_badges[i].modulate.a = 1.0 if winner else 0.0
+		var points: Dictionary = result.terms_for(player)
+		for key: String in _terms:
+			_terms[key][i + 1].text = str(int(points.get(key, 0)))
 	visible = true
-	_button.disabled = true
+	_button.disabled = false
+	_scroll.scroll_vertical = 0
+	_fit_layout()
 	if AccessibilitySettings.reduced_motion():
 		seek(DURATION)
 		return
-	seek(0.0)
+	seek(0)
 	_animation = create_tween()
 	_animation.tween_method(seek, 0.0, DURATION, DURATION)
+	_animation.finished.connect(_start_accent_loop)
 
+func seek(seconds: float) -> void:
+	_elapsed = DURATION if AccessibilitySettings.reduced_motion() else clampf(seconds, 0, DURATION)
+	var entrance: float = smoothstep(0, 0.25, _elapsed)
+	# Fade only the panel surface: final scores remain readable immediately.
+	_card.self_modulate.a = entrance
+	var rise: float = (1.0 - entrance) * 8 * _factor
+	_card.offset_top = rise
+	_card.offset_bottom = rise
+	for i: int in range(2):
+		var badge_progress: float = smoothstep(0.12, 0.32, _elapsed)
+		_badges[i].pivot_offset = _badges[i].size * 0.5
+		_badges[i].scale = Vector2.ONE * lerpf(0.95, 1.0, badge_progress)
+		_accents[i].pulse = sin(clampf((_elapsed - 0.25) / 0.45, 0, 1) * PI)
+		_accents[i].sparkle_alpha = 0.0
+		if _result != null and _result.winner_id() == TurnEnums.HUMAN_PLAYER_ID and i == 0:
+			_accents[i].sparkle_alpha = sin(clampf((_elapsed - 0.35) / 0.4, 0, 1) * PI)
+		_accents[i].queue_redraw()
+
+func _start_accent_loop() -> void:
+	_animation = null
+	if not visible or _result == null or _result.winner_id() == &"" or AccessibilitySettings.reduced_motion():
+		return
+	_accent_elapsed = 0.0
+	_accent_animation = create_tween().set_loops()
+	_accent_animation.tween_method(_seek_winner_accent, 0.0, ACCENT_CYCLE_SECONDS, ACCENT_CYCLE_SECONDS)
+
+func _seek_winner_accent(seconds: float) -> void:
+	_accent_elapsed = seconds
+	var phase: float = clampf(seconds / ACCENT_CYCLE_SECONDS, 0.0, 1.0)
+	var pulse: float = sin(phase * PI)
+	for i: int in range(2):
+		_accents[i].pulse = pulse
+		_accents[i].sparkle_alpha = 0.0
+		if _result.winner_id() == TurnEnums.HUMAN_PLAYER_ID and i == 0:
+			_accents[i].sparkle_alpha = 0.7 * sin(clampf((phase - 0.25) / 0.4, 0.0, 1.0) * PI)
+		_accents[i].queue_redraw()
 
 func clear() -> void:
 	_stop_animation()
-	_result_key = ""
 	_result = null
-	_celebrating = false
-	_elapsed = 0.0
-	if _confetti != null:
-		_confetti.clear()
-	if _button != null:
-		_button.disabled = true
+	_result_key = ""
 	visible = false
-
-
-## Seek is also used by the frame-capture tool; it never changes game state.
-func seek(seconds: float) -> void:
-	_elapsed = clampf(seconds, 0.0, DURATION)
-	_render_frame()
-	var should_celebrate: bool = visible and _elapsed >= RESULT_REVEAL_START and _result != null and not _rival_won()
-	if should_celebrate and not _celebrating:
-		_celebrating = true
-		_confetti.play()
-	elif not should_celebrate and _celebrating:
-		_celebrating = false
-		_confetti.clear()
-
+	if _share_feedback != null:
+		_share_feedback.hide()
+	if _card != null:
+		seek(DURATION)
 
 func _stop_animation() -> void:
 	if _animation != null and _animation.is_valid():
 		_animation.kill()
 	_animation = null
+	if _accent_animation != null and _accent_animation.is_valid():
+		_accent_animation.kill()
+	_accent_animation = null
+	_accent_elapsed = 0.0
 
+
+func can_share_win() -> bool:
+	return visible and _result != null and _result.winner_id() == TurnEnums.HUMAN_PLAYER_ID
+
+
+func set_share_capture_mode(enabled: bool) -> void:
+	_footer.visible = not enabled
+	if enabled:
+		_share_feedback.hide()
+
+
+func show_share_feedback(message: String) -> void:
+	_share_feedback.text = message
+	_share_feedback.visible = not message.is_empty()
 
 func _on_visibility_changed() -> void:
 	if not visible:
 		_stop_animation()
-		_celebrating = false
+		_result = null
 		_result_key = ""
-		if _confetti != null:
-			_confetti.clear()
-
 
 func _exit_tree() -> void:
 	_stop_animation()
 
-
-func _make_clip(node_name: String) -> Control:
-	var clip := Control.new()
-	clip.name = node_name
-	clip.clip_contents = true
-	clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(clip)
-	return clip
-
-
-func _make_plate(parent: Control, texture: Texture2D) -> NinePatchRect:
-	var plate := NinePatchRect.new()
-	plate.texture = texture
-	plate.patch_margin_left = 12
-	plate.patch_margin_top = 12
-	plate.patch_margin_right = 12
-	plate.patch_margin_bottom = 12
-	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(plate)
-	return plate
-
-
-func _make_label(parent: Control, text: String) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_color_override("font_color", Color.WHITE)
-	parent.add_child(label)
-	return label
-
-
-func _make_avatar(node_name: String, texture: Texture2D) -> TextureRect:
-	var avatar := TextureRect.new()
-	avatar.name = node_name
-	avatar.texture = texture
-	avatar.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	avatar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(avatar)
-	return avatar
-
-
-func _progress(start: float, duration: float) -> float:
-	return clampf((_elapsed - start) / duration, 0.0, 1.0)
-
-
-func _smooth(start: float, duration: float) -> float:
-	return smoothstep(0.0, 1.0, _progress(start, duration))
-
-
-func _render_frame() -> void:
-	queue_redraw()
-	if _blue_avatar == null or size.x <= 0 or size.y <= 0:
+func _fit_layout() -> void:
+	if _margin == null or not is_inside_tree():
 		return
-	# Keep the portrait composition readable on both tall phones and wide screens.
-	var width: float = minf(size.x, size.y * 0.86)
-	var frame := Rect2(Vector2((size.x - width) * 0.5, 0), Vector2(width, size.y))
-	var unit: float = width / 353.0
-	var settle: float = _smooth(SETTLE_START, SETTLE_DURATION)
-	var avatar_size: float = minf(width * 0.37, size.y * 0.28)
-	var top: Vector2 = frame.position + Vector2(width * lerpf(0.25, 0.18, settle), size.y * lerpf(0.17, 0.15, settle))
-	var bottom: Vector2 = frame.position + Vector2(width * 0.76, size.y * 0.76)
-	var settled_size: float = avatar_size * lerpf(1.0, 0.82, settle)
-	_place_avatar(_blue_avatar, top, settled_size, _progress(PLAYER_DROP_START, DROP_DURATION))
-	_place_avatar(_red_avatar, bottom, settled_size, _progress(RIVAL_DROP_START, DROP_DURATION))
+	_factor = clampf(size.x / 390.0, 0.65, 1.8)
+	var physical: float = maxf(1, 1.0 / get_viewport().get_screen_transform().get_scale().x)
+	var compact: bool = size.y / maxf(size.x, 1) < 1.95 or (_reward_card.visible and size.y < 1100.0 * _factor)
+	var side: int = roundi(20 * _factor)
+	var top: int = roundi(16 * _factor)
+	var bottom: int = top
+	if OS.has_feature("android") or OS.has_feature("ios"):
+		var safe := DisplayServer.get_display_safe_area()
+		var window := DisplayServer.window_get_size()
+		if safe.has_area() and window.x > 0 and window.y > 0:
+			var ratio := size / Vector2(window)
+			side = maxi(side, ceili(maxi(safe.position.x, window.x - safe.end.x) * ratio.x))
+			top = maxi(top, ceili(safe.position.y * ratio.y))
+			bottom = maxi(bottom, ceili((window.y - safe.end.y) * ratio.y))
+	for key: String in ["left", "right"]:
+		_margin.add_theme_constant_override("margin_" + key, side)
+	_margin.add_theme_constant_override("margin_top", top)
+	_margin.add_theme_constant_override("margin_bottom", bottom)
+	_column.add_theme_constant_override("separation", roundi(12 * _factor))
+	_content.add_theme_constant_override("separation", roundi((6 if compact else 10) * _factor))
+	_rows.add_theme_constant_override("separation", roundi(5 * _factor))
+	_mark.custom_minimum_size = Vector2.ONE * 26 * _factor
+	var diameter: float = (70 if compact else 108) * _factor
+	_card.add_theme_stylebox_override("panel", T.panel(T.sage(), roundi(24 * _factor), 14 * _factor))
+	_card_row.add_theme_constant_override("separation", roundi(12 * _factor))
+	for i: int in range(2):
+		_portraits[i].custom_minimum_size = Vector2.ONE * diameter
+		_portraits[i].get_parent().add_theme_constant_override("separation", roundi(3 * _factor))
+		_font(_badges[i], 14, physical)
+		_font(_names[i], 18, physical)
+		_font(_scores[i], 38 if compact else 42, physical)
+		_font(_units[i], 14, physical)
+		var max_width: float = (size.x - 2 * side - 44 * _factor) * 0.5
+		var font_size: int = _scores[i].get_theme_font_size("font_size")
+		while font_size > ceili(14 * physical) and T.BOLD.get_string_size(_scores[i].text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
+			font_size -= 1
+		_scores[i].add_theme_font_size_override("font_size", font_size)
+	_card_slot.custom_minimum_size.y = _card.get_combined_minimum_size().y
+	_reward_card.add_theme_stylebox_override("panel", T.panel(T.sage(), roundi(20 * _factor), 10 * _factor))
+	_font(_reward_heading, 15, physical)
+	_font(_reward_pending, 13, physical)
+	for i: int in range(2):
+		_font(_reward_names[i], 15, physical)
+		_font(_reward_values[i], 27, physical)
+		_font(_reward_details[i], 12, physical)
+		var gem: Control = _reward_values[i].get_parent().get_child(0)
+		gem.custom_minimum_size = Vector2.ONE * 24 * _factor
+	for pair: Array in [[_brand, 28], [_eyebrow, 14], [_title, 32 if compact else 38], [_subtitle, 16], [_breakdown_title, 22], [_body, 14]]:
+		_font(pair[0], pair[1], physical)
+	for row: Node in _rows.get_children():
+		if row is HBoxContainer:
+			for label: Label in row.get_children():
+				_font(label, 16, physical)
+	_button.custom_minimum_size.y = maxf(48 * physical, 56 * _factor)
+	_button.add_theme_font_size_override("font_size", roundi(22 * _factor))
+	_share_button.custom_minimum_size.y = _button.custom_minimum_size.y
+	_share_button.add_theme_font_size_override("font_size", roundi(20 * _factor))
+	_share_button.add_theme_constant_override("icon_max_width", roundi(22 * _factor))
+	_font(_share_feedback, 14, physical)
+	seek(_elapsed)
+	if _accent_animation != null and _accent_animation.is_running():
+		_seek_winner_accent(_accent_elapsed)
 
-	var plate_height: float = settled_size * 0.69
-	var blue_rect := Rect2(top + Vector2(-settled_size * 0.08, -plate_height * 0.43), Vector2(width * 0.40, plate_height))
-	var red_rect := Rect2(bottom + Vector2(-width * 0.38, -plate_height * 0.43), Vector2(width * 0.42, plate_height))
-	_reveal_plate(_blue_clip, _blue_plate, blue_rect, _smooth(SCORE_SLIDE_START, SCORE_SLIDE_DURATION), false)
-	_reveal_plate(_red_clip, _red_plate, red_rect, _smooth(SCORE_SLIDE_START, SCORE_SLIDE_DURATION), true)
-	var detail_rect := Rect2(Vector2(blue_rect.end.x - width * 0.03, blue_rect.position.y + plate_height * 0.04), Vector2(width * 0.37, plate_height * 0.92))
-	_reveal_plate(_detail_clip, _detail_plate, detail_rect, _smooth(DETAIL_SLIDE_START, DETAIL_SLIDE_DURATION), false)
-	_score_labels(_you_name, _you_score, blue_rect.size, true, unit)
-	_score_labels(_rival_name, _rival_score, red_rect.size, false, unit)
-	_set_label(_detail_title, Rect2(8 * unit, 7 * unit, detail_rect.size.x - 16 * unit, 15 * unit), maxi(9, roundi(10 * unit)))
-	_set_label(_detail_values, Rect2(5 * unit, 22 * unit, detail_rect.size.x - 10 * unit, detail_rect.size.y - 26 * unit), maxi(10, roundi(11 * unit)))
-
-	var reveal: float = _smooth(RESULT_REVEAL_START, 0.44)
-	var title_rect := Rect2(frame.position + Vector2(10 * unit, size.y * 0.365 + (1.0 - reveal) * 18 * unit), Vector2(width - 20 * unit, size.y * 0.14))
-	var font_size: int = roundi(minf(57 * unit, size.y * 0.105))
-	var font: Font = _title.get_theme_font("font")
-	while font_size > 18 and font.get_string_size(_title.text.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > title_rect.size.x:
-		font_size -= 1
-	_set_label(_title, title_rect, font_size)
-	_title.modulate.a = reveal
-	_title.visible = reveal > 0.0
-	# Preserve the real end reason and both category breakdowns from GameScreen.
-	_set_label(_body, Rect2(frame.position + Vector2(width * 0.04, size.y * 0.51), Vector2(width * 0.92, size.y * 0.14)), maxi(10, roundi(minf(12 * unit, size.y * 0.023))))
-	_body.modulate.a = _smooth(BODY_REVEAL_START, 0.40)
-	_body.visible = _elapsed >= BODY_REVEAL_START
-	_button.position = frame.position + Vector2(width * 0.14, size.y * 0.89)
-	_button.size = Vector2(width * 0.72, maxf(44.0, minf(52 * unit, size.y * 0.085)))
-	_button.add_theme_font_size_override("font_size", maxi(14, roundi(17 * unit)))
-	_button.modulate.a = _smooth(BUTTON_REVEAL_START, 0.35)
-	_button.visible = _elapsed >= BUTTON_REVEAL_START
-	_button.disabled = _elapsed < DURATION
-
-
-func _score_labels(name_label: Label, score_label: Label, plate_size: Vector2, on_left: bool, unit: float) -> void:
-	var left: float = plate_size.x * (0.40 if on_left else 0.05)
-	var text_width: float = plate_size.x * 0.53
-	_set_label(name_label, Rect2(left, plate_size.y * 0.11, text_width, plate_size.y * 0.25), maxi(12, roundi(17 * unit)))
-	var score_size: int = roundi(29 * unit)
-	var font: Font = score_label.get_theme_font("font")
-	while score_size > 12 and font.get_string_size(score_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, score_size).x > text_width:
-		score_size -= 1
-	_set_label(score_label, Rect2(left, plate_size.y * 0.38, text_width, plate_size.y * 0.48), score_size)
-
-
-func _set_label(label: Label, rect: Rect2, font_size: int) -> void:
-	label.add_theme_font_size_override("font_size", font_size)
-	label.position = rect.position
-	label.size = rect.size
-
-
-func _place_avatar(avatar: TextureRect, center: Vector2, diameter: float, progress: float) -> void:
-	avatar.visible = progress > 0.0
-	# Back easing produces a short, soft landing after the large-to-small drop.
-	var p: float = progress - 1.0
-	var landed: float = 1.0 + 2.2 * p * p * p + 1.2 * p * p
-	var scale_factor: float = lerpf(2.6, 1.0, landed)
-	avatar.size = Vector2.ONE * diameter
-	avatar.pivot_offset = avatar.size * 0.5
-	avatar.scale = Vector2.ONE * scale_factor
-	avatar.position = center - avatar.size * 0.5 - Vector2(0, (1.0 - progress) * diameter * 0.42)
-	avatar.modulate.a = minf(1.0, progress * 5.0)
-
-
-func _reveal_plate(clip: Control, plate: NinePatchRect, rect: Rect2, progress: float, from_right: bool) -> void:
-	clip.visible = progress > 0.0
-	# Move the complete artwork and its labels through a fixed mask. Resizing
-	# only the mask was a wipe: the panel itself never actually slid out.
-	clip.size = rect.size
-	clip.position = rect.position
-	plate.size = rect.size
-	var direction: float = 1.0 if from_right else -1.0
-	plate.position = Vector2(direction * rect.size.x * (1.0 - progress), 0.0)
-
-
-func _rival_won() -> bool:
-	return _result != null and _result.outcome == TurnEnums.MatchOutcome.AI_WIN
-
-
-func _panel_sweep_direction() -> float:
-	return -1.0 if _rival_won() else 1.0
-
-
-func _draw() -> void:
-	if _background == null:
-		return
-	draw_texture_rect(_background, Rect2(Vector2.ZERO, size), false)
-	var join: float = _smooth(PANEL_JOIN_START, PANEL_JOIN_DURATION)
-	if join <= 0.0:
-		return
-	var sweep: float = _smooth(SETTLE_START, SETTLE_DURATION)
-	# Rival wins pull the boundary upward so the lower red panel fills the screen.
-	var direction: float = _panel_sweep_direction()
-	var left: float = size.y * (0.85 + direction * 1.05 * sweep)
-	var right: float = size.y * (0.15 + direction * 1.05 * sweep)
-	var gap: float = size.y * (1.0 - join)
-	# Overscan keeps polygons covering the viewport during rotation/resizing.
-	draw_colored_polygon(PackedVector2Array([Vector2(0, -size.y), Vector2(size.x, -size.y),
-		Vector2(size.x, right - gap), Vector2(0, left - gap)]), BLUE)
-	draw_colored_polygon(PackedVector2Array([Vector2(0, left + gap), Vector2(size.x, right + gap),
-		Vector2(size.x, size.y * 3.0), Vector2(0, size.y * 3.0)]), RED)
+func _font(label: Label, reference: float, physical: float) -> void:
+	label.add_theme_font_size_override("font_size", maxi(ceili(14 * physical), roundi(reference * _factor)))

@@ -536,13 +536,18 @@ func is_over() -> bool:
 
 
 ## Returns how many tiles remain undrawn (ADR-004 information visibility).
-##
-## Only the count is exposed: undrawn contents and draw order stay hidden from
-## both the player-facing UI and the AI decision interface.
+## The companion face inventory omits IDs and draw positions.
 func remaining_tile_count() -> int:
 	if _tile_source == null:
 		return 0
 	return _tile_source.remaining_count()
+
+
+## Read-only, appearance-sorted pot inventory for the player-facing drawer.
+func remaining_tile_faces() -> Array[Dictionary]:
+	if _tile_source == null:
+		return []
+	return _tile_source.remaining_tile_faces()
 
 
 ## Returns one player's committed total, rebuilt from the ledger.
@@ -620,8 +625,8 @@ func players_with_active_tiles() -> Array[StringName]:
 ## Returns the tile definition with this identity, from anywhere it can legally
 ## be: a player's deck, a committed board cell, or the generated bag.
 ##
-## The bag is searched last and only through its debug accessor, because ADR-004
-## section 7 hides undrawn contents from gameplay code. This lookup exists so a
+## The bag is searched last and only through its debug accessor, because the
+## public inventory omits IDs and draw order. This lookup exists so a
 ## restored match can resolve a placed tile identity back to its definition
 ## without duplicating tile values into the save record.
 func tile_by_id(tile_id: StringName) -> TileDefinition:

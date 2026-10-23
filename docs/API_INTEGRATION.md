@@ -30,6 +30,35 @@ verified after rebuilding with Internet permission enabled.
 
 ## Request mapping
 
+### Authentication recovery (implemented)
+
+A protected request returning HTTP 401 invalidates the cached session and
+requests one shared login using saved credentials. Concurrent failures share
+that request. A token rejected within 60 seconds of a successful login stops
+automatic recovery, preventing a repeated 401/login loop.
+
+When `POST /auth/login` rejects saved credentials with HTTP 401, the client
+treats that account as unavailable (owner direction, 2026-10-14). It stops the
+old account's services, removes credentials, cached profile, queued unlocks,
+local match saves, sync queues, online resume state and account settings, then
+reloads the game into the Terms of Use/new-account setup flow. Accepting creates
+a fresh identity through the existing registration flow. No remote account
+deletion is requested. The saved Server IP is retained so registration reaches
+the same service. If cleanup fails, Retry retries local cleanup; no new account
+starts until cleanup succeeds.
+
+An expired bearer token alone does not reset the account: the saved-credential
+login must return 401. Network failures, other HTTP errors and unusable login
+responses remain retryable through **Retry** and **Close**, retaining local
+account and match data. Matchmaking leaves its waiting state and online play
+suspends polling until authentication recovers.
+
+Automated regression coverage uses fake responses for concurrent 401s, login
+failure and retry, rejection of a refreshed token, non-JSON 401 bodies, and
+preservation of queued online commands during temporary failures, rejected-account
+cleanup/restart, cleanup failure/retry and prevention of stale profile writes.
+Live API/editor verification remains manual.
+
 Pokabow retains its local, deterministic human-versus-AI rules. The Games API
 stores the match and receives authenticated actions. Its current turn score is
 still a placeholder; it must not replace the local ledger or determine achievements.
@@ -37,7 +66,7 @@ still a placeholder; it must not replace the local ledger or determine achieveme
 | Game feature | API request | Behavior |
 | --- | --- | --- |
 | First account / returning account | `POST /auth/register`, `POST /auth/login` | Existing account flow; a 401 from sync, achievements or profile requests a fresh login. |
-| Profile / Refresh | `GET /auth/me` | Refreshes account details; the API has no profile-edit contract, so the fields are read-only. |
+| Profile / Save changes | `GET /auth/me`, `PATCH /auth/me`, `GET/PUT /auth/me/avatar` | One profile action uploads the normalized PNG avatar and updates `displayName` through the existing authenticated routes. The client caches the avatar after upload confirmation and reports partial success if the username update then fails. |
 | Start match | `GET /games`, then `POST /games` if absent | Finds the local match ID before creating a remote record; preserves the initial snapshot while offline. |
 | Resume match | `GET /games/{gameId}` | Refreshes API version before draining queued actions. Local validated save remains the playable state. |
 | Human line / points scored | `POST /games/{gameId}/turns`, then `PATCH /games/{gameId}` | Stable turn ID supports retries. PATCH stores the actual board, rotations, ledger, decks and lifecycle snapshot. Placeholder API scores are ignored. |
@@ -50,6 +79,13 @@ still a placeholder; it must not replace the local ledger or determine achieveme
 | Clear game cache | `DELETE /games/{gameId}` | Deletes the remote record; offline/failed deletes are retained and retried. This is not resignation. |
 | View achievements | `GET /achievements` | Existing account catalog and unlock display. |
 | Earn achievement | `POST /achievements/unlocks` | Existing committed-event detection; pending IDs retry after transient failure or login. Previews award nothing. |
+| Track achievement progress | `POST /achievements/progress` | Sends stable IDs for committed human Two Pair and Perfect Match events. The API deduplicates per account and returns newly unlocked IDs; offline events retry. Requires migration `010_achievement_progress.sql`. |
+
+`pokabow-api` already provides the separate authenticated avatar upload and
+download endpoints, backed by migration `009_user_avatars.sql`. The client
+contract uses those routes together with the existing username update. They are
+two API writes, so they are not atomic; the profile reports when only the avatar
+was saved and retains the username draft for retry.
 
 Preview remains a **proposed** server route. A 404/501 disables further preview
 requests for that local match during the client session. Failures, malformed

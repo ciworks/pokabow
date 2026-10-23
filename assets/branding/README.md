@@ -3,7 +3,17 @@
 The current game name is **Pokabow**. Uppercase artwork uses **POKABOW**
 (P O K A B O W). See the naming decision in `docs/GAME_SPEC.md` section 1.
 
-## Current assets
+## Approved visual direction
+
+[Modern Tabletop](../../docs/DESIGN_SYSTEM.md) is the approved standard for new
+and redesigned UI and branding (ADR-020, 2026-10-17). Follow its teal/ivory/honey
+palette, rounded typography and coordinated illustration language. The
+[approved reference](../../docs/design/modern-tabletop-reference.png) is design
+guidance, not a runtime asset sheet. The assets below remain the current runtime
+implementation until migration; their earlier style does not supersede the new
+standard.
+
+## Current runtime assets
 
 - [Header logo v2](pokabow-header-logo-v2.png): current straight wordmark without
   a tile, with gold lettering and royal-blue outline; transparent PNG.

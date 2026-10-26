@@ -3,7 +3,7 @@ extends RefCounted
 ## Shared, persistent configuration for every service request made by the app.
 
 const SERVER_IP_SETTING_PATH: String = "pokabow/server_ip"
-const DEFAULT_SERVER_IP: String = "192.168.0.189"
+const DEFAULT_SERVER_IP: String = "192.168.0.215"
 const API_PORT: int = 3000
 const CONFIG_PATH: String = "user://settings.cfg"
 

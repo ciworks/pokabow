@@ -68,12 +68,15 @@ How the decision is tested (per AGENTS.md section 16).
 | ADR-011 | Line Placement and Hand Legality | GAME_SPEC 13.5, 13.8 | Decided; supersedes parts of ADR-006, ADR-007, and ADR-010 |
 | ADR-012 | Valid Hand List | GAME_SPEC 5.3 | Accepted |
 | ADR-013 | Tile Scoring Multipliers | GAME_SPEC 5.7 | Accepted |
-| ADR-014 | Joker Supply Cap | GAME_SPEC 13.6 | Accepted |
+| ADR-014 | Joker Supply Cap | GAME_SPEC 13.6 | Superseded by ADR-022 |
 | ADR-015 | Account Achievements | GAME_SPEC 8.3, 14 | Decided |
 | ADR-016 | Earned and Premium Cosmetic Currencies | GAME_SPEC 8.5, 13.10 | Proposed; currency separation and cosmetic-only direction confirmed |
 | ADR-017 | Sixty-second turns | GAME_SPEC 13.5; Mobile UX | Decided; implemented |
 | ADR-018 | Resignation | GAME_SPEC 13.5, 13.9 | Decided; implemented |
 | [ADR-020](ADR-020-modern-tabletop-design-system.md) | Modern Tabletop Design System | GAME_SPEC 7.3, 7.6; all UI presentation | Decided; runtime adoption pending |
+| [ADR-021](ADR-021-joker-wildcard-hands.md) | Joker Rank Substitution in Poker Hands | GAME_SPEC 5.3, 5.7 | Superseded by ADR-022 |
+| [ADR-022](ADR-022-remove-jokers.md) | Remove Jokers | GAME_SPEC 3, 5.7, 13.6 | Accepted |
+| [ADR-024](ADR-024-tournaments.md) | Tournaments | GAME_SPEC 8.5, 8.6 | Decided; not implemented |
 
 ADR-007 and ADR-008 are technical/architectural decisions; they do not change
 game rules. ADR-001 through ADR-006, ADR-010, and ADR-011 change game rules
@@ -108,6 +111,9 @@ Proposed in their own status fields; the other listed ADRs are accepted or decid
 - `ADR-018-resignation.md`
 - `ADR-019-live-online-play.md`
 - `ADR-020-modern-tabletop-design-system.md`
+- `ADR-021-joker-wildcard-hands.md` (superseded)
+- `ADR-022-remove-jokers.md`
+- `ADR-023-untimed-turns.md`
 
 Where an ADR has been partly superseded, the amendment entry at the end of that
 ADR names the new decision. Read the amendment before implementing any

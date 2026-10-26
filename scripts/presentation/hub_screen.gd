@@ -19,19 +19,21 @@ extends Control
 ## Raised when the player asks to play. The composition root owns what that means
 ## (it hosts the screens); the hub only reports the request.
 signal play_requested
-signal online_requested
 signal resume_game_requested(kind: String, id: String, path: String)
 signal profile_requested
 signal achievements_requested
-signal delete_account_requested
-signal account_deletion_acknowledged
+signal shop_requested
+signal gem_history_requested
+signal report_problem_requested
+signal tournaments_requested
+signal tutorial_requested
 signal clear_game_cache_requested
 signal tables_requested
 signal completed_match_requested(kind: String, id: String)
+signal music_volume_changed(level: float)
 
 ## Notice copy. Constant so a test and the handler cannot disagree about wording.
-const PLAY_LABEL_NEW_GAME: String = "Play AI"
-const PLAY_LABEL_RESUME: String = "Resume"
+const PLAY_LABEL_NEW_GAME: String = "Play Now"
 const NOTICE_SOUND_ON: String = "Sound on"
 const NOTICE_SOUND_OFF: String = "Sound off"
 
@@ -52,19 +54,22 @@ var _background: TextureRect = null
 var _settings_button: Button = null
 var _sound_button: Button = null
 var _play_button: Button = null
-var _online_button: Button = null
 var _active_game_list: VBoxContainer = null
 var _active_games_scroll: ScrollContainer = null
 var _active_games_empty: Label = null
 var _achievements_button: Button = null
 var _profile_button: Button = null
 var _home_button: Button = null
+var _shop_button: Button = null
+var _tournaments_button: Button = null
+var _gem_balance_button: Button = null
+var _confirmed_gems: int = -1
 var _has_active_games: bool = false
 var _active_games_snapshot: Array[Dictionary] = []
 var _recent_match: Dictionary = {}
 var _tables_link: Button
+var _recent_panel: PanelContainer
 var _recent_row: HBoxContainer
-var _recent_rule: HSeparator
 var _more_active: Button
 var _notice: PanelContainer = null
 var _notice_label: Label = null
@@ -73,15 +78,12 @@ var _settings_layer: Control = null
 var _reduced_motion_toggle: CheckButton = null
 var _haptics_toggle: CheckButton = null
 var _sound_toggle: CheckButton = null
+var _music_volume_slider: HSlider = null
+var _music_volume_value: Label = null
+var _push_notifications_toggle: CheckButton = null
 var _dark_mode_toggle: CheckButton = null
-var _api_ip_input: LineEdit = null
-var _api_ip_save_button: Button = null
-var _api_ip_status: Label = null
 var _settings_close_button: Button = null
 var _clear_game_cache_button: Button = null
-var _deletion_busy: bool = false
-var _deletion_complete: bool = false
-var _remote_account_deleted: bool = false
 
 ## The fade currently animating the notice, so a second tap cannot leave the
 ## first tap's fade-out running against the new notice.
@@ -122,8 +124,14 @@ func _fit_layout() -> void:
 	margin.add_theme_constant_override("margin_right", side)
 	margin.add_theme_constant_override("margin_top", top)
 	margin.add_theme_constant_override("margin_bottom", bottom)
-	get_node("%Brand").add_theme_font_size_override("font_size", maxi(24, roundi(42 * scale)))
-	get_node("%Headline").add_theme_font_size_override("font_size", maxi(36, roundi(55 * scale)))
+	get_node("%Brand").add_theme_font_size_override("font_size", maxi(32, roundi(55 * scale)))
+	var header: HBoxContainer = get_node("%Header") as HBoxContainer
+	header.add_theme_constant_override("separation", 4 if size.x < 400 else 10)
+	(get_node("%Mark") as Control).custom_minimum_size = Vector2.ONE * maxi(40, roundi(48 * scale))
+	_gem_balance_button.custom_minimum_size = Vector2(80 if size.x < 400 else 102, maxi(48, roundi(68 * scale)))
+	_gem_balance_button.add_theme_font_size_override("font_size", maxi(14, roundi(19 * scale)))
+	_gem_balance_button.add_theme_constant_override("icon_max_width", maxi(22, roundi(28 * scale)))
+	_refresh_gem_chip()
 	get_node("%Hero").custom_minimum_size.y = minf(190, maxf(125, (size.x - side * 2) * 0.35))
 	get_node("%FooterHint").add_theme_font_size_override("font_size", maxi(14, roundi(20 * scale)))
 	get_node("%ActiveGamesTitle").add_theme_font_size_override("font_size", maxi(20, roundi(26 * scale)))
@@ -133,13 +141,12 @@ func _fit_layout() -> void:
 	if _more_active != null:
 		_more_active.add_theme_font_size_override("font_size", maxi(17, roundi(22 * scale)))
 	get_node("%Content").add_theme_constant_override("separation", maxi(12, roundi(16 * scale)))
-	for button: Button in [_settings_button, _sound_button]:
+	for button: Button in [_shop_button, _profile_button, _settings_button, _sound_button]:
 		button.custom_minimum_size = Vector2.ONE * maxi(48, roundi(72 * scale))
 		button.add_theme_constant_override("icon_max_width", maxi(22, roundi(28 * scale)))
-	for button: Button in [_play_button, _online_button]:
-		button.custom_minimum_size.y = maxi(52, roundi(72 * scale))
-		button.add_theme_font_size_override("font_size", maxi(22, roundi(30 * scale)))
-	for button: Button in [_home_button, _achievements_button, _profile_button]:
+	_play_button.custom_minimum_size.y = maxi(52, roundi(72 * scale))
+	_play_button.add_theme_font_size_override("font_size", maxi(22, roundi(30 * scale)))
+	for button: Button in [_home_button, _achievements_button, _tournaments_button]:
 		button.custom_minimum_size.y = maxi(64, roundi(80 * scale))
 		var label: Label = button.get_node("Contents/Caption")
 		label.add_theme_font_size_override("font_size", maxi(13, roundi(20 * scale)))
@@ -147,9 +154,6 @@ func _fit_layout() -> void:
 		var status: Label = card.find_child("Status", true, false) as Label
 		if status != null:
 			status.add_theme_font_size_override("font_size", maxi(14, roundi(19 * scale)))
-		var active_dot: Label = card.find_child("ActiveDot", true, false) as Label
-		if active_dot != null:
-			active_dot.add_theme_font_size_override("font_size", maxi(13, roundi(17 * scale)))
 		var portrait: TextureRect = card.find_child("RivalPortrait", true, false) as TextureRect
 		if portrait != null:
 			portrait.custom_minimum_size = Vector2.ONE * maxi(44, roundi(64 * scale))
@@ -183,42 +187,56 @@ func _apply_tabletop_style() -> void:
 	theme = Tabletop.create()
 	_background.modulate = Tabletop.canvas()
 	get_node("%Brand").add_theme_font_override("font", Tabletop.BOLD)
-	get_node("%Headline").add_theme_font_override("font", Tabletop.BOLD)
+	Tabletop.style_button(_gem_balance_button, "selected")
+	_gem_balance_button.add_theme_color_override("font_color", Tabletop.ink())
+	_gem_balance_button.add_theme_font_override("font", Tabletop.SEMIBOLD)
+	_gem_balance_button.icon = Tabletop.icon_texture("gem_balance")
+	_refresh_gem_chip()
 	get_node("%FooterHint").add_theme_color_override("font_color", Tabletop.muted())
 	get_node("%ActiveGamesPanel").add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.sage(), 24, 18))
+	_recent_panel.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.sage(), 24, 18))
 	get_node("%ActiveGamesTitle").add_theme_color_override("font_color", Tabletop.ink())
 	get_node("%ActiveGamesTitle").add_theme_font_override("font", Tabletop.SEMIBOLD)
 	_ensure_tables_controls()
 	Tabletop.style_button(_tables_link, "quiet")
 	Tabletop.style_button(_more_active, "quiet")
 	get_node("%SettingsPanel").add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.canvas(), 24, 20))
+	for card_name: String in ["PlayAlertsCard", "DisplayCard", "HelpCard"]:
+		get_node("%SettingsBox").get_node(card_name).add_theme_stylebox_override(
+			"panel", Tabletop.panel(Tabletop.canvas_alt(), 18, 16))
+	for heading_name: String in ["PlayAlertsHeading", "DisplayHeading", "HelpHeading"]:
+		var heading: Label = get_node("%SettingsBox").find_child(heading_name, true, false) as Label
+		heading.add_theme_font_override("font", Tabletop.SEMIBOLD)
+		heading.add_theme_color_override("font_color", Tabletop.ink())
+	get_node("%SettingsBox").get_node("SettingsTitle").add_theme_font_override("font", Tabletop.BOLD)
+	if _music_volume_slider != null:
+		Tabletop.style_slider(_music_volume_slider)
 	_notice.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.ink(), 18, 16))
 	_notice_label.add_theme_color_override("font_color", Tabletop.canvas())
-	for button: Button in [_settings_button, _sound_button]:
+	for button: Button in [_shop_button, _profile_button, _settings_button, _sound_button]:
 		Tabletop.style_button(button, "quiet")
 		button.expand_icon = false
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		for state: String in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-			button.add_theme_color_override(state, Tabletop.ink())
-	for name: String in ["ApiIpSaveButton", "SettingsCloseButton", "ClearGameCacheButton", "CancelDeleteButton"]:
+			button.add_theme_color_override(state, Tabletop.icon_ink())
+	_shop_button.icon = Tabletop.icon_texture("shop")
+	_profile_button.icon = Tabletop.icon_texture("profile")
+	_settings_button.icon = Tabletop.icon_texture("settings")
+	_sound_button.icon = Tabletop.icon_texture("sound" if _is_audio_enabled() else "muted")
+	for name: String in ["SettingsCloseButton", "HowToPlayButton", "ReportProblemButton", "ClearGameCacheButton"]:
 		Tabletop.style_button(get_node("%" + name), "secondary")
-	for name: String in ["DeleteAccountButton", "ConfirmDeleteButton"]:
-		var button: Button = get_node("%" + name)
-		Tabletop.style_button(button, "secondary")
-		for state: String in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-			button.add_theme_color_override(state, Tabletop.danger())
 	for control: Node in get_node("%SettingsPanel").find_children("*", "Control", true, false):
 		if control is BaseButton:
-			control.custom_minimum_size.y = maxf(72, control.custom_minimum_size.y)
+			control.custom_minimum_size.y = maxf(56, control.custom_minimum_size.y)
 		if control is Label:
 			var label: Label = control
-			label.add_theme_font_size_override("font_size", maxi(22, label.get_theme_font_size("font_size")))
+			label.add_theme_font_size_override("font_size", maxi(18, label.get_theme_font_size("font_size")))
 			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		elif control is CheckButton or control is LineEdit:
-			control.add_theme_font_size_override("font_size", 24)
+			control.add_theme_font_size_override("font_size", 20)
 	_make_nav(_home_button, "Home", "home", true)
 	_make_nav(_achievements_button, "Achievements", "achievements")
-	_make_nav(_profile_button, "Profile", "profile")
+	_make_nav(_tournaments_button, "Tournaments", "tournaments")
 
 
 func _ensure_tables_controls() -> void:
@@ -239,48 +257,41 @@ func _ensure_tables_controls() -> void:
 	Tabletop.style_button(_more_active, "quiet")
 	_more_active.pressed.connect(func() -> void: tables_requested.emit())
 	box.add_child(_more_active)
-	_recent_rule = HSeparator.new()
-	_recent_rule.visible = false
-	var line := StyleBoxLine.new()
-	line.color = Tabletop.muted().darkened(0.1)
-	_recent_rule.add_theme_stylebox_override("separator", line)
-	box.add_child(_recent_rule)
-	_recent_row = HBoxContainer.new()
-	_recent_row.name = "RecentResultRow"
-	_recent_row.add_theme_constant_override("separation", 12)
-	_recent_row.visible = false
-	box.add_child(_recent_row)
 
 
 func _make_nav(button: Button, caption: String, icon_name: String, selected: bool = false) -> void:
 	button.text = ""
 	button.tooltip_text = caption + (" — current page" if selected else "")
 	Tabletop.style_button(button, "selected" if selected else "quiet")
-	var contents := VBoxContainer.new()
-	contents.name = "Contents"
-	contents.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	button.add_child(contents)
-	contents.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	contents.offset_top = 7
-	contents.offset_bottom = -7
-	contents.alignment = BoxContainer.ALIGNMENT_CENTER
-	contents.add_theme_constant_override("separation", 3)
-	var icon := TextureRect.new()
-	icon.texture = load("res://assets/ui/modern_tabletop/%s.svg" % icon_name)
-	icon.custom_minimum_size = Vector2(24, 24)
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	contents.add_child(icon)
-	var label := Label.new()
-	label.name = "Caption"
+	var contents: VBoxContainer = button.get_node_or_null("Contents") as VBoxContainer
+	if contents == null:
+		contents = VBoxContainer.new()
+		contents.name = "Contents"
+		contents.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(contents)
+		contents.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		contents.offset_top = 7
+		contents.offset_bottom = -7
+		contents.alignment = BoxContainer.ALIGNMENT_CENTER
+		contents.add_theme_constant_override("separation", 3)
+		var icon := TextureRect.new()
+		icon.name = "Icon"
+		icon.custom_minimum_size = Vector2(24, 24)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		contents.add_child(icon)
+		var label := Label.new()
+		label.name = "Caption"
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		contents.add_child(label)
+	(contents.get_node("Icon") as TextureRect).texture = Tabletop.icon_texture(icon_name)
+	var label: Label = contents.get_node("Caption") as Label
 	label.text = caption
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_override("font", Tabletop.SEMIBOLD if selected else Tabletop.MEDIUM)
 	label.add_theme_color_override("font_color", Tabletop.ink() if selected else Tabletop.muted())
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	contents.add_child(label)
 
 
 func _on_home_pressed() -> void:
@@ -293,6 +304,41 @@ func set_play_button_label(label: String) -> void:
 		_bind_nodes()
 	if _play_button != null:
 		_play_button.text = label
+
+
+func set_gem_wallet(data: Dictionary) -> void:
+	_confirmed_gems = maxi(0, int(data.get("balance", 0))) if data.has("balance") else -1
+	_refresh_gem_chip()
+
+
+func _refresh_gem_chip() -> void:
+	if _gem_balance_button == null:
+		return
+	if _confirmed_gems < 0:
+		_gem_balance_button.text = "—"
+		_gem_balance_button.tooltip_text = "Gem balance unavailable · Open Gem history"
+		return
+	var full: String = _format_gems(_confirmed_gems)
+	_gem_balance_button.text = _compact_gems(_confirmed_gems) if size.x < 400 else full
+	_gem_balance_button.tooltip_text = "%s confirmed Gems · Open Gem history" % full
+
+
+static func _compact_gems(value: int) -> String:
+	if value < 10000:
+		return _format_gems(value)
+	if value < 1000000:
+		return "%.1fk" % (value / 1000.0)
+	return "%.1fm" % (value / 1000000.0)
+
+
+static func _format_gems(value: int) -> String:
+	var digits: String = str(value)
+	var formatted: String = ""
+	for index: int in range(digits.length()):
+		if index > 0 and (digits.length() - index) % 3 == 0:
+			formatted += ","
+		formatted += digits.substr(index, 1)
+	return formatted
 
 
 ## Rebuilds the active-game panel from the app shell's resumable match records.
@@ -308,9 +354,8 @@ func set_active_games(games: Array[Dictionary]) -> void:
 	_has_active_games = not games.is_empty()
 	var has_tables: bool = _has_active_games or not _recent_match.is_empty()
 	get_node("%ActiveGamesSection").visible = has_tables
-	get_node("%ActiveGamesPanel").visible = has_tables
+	get_node("%ActiveGamesPanel").visible = _has_active_games
 	Tabletop.style_button(_play_button, "primary")
-	Tabletop.style_button(_online_button, "secondary")
 	if _active_games_empty != null:
 		_active_games_empty.visible = false
 	if _active_games_scroll != null:
@@ -320,8 +365,6 @@ func set_active_games(games: Array[Dictionary]) -> void:
 	if _more_active != null:
 		_more_active.visible = games.size() > 1
 		_more_active.text = "%d more active ›" % (games.size() - 1)
-	if _recent_rule != null:
-		_recent_rule.visible = _has_active_games and not _recent_match.is_empty()
 	_fit_layout()
 
 
@@ -344,31 +387,15 @@ func _make_active_game_card(game: Dictionary, primary: bool) -> PanelContainer:
 	details.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	details.add_theme_constant_override("separation", 2)
 	row.add_child(details)
-	var status_row := HBoxContainer.new()
-	status_row.add_theme_constant_override("separation", 6)
-	details.add_child(status_row)
-	var dot := Label.new()
-	dot.name = "ActiveDot"
-	dot.text = "●"
-	dot.add_theme_color_override("font_color", Color("#22B47D"))
-	dot.add_theme_font_size_override("font_size", 17)
-	status_row.add_child(dot)
 	var status := Label.new()
 	status.name = "Status"
-	status.text = "ACTIVE · %s" % String(game.get("status_label", "RESUMABLE"))
+	status.text = String(game.get("status_label", "RESUMABLE"))
 	status.add_theme_font_override("font", Tabletop.MEDIUM)
 	status.add_theme_color_override("font_color", Tabletop.ink())
 	status.add_theme_font_size_override("font_size", 19)
 	status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_row.add_child(status)
-	var rival := Label.new()
-	rival.name = "Opponent"
-	rival.text = String(game.get("opponent", "Rival"))
-	rival.add_theme_font_override("font", Tabletop.SEMIBOLD)
-	rival.add_theme_font_size_override("font_size", 22)
-	rival.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	details.add_child(rival)
+	details.add_child(status)
 	var score := Label.new()
 	score.name = "Score"
 	score.text = String(game.get("score", "You 0  |  Rival 0")).replace("  |  ", " · ")
@@ -399,11 +426,10 @@ func set_recent_match(entry: Dictionary) -> void:
 	for child: Node in _recent_row.get_children():
 		_recent_row.remove_child(child)
 		child.free()
-	_recent_row.visible = not entry.is_empty()
-	_recent_rule.visible = not entry.is_empty() and _has_active_games
+	_recent_panel.visible = not entry.is_empty()
 	var has_tables: bool = _has_active_games or not entry.is_empty()
 	get_node("%ActiveGamesSection").visible = has_tables
-	get_node("%ActiveGamesPanel").visible = has_tables
+	get_node("%ActiveGamesPanel").visible = _has_active_games
 	if entry.is_empty():
 		return
 	var avatar := TextureRect.new()
@@ -430,20 +456,15 @@ func set_recent_match(entry: Dictionary) -> void:
 	result_status.add_child(dot)
 	var state := Label.new()
 	state.name = "RecentOutcome"
-	state.text = "LATEST RESULT · %s" % _outcome_label(outcome).to_upper()
+	state.text = _outcome_label(outcome).to_upper()
 	state.add_theme_font_override("font", Tabletop.MEDIUM)
 	state.add_theme_font_size_override("font_size", 19)
 	state.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	state.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	result_status.add_child(state)
-	var rival := Label.new()
-	rival.text = String(entry.get("opponent", "Rival"))
-	rival.add_theme_font_override("font", Tabletop.SEMIBOLD)
-	rival.add_theme_font_size_override("font_size", 22)
-	rival.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	text_box.add_child(rival)
+	var opponent_name: String = String(entry.get("opponent", "Rival"))
 	var score := Label.new()
-	score.text = "You %d · %s %d" % [int(result.get("human_score", 0)), rival.text, int(result.get("ai_score", 0))]
+	score.text = "You %d · %s %d" % [int(result.get("human_score", 0)), opponent_name, int(result.get("ai_score", 0))]
 	score.add_theme_color_override("font_color", Tabletop.muted())
 	score.add_theme_font_size_override("font_size", 21)
 	score.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -461,7 +482,7 @@ func set_recent_match(entry: Dictionary) -> void:
 	var details := Button.new()
 	details.name = "Details"
 	details.text = "Details ›"
-	details.tooltip_text = "View completed match with " + rival.text
+	details.tooltip_text = "View completed match with " + opponent_name
 	details.custom_minimum_size = Vector2(92, 72)
 	Tabletop.style_button(details, "quiet")
 	details.add_theme_font_size_override("font_size", 21)
@@ -517,13 +538,17 @@ func _bind_nodes() -> void:
 	_settings_button = get_node_or_null("%SettingsButton") as Button
 	_sound_button = get_node_or_null("%SoundButton") as Button
 	_play_button = get_node_or_null("%PlayButton") as Button
-	_online_button = get_node_or_null("%OnlineButton") as Button
 	_active_game_list = get_node_or_null("%ActiveGameList") as VBoxContainer
 	_active_games_scroll = get_node_or_null("%ActiveGamesScroll") as ScrollContainer
 	_active_games_empty = get_node_or_null("%ActiveGamesEmpty") as Label
+	_recent_panel = get_node_or_null("%RecentMatchPanel") as PanelContainer
+	_recent_row = get_node_or_null("%RecentResultRow") as HBoxContainer
 	_achievements_button = get_node_or_null("%AchievementsButton") as Button
 	_profile_button = get_node_or_null("%ProfileButton") as Button
 	_home_button = get_node_or_null("%HomeButton") as Button
+	_shop_button = get_node_or_null("%ShopButton") as Button
+	_tournaments_button = get_node_or_null("%TournamentsButton") as Button
+	_gem_balance_button = get_node_or_null("%GemBalanceButton") as Button
 	_notice = get_node_or_null("%Notice") as PanelContainer
 	_notice_label = get_node_or_null("%NoticeLabel") as Label
 	_notice_timer = get_node_or_null("%NoticeTimer") as Timer
@@ -531,10 +556,10 @@ func _bind_nodes() -> void:
 	_reduced_motion_toggle = get_node_or_null("%ReducedMotionToggle") as CheckButton
 	_haptics_toggle = get_node_or_null("%HapticsToggle") as CheckButton
 	_sound_toggle = get_node_or_null("%SoundToggle") as CheckButton
+	_music_volume_slider = get_node_or_null("%MusicVolumeSlider") as HSlider
+	_music_volume_value = get_node_or_null("%MusicVolumeValue") as Label
+	_push_notifications_toggle = get_node_or_null("%PushNotificationsToggle") as CheckButton
 	_dark_mode_toggle = get_node_or_null("%DarkModeToggle") as CheckButton
-	_api_ip_input = get_node_or_null("%ApiIpInput") as LineEdit
-	_api_ip_save_button = get_node_or_null("%ApiIpSaveButton") as Button
-	_api_ip_status = get_node_or_null("%ApiIpStatus") as Label
 	_settings_close_button = get_node_or_null("%SettingsCloseButton") as Button
 	_clear_game_cache_button = get_node_or_null("%ClearGameCacheButton") as Button
 
@@ -544,22 +569,25 @@ func _connect_controls() -> void:
 	_connect_button(_settings_button, _on_settings_pressed)
 	_connect_button(_sound_button, _on_sound_pressed)
 	_connect_button(_play_button, _on_play_pressed)
-	_connect_button(_online_button, _on_online_pressed)
 	_connect_button(_achievements_button, _on_achievements_pressed)
 	_connect_button(_profile_button, _on_profile_pressed)
 	_connect_button(_home_button, _on_home_pressed)
+	_connect_button(_shop_button, _on_shop_pressed)
+	_connect_button(_gem_balance_button, _on_gem_history_pressed)
+	_connect_button(_tournaments_button, _on_tournaments_pressed)
 	_connect_button(_settings_close_button, _on_settings_close_pressed)
 	_connect_button(_clear_game_cache_button, _on_clear_game_cache_pressed)
-	_connect_button(get_node("%DeleteAccountButton"), _on_delete_account_pressed)
-	_connect_button(get_node("%ConfirmDeleteButton"), _on_confirm_delete_pressed)
-	_connect_button(get_node("%CancelDeleteButton"), _on_cancel_delete_pressed)
+	_connect_button(get_node("%HowToPlayButton"), _on_how_to_play_pressed)
+	_connect_button(get_node("%ReportProblemButton"), _on_report_problem_pressed)
 	_connect_toggle(_reduced_motion_toggle, _on_reduced_motion_toggled)
 	_connect_toggle(_haptics_toggle, _on_haptics_toggled)
 	_connect_toggle(_sound_toggle, _on_sound_toggled)
+	if _music_volume_slider != null and not _music_volume_slider.value_changed.is_connected(_on_music_volume_changed):
+		_music_volume_slider.value_changed.connect(_on_music_volume_changed)
+	_connect_toggle(_push_notifications_toggle, _on_push_notifications_toggled)
 	_connect_toggle(_dark_mode_toggle, _on_dark_mode_toggled)
-	_connect_button(_api_ip_save_button, _on_api_ip_save_pressed)
-	if _api_ip_input != null and not _api_ip_input.text_submitted.is_connected(_on_api_ip_text_submitted):
-		_api_ip_input.text_submitted.connect(_on_api_ip_text_submitted)
+	if not TurnNotifications.preference_changed.is_connected(_on_notification_preference_changed):
+		TurnNotifications.preference_changed.connect(_on_notification_preference_changed)
 	if _notice_timer != null and not _notice_timer.timeout.is_connected(_on_notice_timeout):
 		_notice_timer.timeout.connect(_on_notice_timeout)
 
@@ -594,12 +622,15 @@ func _sync_from_settings() -> void:
 		_haptics_toggle.set_pressed_no_signal(_is_haptics_enabled())
 	if _sound_toggle != null:
 		_sound_toggle.set_pressed_no_signal(_is_audio_enabled())
+	if _music_volume_slider != null:
+		_music_volume_slider.set_value_no_signal(roundi(MusicPreferences.volume() * 100.0))
+		_update_music_volume_label()
+	if _push_notifications_toggle != null:
+		_push_notifications_toggle.set_pressed_no_signal(TurnNotifications.enabled)
+		_push_notifications_toggle.disabled = not TurnNotifications.is_available()
 	if _dark_mode_toggle != null:
 		_dark_mode_toggle.set_pressed_no_signal(AppearanceSettings.dark_mode)
-	if _api_ip_input != null:
-		_api_ip_input.text = ApiConfiguration.server_ip()
-	if _api_ip_status != null:
-		_api_ip_status.text = ""
+	(get_node("%Hero") as AnimatedHubHero).set_motion_enabled(not AccessibilitySettings.reduced_motion())
 	_apply_audio_state()
 
 
@@ -619,7 +650,7 @@ func _apply_audio_state() -> void:
 	AudioServer.set_bus_mute(AudioServer.get_bus_index(MASTER_BUS), not enabled)
 	if _sound_button != null:
 		_sound_button.modulate = TINT_ON
-		_sound_button.icon = load("res://assets/ui/modern_tabletop/%s.svg" % ("sound" if enabled else "muted"))
+		_sound_button.icon = Tabletop.icon_texture("sound" if enabled else "muted")
 		_sound_button.tooltip_text = "Sound on" if enabled else "Sound off"
 
 
@@ -649,6 +680,28 @@ func _on_profile_pressed() -> void:
 	profile_requested.emit()
 
 
+func _on_how_to_play_pressed() -> void:
+	close_settings()
+	tutorial_requested.emit()
+
+
+func _on_report_problem_pressed() -> void:
+	close_settings()
+	report_problem_requested.emit()
+
+
+func _on_shop_pressed() -> void:
+	shop_requested.emit()
+
+
+func _on_gem_history_pressed() -> void:
+	gem_history_requested.emit()
+
+
+func _on_tournaments_pressed() -> void:
+	tournaments_requested.emit()
+
+
 ## Flips the cue-sound preference from the corner icon.
 func _on_sound_pressed() -> void:
 	var enabled: bool = not _is_audio_enabled()
@@ -673,6 +726,7 @@ func _on_clear_game_cache_pressed() -> void:
 
 func _on_reduced_motion_toggled(pressed: bool) -> void:
 	ProjectSettings.set_setting(AccessibilitySettings.REDUCED_MOTION_PATH, pressed)
+	(get_node("%Hero") as AnimatedHubHero).set_motion_enabled(not pressed)
 
 
 func _on_haptics_toggled(pressed: bool) -> void:
@@ -683,28 +737,33 @@ func _on_sound_toggled(pressed: bool) -> void:
 	_set_audio_enabled(pressed)
 
 
+func _on_music_volume_changed(value: float) -> void:
+	var level: float = value / 100.0
+	MusicPreferences.set_volume(level)
+	_update_music_volume_label()
+	music_volume_changed.emit(level)
+
+
+func _update_music_volume_label() -> void:
+	if _music_volume_value != null and _music_volume_slider != null:
+		_music_volume_value.text = "%d%%" % roundi(_music_volume_slider.value)
+
+
+func _on_push_notifications_toggled(pressed: bool) -> void:
+	if not TurnNotifications.set_enabled(pressed):
+		_sync_from_settings()
+		show_notice("Notifications are unavailable on this device")
+
+
+func _on_notification_preference_changed(_enabled: bool) -> void:
+	_sync_from_settings()
+
+
 func _on_dark_mode_toggled(pressed: bool) -> void:
 	AppearanceSettings.set_dark_mode(pressed)
 	_apply_tabletop_style()
 	set_active_games(_active_games_snapshot)
 	set_recent_match(_recent_match)
-
-
-## Saves a validated IP for auth, game sync and achievements immediately.
-func _on_api_ip_save_pressed() -> void:
-	if _api_ip_input == null or _api_ip_status == null:
-		return
-	if not ApiConfiguration.set_server_ip(_api_ip_input.text):
-		_api_ip_status.text = "Enter a valid IP address."
-		return
-	_api_ip_input.text = ApiConfiguration.server_ip()
-	_api_ip_status.text = "Server address saved."
-
-
-func _on_api_ip_text_submitted(value: String) -> void:
-	if _api_ip_input != null:
-		_api_ip_input.text = value
-	_on_api_ip_save_pressed()
 
 
 # --- Settings panel --------------------------------------------------------
@@ -722,9 +781,6 @@ func open_settings() -> void:
 
 ## Closes the settings panel.
 func close_settings() -> void:
-	if _deletion_busy or _remote_account_deleted:
-		return
-	_on_cancel_delete_pressed()
 	if _settings_layer != null:
 		_settings_layer.visible = false
 
@@ -810,55 +866,3 @@ func _fit_settings_panel() -> void:
 	panel.offset_right = dimensions.x / 2.0
 	panel.offset_top = -dimensions.y / 2.0
 	panel.offset_bottom = dimensions.y / 2.0
-
-
-func _on_delete_account_pressed() -> void:
-	get_node("%SettingsBox").hide()
-	get_node("%DeleteConfirmation").show()
-	get_node("%DeleteStatus").text = ""
-	get_node("%SettingsScroll").scroll_vertical = 0
-	get_node("%CancelDeleteButton").grab_focus()
-
-
-func _on_cancel_delete_pressed() -> void:
-	if _deletion_busy or _remote_account_deleted:
-		return
-	get_node("%DeleteConfirmation").hide()
-	get_node("%SettingsBox").show()
-	get_node("%DeleteAccountButton").grab_focus()
-
-
-func _on_confirm_delete_pressed() -> void:
-	if _deletion_busy:
-		return
-	if _deletion_complete:
-		account_deletion_acknowledged.emit()
-		return
-	set_deletion_busy()
-	delete_account_requested.emit()
-
-
-func set_deletion_busy() -> void:
-	_deletion_busy = true
-	get_node("%DeleteStatus").text = "Deleting account…"
-	get_node("%ConfirmDeleteButton").disabled = true
-	get_node("%CancelDeleteButton").disabled = true
-	_settings_close_button.disabled = true
-
-
-func show_deletion_result(success: bool, message: String, remote_deleted: bool = false) -> void:
-	_deletion_busy = false
-	_deletion_complete = success
-	_remote_account_deleted = remote_deleted or success
-	get_node("%DeleteStatus").text = message
-	get_node("%ConfirmDeleteButton").disabled = false
-	get_node("%ConfirmDeleteButton").text = "Continue" if success else ("Retry local cleanup" if remote_deleted else "Retry deletion")
-	get_node("%CancelDeleteButton").disabled = false
-	get_node("%CancelDeleteButton").visible = not _remote_account_deleted
-	get_node("%DeleteWarning").visible = not success
-	_settings_close_button.disabled = _remote_account_deleted
-	get_node("%ConfirmDeleteButton").grab_focus()
-
-
-func _on_online_pressed() -> void:
-	online_requested.emit()

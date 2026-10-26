@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://b06dhh76olebx"]
 
-[ext_resource type="Script" path="res://tools/validate_result_interstitial.gd" id="1"]
+[ext_resource type="Script" uid="uid://duv21f51cuotk" path="res://tools/validate_result_interstitial.gd" id="1"]
 
-[node name="ValidateResultInterstitial" type="Node"]
+[node name="ValidateResultInterstitial" type="Node" unique_id=417878105]
 script = ExtResource("1")

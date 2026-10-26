@@ -87,21 +87,23 @@ const GAP: float = 6.0
 ## Minimum vertical padding; horizontal space is divided into equal gaps.
 const PADDING: float = 8.0
 
-## Thickness of a swap-marked tile's outline, in pixels.
-const MARKED_OUTLINE: float = 3.0
-
-## Outline colour of a tile marked for the swap, so a marked tile is never
-## mistaken for the tile the next staging command takes.
-const MARKED_COLOR: Color = Color("#F4C86A")
-
-## Inner inset of the swap-marked outline, in pixels.
-const MARKED_INSET: float = 3.0
+## Swap marks stay level and use the ink token, distinct from the raised honey selection.
+const MARKED_FRAME_GROW: float = 2.0
+const MARKED_FRAME_WIDTH: int = 2
+const MARKED_MARKER_SIZE: Vector2 = Vector2(20.0, 7.0)
+const MARKED_MARKER_GAP: float = 0.0
 
 ## Width and height of a deck tile while it is being dragged.
 const DRAG_SCALE: float = 0.9
 
-## Semi-transparent border drawn over the tile the player has armed.
-const SELECTED_TILE_HIGHLIGHT: Texture2D = preload("res://assets/tiles/tile_highlight.png")
+## The selection sits above the rack and frames the tile without tinting its face or edges.
+const SELECTED_LIFT: float = 4.0
+const SELECTED_FRAME_GROW: float = 2.0
+const SELECTED_KEYLINE_GROW: float = 3.0
+const SELECTED_FRAME_WIDTH: int = 2
+const SELECTED_MARKER_SIZE: Vector2 = Vector2(10.0, 5.0)
+const SELECTED_MARKER_GAP: float = 2.0
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 
 ## Exponential easing keeps slot changes smooth even when a finger reverses direction.
 const SLOT_SHIFT_SMOOTHNESS: float = 14.0
@@ -200,12 +202,33 @@ var _glimmer_timer: Timer
 var _glimmer_tile_id: StringName = &""
 var _last_glimmer_tile_id: StringName = &""
 var _glimmer_elapsed: float = 0.0
+var _selected_keyline: StyleBoxFlat
+var _selected_frame: StyleBoxFlat
+var _selected_marker: StyleBoxFlat
+var _marked_frame: StyleBoxFlat
+var _marked_marker: StyleBoxFlat
 
 
 ## Accepts taps and drags, so the row can arm a placement.
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_selected_keyline = Tabletop.panel(Color.TRANSPARENT, 9, 0.0)
+	_selected_keyline.draw_center = false
+	_selected_keyline.set_border_width_all(1)
+	_selected_keyline.border_color = Tabletop.ink()
+	_selected_frame = Tabletop.panel(Color.TRANSPARENT, 8, 0.0)
+	_selected_frame.draw_center = false
+	_selected_frame.set_border_width_all(SELECTED_FRAME_WIDTH)
+	_selected_frame.border_color = Tabletop.honey()
+	_selected_marker = Tabletop.panel(Tabletop.honey(), 3, 0.0)
+	_selected_marker.set_border_width_all(1)
+	_selected_marker.border_color = Tabletop.ink()
+	_marked_frame = Tabletop.panel(Color.TRANSPARENT, 8, 0.0)
+	_marked_frame.draw_center = false
+	_marked_frame.set_border_width_all(MARKED_FRAME_WIDTH)
+	_marked_frame.border_color = Tabletop.ink()
+	_marked_marker = Tabletop.panel(Tabletop.ink(), 3, 0.0)
 	set_process(false)
 	_glimmer_rng.randomize()
 	_glimmer_timer = Timer.new()
@@ -484,7 +507,7 @@ func _draw() -> void:
 			TilePainter.paint_tile(
 				self, rect, TileSnapshot.create(_deck[index], BoardMetrics.NO_CELL, _pending_rotation)
 			)
-			draw_texture_rect(SELECTED_TILE_HIGHLIGHT, rect, false)
+			_draw_selection(rect)
 			_draw_mark(index, rect)
 			continue
 		TilePainter.paint_tile(
@@ -497,11 +520,31 @@ func _draw() -> void:
 			)
 
 
-## Outlines one tile when it is marked for the swap (ADR-011 section 6).
+## A shape and position cue around the selected tile, leaving all four edge bands visible.
+func _draw_selection(rect: Rect2) -> void:
+	draw_style_box(_selected_keyline, rect.grow(SELECTED_KEYLINE_GROW))
+	draw_style_box(_selected_frame, rect.grow(SELECTED_FRAME_GROW))
+	var marker_rect := Rect2(
+		Vector2(rect.get_center().x - SELECTED_MARKER_SIZE.x * 0.5, rect.end.y + SELECTED_MARKER_GAP),
+		SELECTED_MARKER_SIZE
+	)
+	draw_style_box(_selected_marker, marker_rect)
+
+
+## Frames a swap-marked tile and gives it a check below, without covering edge bands.
 func _draw_mark(index: int, rect: Rect2) -> void:
 	if not is_marked(_deck[index].tile_id):
 		return
-	draw_rect(rect.grow(-MARKED_INSET), MARKED_COLOR, false, MARKED_OUTLINE)
+	draw_style_box(_marked_frame, rect.grow(MARKED_FRAME_GROW))
+	var marker_rect := Rect2(
+		Vector2(rect.get_center().x - MARKED_MARKER_SIZE.x * 0.5, rect.end.y + MARKED_MARKER_GAP),
+		MARKED_MARKER_SIZE
+	)
+	draw_style_box(_marked_marker, marker_rect)
+	var check_color: Color = Tabletop.canvas()
+	var origin: Vector2 = marker_rect.position
+	draw_line(origin + Vector2(5.0, 3.1), origin + Vector2(8.0, 5.0), check_color, 1.8, true)
+	draw_line(origin + Vector2(8.0, 5.0), origin + Vector2(15.0, 1.6), check_color, 1.8, true)
 
 
 ## Returns true only while this tile is resting visibly in the hand.
@@ -892,7 +935,10 @@ func tile_rect_at(index: int) -> Rect2:
 	if target_slot < 0:
 		return Rect2()
 	var visual_slot: float = float(_slot_positions.get(tile_id, target_slot))
-	return _tile_rect_at_slot(visual_slot, slots.size(), size)
+	var rect: Rect2 = _tile_rect_at_slot(visual_slot, slots.size(), size)
+	if index == _selected_index and not _mark_mode:
+		rect.position.y -= SELECTED_LIFT
+	return rect
 
 
 ## Preserve surviving identities in their slots. Refill uses the vacant slots.

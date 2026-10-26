@@ -129,6 +129,17 @@ func test_restore_rejects_an_unknown_schema_version() -> void:
 	check(TileSource.from_dto(dto) == null, "an unknown schema version must not restore")
 
 
+func test_restore_rejects_removed_tile_rank_and_old_tile_schema() -> void:
+	var dto: TileSourceDto = _source().to_dto()
+	dto.tiles[0].rank = 4
+	check(not dto.is_valid(), "the removed fifth rank cannot be restored")
+	check(TileSource.from_dto(dto) == null, "a bag with a removed rank cannot restore")
+	dto = _source().to_dto()
+	dto.tiles[0].schema_version = TileDto.SCHEMA_VERSION - 1
+	check(not dto.is_valid(), "tile records from the earlier rules are rejected")
+	check(TileSource.from_dto(dto) == null, "an old tile record cannot restore")
+
+
 func test_restore_rejects_duplicate_tile_identity() -> void:
 	var dto: TileSourceDto = _source().to_dto()
 	dto.tiles[1].tile_id = dto.tiles[0].tile_id

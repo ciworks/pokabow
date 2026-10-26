@@ -1,9 +1,6 @@
-[gd_resource type="Resource" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="ClusterScoreRules" format=3 uid="uid://du2juhh2vwqxj"]
 
-[ext_resource type="Script" path="res://scripts/domain/scoring/cluster_score_rules.gd" id="1_cluster"]
+[ext_resource type="Script" uid="uid://ivnb0v5ulveh" path="res://scripts/domain/scoring/cluster_score_rules.gd" id="1_cluster"]
 
 [resource]
 script = ExtResource("1_cluster")
-schema_version = 1
-milestone_size = 4
-flat_award = 3

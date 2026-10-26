@@ -2,8 +2,13 @@ extends SceneTree
 ## Focused profile UI checks without the Windows-incompatible image fixtures.
 
 func _initialize() -> void:
+	call_deferred("_run")
+
+
+func _run() -> void:
 	var suite = load("res://tests/unit/test_player_avatar.gd").new()
 	suite.test_avatar_selector_saves_username_and_avatar_as_one_profile_change()
+	suite.test_taken_username_keeps_current_name_and_offers_edit()
 	suite.test_photo_editor_previews_cancels_and_saves_without_losing_the_current_avatar()
 	var api_suite = load("res://tests/unit/test_game_api_client.gd").new()
 	api_suite.test_profile_updates_username_inline_and_keeps_email_read_only()

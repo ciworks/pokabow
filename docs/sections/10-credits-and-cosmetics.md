@@ -1,6 +1,6 @@
 # 10 - Credits and Cosmetic Economy
 
-**Status:** Historical proposal, superseded in part by the owner's 2026-10-22 [Gems and Online Match Pot direction](11-gems-and-match-pot.md). Earned Credits, cosmetic-only earned use and AI-match earnings are no longer the current direction. Remaining values and architecture here are unapproved examples. No currency implementation or economy testing is claimed.
+**Status:** Historical proposal, superseded in part by the owner's 2026-10-22 [Gems and Match Pots direction](11-gems-and-match-pot.md), extended to capped AI pots on 2026-10-23. Earned Credits and cosmetic-only earned use are no longer the current direction. Remaining values and architecture here are unapproved examples. No spendable currency implementation or economy testing is claimed.
 **Related:** [GAME_SPEC section 8.5](../GAME_SPEC.md#85-credits-and-cosmetic-economy-proposed-2026-10-05), [ADR-016](../decisions/ADR-016-cosmetic-currencies.md), [ADR-015](../decisions/ADR-015-achievements.md).
 
 ## 1. Purpose and confirmed direction

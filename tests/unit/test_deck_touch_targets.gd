@@ -65,10 +65,44 @@ func test_every_rack_insertion_preserves_order_and_survives_refresh() -> void:
 			expected.remove_at(origin)
 			expected.insert(boundary - 1 if boundary > origin else boundary, tiles[origin])
 			for index: int in range(6):
-				check_eq(row.tile_rect_at(tiles.find(expected[index])), DeckView.tile_rect(index, 6, row.size), "refresh retains requested order")
+				var expected_rect: Rect2 = DeckView.tile_rect(index, 6, row.size)
+				if expected[index].tile_id == tiles[origin].tile_id:
+					expected_rect.position.y -= DeckView.SELECTED_LIFT
+				check_eq(row.tile_rect_at(tiles.find(expected[index])), expected_rect, "refresh retains requested order and selected lift")
 			check_eq(row.selected_tile_id(), tiles[origin].tile_id, "reordering keeps selection identity")
 			check_eq(row.selected_rotation(), 2, "reordering keeps pending rotation")
 			row.free()
+
+
+func test_selected_tile_lifts_and_uses_an_outer_honey_frame() -> void:
+	var row := DeckView.new()
+	row.size = Vector2(480, 96)
+	(Engine.get_main_loop() as SceneTree).root.add_child(row)
+	var tiles: Array[TileDefinition] = _rack_tiles()
+	row.set_deck(tiles)
+	var resting: Rect2 = row.tile_rect_at(2)
+	row.set_deck(tiles, tiles[2].tile_id)
+	var selected: Rect2 = row.tile_rect_at(2)
+	check_eq(selected.position, resting.position - Vector2(0, DeckView.SELECTED_LIFT),
+		"selection lifts the tile without shifting its rack slot")
+	check_eq(selected.size, resting.size, "selection preserves tile and edge-band dimensions")
+	check_eq(row.tile_rect_at(1), DeckView.tile_rect(1, 6, row.size),
+		"neighboring tiles remain in their slots")
+	check_eq(row._selected_frame.border_color, Color("#F4C86A"), "outer frame uses the honey selection token")
+	check_eq(row._selected_keyline.border_color, Color("#173D42"), "keyline separates honey from the ivory rack")
+	check_eq(row._selected_frame.border_width_left, DeckView.SELECTED_FRAME_WIDTH,
+		"selection frame keeps the specified two-pixel width")
+	check(not row._selected_frame.draw_center, "selection frame leaves the face and edge bands clear")
+	row.set_mark_mode(true)
+	check_eq(row.tile_rect_at(2), resting, "swap mode removes the selection lift")
+	row.set_marked(tiles[2].tile_id, true)
+	check_eq(row.marked_count(), 1, "swap marking keeps an explicit tile set")
+	check_eq(row._marked_frame.border_color, Color("#173D42"), "swap frame uses ink instead of honey")
+	check(not row._marked_frame.draw_center, "swap frame leaves the tile face and edge bands clear")
+	check_eq(row._marked_marker.bg_color, Color("#173D42"), "check marker matches the swap frame")
+	row.set_marked(tiles[2].tile_id, false)
+	check_eq(row.marked_count(), 0, "a second swap tap removes the mark")
+	row.free()
 
 
 func test_surrounding_space_selects_nearest_tile_for_every_hand_size() -> void:

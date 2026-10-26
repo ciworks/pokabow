@@ -101,8 +101,11 @@ func test_avatar_selector_saves_username_and_avatar_as_one_profile_change() -> v
 	var screen: ProfileScreen = load("res://scenes/profile/profile_screen.tscn").instantiate()
 	screen.avatar_store_path = ACCOUNT
 	screen._ready()
-	var choices: GridContainer = screen._profile_content.get_node("AvatarChoices") as GridContainer
+	var choices: GridContainer = screen._photo_content.get_node("AvatarChoices") as GridContainer
 	check_eq(choices.columns, 3, "the profile selector presents avatars in a three-column grid")
+	check(not screen._photo_content.visible, "photo controls start on their own hidden page")
+	check(screen._profile_content.visible, "profile overview is shown first")
+	check_not_null(screen.find_child("SaveProfile", true, false), "username changes remain saveable on My Profile")
 	check_eq(screen._avatar_choices.size(), PlayerAvatarStore.default_paths().size(), "the grid includes the full cartoon roster")
 	check_eq((screen.get_node("Background") as ColorRect).color, Color("#F6F2E9"), "profile uses the shared ivory canvas")
 	check_eq(screen.get_node("Title").get_theme_font("font"), preload("res://assets/fonts/fredoka/Fredoka-Bold.tres"), "profile heading uses Fredoka Bold")
@@ -121,6 +124,9 @@ func test_avatar_selector_saves_username_and_avatar_as_one_profile_change() -> v
 	screen._begin_username_edit()
 	screen._username_editor.text = "New name"
 	screen._submit_current_username()
+	screen._open_photo_editor()
+	check(screen._photo_content.visible and not screen._profile_content.visible,
+		"Edit photo opens the dedicated page")
 	var submitted: Array[Dictionary] = []
 	screen.profile_save_requested.connect(func(username: String, avatar: String) -> void:
 		submitted.append({"username": username, "avatar": avatar})
@@ -134,6 +140,7 @@ func test_avatar_selector_saves_username_and_avatar_as_one_profile_change() -> v
 	var saved: Dictionary = PlayerAvatarStore.selection(ACCOUNT)
 	check(saved.has("png"), "confirmed profile save caches the avatar locally")
 	var previous: Texture2D = screen._avatar_preview.texture
+	screen._open_photo_editor()
 	screen._on_avatar_file_selected(_write("rejected.svg", "bad".to_utf8_buffer()))
 	check_eq(screen._avatar_preview.texture, previous, "bad upload leaves preview unchanged")
 	check_eq(PlayerAvatarStore.selection(ACCOUNT), saved, "bad upload leaves saved avatar unchanged")
@@ -162,6 +169,32 @@ func test_avatar_selector_saves_username_and_avatar_as_one_profile_change() -> v
 	UsersStateStore.clear_local_state(ROOT)
 
 
+func test_taken_username_keeps_current_name_and_offers_edit() -> void:
+	var screen: ProfileScreen = load("res://scenes/profile/profile_screen.tscn").instantiate()
+	screen._ready()
+	screen.set_user_state({"user": {"id": "user-1", "displayName": "Current name"}})
+	var app := AppRoot.new()
+	app.user_state = {"token": "token", "user": {"id": "user-1", "displayName": "Current name"}}
+	app.profile_screen = screen
+	screen._open_photo_editor()
+	var request := HTTPRequest.new()
+	app.add_child(request)
+	app._on_profile_username_saved(HTTPRequest.RESULT_SUCCESS, 409, PackedStringArray(),
+		JSON.stringify({"error": "USERNAME_TAKEN"}).to_utf8_buffer(), request, "token", "Taken name")
+	check_eq(screen._saved_username, "Current name", "conflict preserves the saved username")
+	check(screen._username_editing and screen._username_edit_row.visible, "conflict reopens the name editor")
+	check(not screen._photo_mode and screen._profile_content.visible, "conflict returns to the editable profile")
+	check_eq(screen._username_editor.text, "Taken name", "conflicting name remains editable")
+	check(screen._username_status.visible and screen._username_status.text.contains("already in use"),
+		"conflict gives a clear inline warning")
+	check(screen._avatar_status.text.contains("Avatar saved"), "partial avatar save is explained")
+	screen._username_editor.text = "Available name"
+	screen._submit_current_username()
+	check_eq(screen._draft_username, "Available name", "player can choose another name after a conflict")
+	app.free()
+	screen.free()
+
+
 func test_photo_editor_previews_cancels_and_saves_without_losing_the_current_avatar() -> void:
 	_account()
 	var screen: ProfileScreen = load("res://scenes/profile/profile_screen.tscn").instantiate()
@@ -174,12 +207,18 @@ func test_photo_editor_previews_cancels_and_saves_without_losing_the_current_ava
 	var saved: Dictionary = PlayerAvatarStore.selection(ACCOUNT)
 	var original_texture: Texture2D = screen._avatar_preview.texture
 	screen._open_photo_editor()
+	check_eq(screen.get_node("Title").text, "Edit photo", "the page has a clear title")
+	screen._avatar_choices[1].pressed.emit()
+	check_eq(screen._avatar_index, 1, "the edit page offers cartoon avatar choices")
+	screen._on_back_pressed()
+	check_eq(screen._avatar_index, 0, "Back discards a newly selected cartoon avatar")
+	screen._open_photo_editor()
 	check(screen._upload_target.visible, "default avatar opens the empty upload state")
 	check(not screen._photo_preview.visible, "empty photo state has no preview")
 	var photo_path: String = _write("photo_editor.png", _image().save_png_to_buffer())
 	screen._on_avatar_file_selected(photo_path)
 	check(screen._photo_preview.visible, "valid image opens circular photo preview")
-	check(screen._change_photo.visible and screen._use_photo.visible, "preview offers change and Use photo")
+	check(screen._change_photo.visible, "preview offers Change photo")
 	check_eq(PlayerAvatarStore.selection(ACCOUNT), saved, "preview does not persist before Save")
 	screen._on_back_pressed()
 	check(not screen._photo_mode, "Back returns to profile")
@@ -188,15 +227,14 @@ func test_photo_editor_previews_cancels_and_saves_without_losing_the_current_ava
 	check(screen._pending_avatar == null, "Back discards the pending image")
 	screen._open_photo_editor()
 	screen._on_avatar_file_selected(photo_path)
-	screen._use_photo.pressed.emit()
-	check(not screen._photo_mode, "Use photo returns to the profile preview")
-	check_eq(PlayerAvatarStore.selection(ACCOUNT), saved, "Use photo does not persist before profile Save changes")
+	check(screen._photo_mode, "the selected photo remains on the edit page until saved")
+	check_eq(PlayerAvatarStore.selection(ACCOUNT), saved, "photo selection does not persist before Save changes")
 	var submitted: Array[Dictionary] = []
 	screen.profile_save_requested.connect(func(username: String, avatar: String) -> void:
 		submitted.append({"username": username, "avatar": avatar})
 	)
 	(screen.find_child("SaveAvatar", true, false) as Button).pressed.emit()
-	check_eq(submitted.size(), 1, "profile Save changes submits the selected photo")
+	check_eq(submitted.size(), 1, "edit-page Save changes submits the selected photo")
 	screen.set_profile_avatar_persisted(submitted[0].avatar)
 	screen.set_profile_save_result(true)
 	check(PlayerAvatarStore.selection(ACCOUNT).has("png"), "Save persists the chosen photo")
@@ -207,14 +245,12 @@ func test_photo_editor_previews_cancels_and_saves_without_losing_the_current_ava
 	screen.set_user_state({"user": {"id": "user-1", "displayName": "Player"}})
 	screen._open_photo_editor()
 	check(screen._photo_preview.visible and screen._change_photo.visible, "saved photo opens the populated state")
-	check(not screen._use_photo.visible, "unchanged saved photo needs no second save")
 	screen._on_avatar_file_selected(photo_path)
 	screen.avatar_store_path = ROOT + "/missing/account.json"
-	screen._use_photo.pressed.emit()
 	screen.profile_save_requested.connect(func(_username: String, _avatar: String) -> void: pass)
 	(screen.find_child("SaveAvatar", true, false) as Button).pressed.emit()
 	screen.set_profile_save_result(false, "Could not save profile. Please try again.")
-	check(not screen._photo_mode, "photo remains previewed on the profile after a failed save")
+	check(screen._photo_mode, "failed save keeps the photo editor open for retry")
 	check(screen._pending_avatar != null, "storage failure retains the chosen photo for retry")
 	screen.free()
 	UsersStateStore.clear_local_state(ROOT)

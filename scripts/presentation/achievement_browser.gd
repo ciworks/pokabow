@@ -3,6 +3,7 @@ extends Control
 ## Catalogue-driven presentation only. Unlock rules remain in the application/API.
 signal home_requested
 signal profile_requested
+signal tournaments_requested
 signal refresh_requested
 const T = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 const PAGE_SIZE: int = 6
@@ -55,14 +56,9 @@ func _ready() -> void:
 	_margin.add_child(_column)
 	var header := HBoxContainer.new()
 	_column.add_child(header)
-	_back = _button("‹", go_back)
-	_back.text = ""
-	_back.icon = load("res://assets/ui/modern_tabletop/game_back.svg") as Texture2D
-	_back.expand_icon = false
-	_back.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_back = _button("", go_back)
+	T.style_back_button(_back)
 	_back.tooltip_text = "Back"
-	for state: String in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-		_back.add_theme_color_override(state, T.ink())
 	header.add_child(_back)
 	_heading = _label("Achievements", 32, true)
 	_heading.add_theme_font_override("font", T.BOLD)
@@ -105,24 +101,35 @@ func _ready() -> void:
 	_next = _button("›", change_page.bind(1))
 	_next.tooltip_text = "Next page"
 	_pages.add_child(_next)
-	_column.add_child(HSeparator.new())
 	_nav = HBoxContainer.new()
+	_nav.add_theme_constant_override("separation", 8)
 	_column.add_child(_nav)
-	for destination: String in ["Home", "Achievements", "Profile"]:
+	for destination: String in ["Home", "Achievements", "Tournaments"]:
 		var nav_button := _button("", _navigate.bind(destination))
+		nav_button.name = destination + "Button"
 		nav_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		nav_button.tooltip_text = destination
+		nav_button.tooltip_text = destination + (" — current page" if destination == "Achievements" else "")
 		_nav.add_child(nav_button)
 		T.style_button(nav_button, "selected" if destination == "Achievements" else "quiet")
 		var contents := VBoxContainer.new()
+		contents.name = "Contents"
 		contents.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		nav_button.add_child(contents)
 		contents.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		contents.offset_top = 7
+		contents.offset_bottom = -7
 		contents.alignment = BoxContainer.ALIGNMENT_CENTER
-		var icon := _image(load("res://assets/ui/modern_tabletop/%s.svg" % destination.to_lower()), 26)
+		contents.add_theme_constant_override("separation", 3)
+		var icon := _image(T.icon_texture(destination.to_lower()), 24)
+		icon.name = "Icon"
+		icon.custom_minimum_size = Vector2(24, 24)
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		contents.add_child(icon)
 		var caption := _label(destination, 18)
+		caption.name = "Caption"
 		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		caption.add_theme_font_override("font", T.SEMIBOLD if destination == "Achievements" else T.MEDIUM)
+		caption.add_theme_color_override("font_color", T.ink() if destination == "Achievements" else T.muted())
 		contents.add_child(caption)
 	_build_detail()
 	resized.connect(_fit)
@@ -174,9 +181,10 @@ func _badge_key_for(row: Dictionary) -> String:
 
 func _fit() -> void:
 	_factor = clampf(size.x / 540.0, 0.5, 1.4)
-	var side: int = maxi(12, roundi(20 * _factor))
-	var top: int = maxi(12, roundi(16 * _factor))
-	var bottom: int = top
+	var hub_scale: float = clampf(size.x / 540.0, 0.66, 1.0)
+	var side: int = maxi(16, roundi(24 * hub_scale))
+	var top: int = maxi(16, roundi(20 * hub_scale))
+	var bottom: int = maxi(16, roundi(24 * hub_scale))
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		var safe: Rect2i = DisplayServer.get_display_safe_area()
 		var window: Vector2i = DisplayServer.window_get_size()
@@ -200,10 +208,11 @@ func _fit() -> void:
 				node.custom_minimum_size = Vector2(_touch_size(), maxf(_touch_size(), 64 * _factor))
 				node.add_theme_font_size_override("font_size", maxi(14, roundi(22 * _factor)))
 				if holder == _nav:
-					node.custom_minimum_size.y = maxi(58, 80 * _factor)
+					node.custom_minimum_size.y = maxi(64, roundi(80 * _factor))
 					var contents: VBoxContainer = node.get_child(0)
-					contents.get_child(0).custom_minimum_size.y = 26 * _factor
-					contents.get_child(1).add_theme_font_size_override("font_size", maxi(ceili(14 * _pixel_scale()), roundi(21 * _factor)))
+					contents.get_child(0).custom_minimum_size = Vector2(24, 24)
+					contents.get_child(1).add_theme_font_size_override("font_size", maxi(13, roundi(20 * _factor)))
+	_back.custom_minimum_size = T.BACK_BUTTON_SIZE
 	_detail_panel.custom_minimum_size = Vector2(minf(size.x - 32, 480), 0)
 	_detail_copy.add_theme_font_size_override("font_size", maxi(16, roundi(22 * _factor)))
 	_detail_title.add_theme_font_size_override("font_size", maxi(20, roundi(28 * _factor)))
@@ -331,6 +340,8 @@ func go_back() -> void:
 func _navigate(destination: String) -> void:
 	if destination == "Achievements":
 		show_overview()
+	elif destination == "Tournaments":
+		tournaments_requested.emit()
 	elif destination == "Profile":
 		profile_requested.emit()
 	else:

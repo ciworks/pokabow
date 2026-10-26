@@ -1,6 +1,6 @@
 # ADR-013: Tile scoring multipliers
 
-* **Status:** Accepted
+* **Status:** Accepted; Joker poker classification superseded by ADR-021
 * **Date:** 2026-09-27
 * **Source:** `Enhancements to scoring.txt` and owner clarifications on 2026-09-27
 * **Supersedes:** Earlier no-multiplier and four-face/four-edge assumptions where they conflict
@@ -46,3 +46,16 @@ two touching edge values are equal; no special wildcard case applies. Tile DTO,
 tile-generation, and scoring schema versions advance so older saved tile and
 score data is not silently interpreted under the changed edge vocabulary and
 scoring rule.
+
+## Amendment — Joker rank substitution (2026-10-23)
+
+[ADR-021](ADR-021-joker-wildcard-hands.md) supersedes the historical
+Joker-as-own-rank classification and straight exclusion above. Joker now
+substitutes for an ordinary rank separately in each completed poker hand.
+Its card value 5, suitless and colorless state, card factor 1, physical edges,
+and all other multiplier rules in this ADR remain in force.
+
+## Amendment — Four-rank tiles (2026-10-23)
+
+[ADR-022](ADR-022-remove-jokers.md) supersedes all Joker-specific rules in this ADR.
+The other card values, card-match factors, and edge factors remain in force.

@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://cevkju27c51op"]
 
-[ext_resource type="Script" path="res://tools/test_achievement_browser_data.gd" id="1_test"]
+[ext_resource type="Script" uid="uid://bu12vxvcv7wmt" path="res://tools/test_achievement_browser_data.gd" id="1_test"]
 
-[node name="AchievementBrowserDataTest" type="Node"]
+[node name="AchievementBrowserDataTest" type="Node" unique_id=437978892]
 script = ExtResource("1_test")

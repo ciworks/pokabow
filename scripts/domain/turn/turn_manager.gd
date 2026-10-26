@@ -1,6 +1,7 @@
 class_name TurnManager
 extends RefCounted
 
+## Kept only to parse legacy snapshots and historic diagnostics.
 const TURN_SECONDS: float = 60.0
 
 
@@ -26,26 +27,15 @@ static func resign(session: GameSessionState, resigning_player_id: StringName) -
 	return true
 
 
-## Advance only the current action phase. Excess elapsed time never consumes
-## the next player's time. The application clears previews before handing over.
-static func elapse_turn(session: GameSessionState, seconds: float) -> bool:
-	if session == null or not session.get_turn_state().is_awaiting_action():
-		return false
-	if not is_finite(seconds) or seconds < 0.0:
-		return false
-	var turn: TurnState = session.get_turn_state()
-	turn.remaining_seconds = maxf(0.0, turn.remaining_seconds - seconds)
-	return turn.remaining_seconds <= 0.0
+## Legacy entry points are inert so old callers cannot consume a turn.
+static func elapse_turn(_session: GameSessionState, _seconds: float) -> bool:
+	return false
 
 
-## A timeout consumes no tiles and awards no points (ADR-017).
 static func resolve_timeout(session: GameSessionState) -> int:
 	if session == null:
 		return TurnEnums.MatchPhase.MATCH_SETUP
-	var turn: TurnState = session.get_turn_state()
-	if not turn.is_awaiting_action() or turn.remaining_seconds > 0.0:
-		return turn.phase
-	return _complete_turn(session, 0)
+	return session.get_turn_state().phase
 
 ## The Phase 1 match lifecycle state machine (ADR-003 sections 1, 2, 6, and 8;
 ## ADR-010 sections 2, 5, 6, and 7 as ADR-011 section 8 records them; ADR-011
@@ -433,7 +423,7 @@ static func _enter_turn_start(session: GameSessionState) -> int:
 			turn_state.consecutive_no_tile_skips = 0
 			turn_state.last_skip_reason = TurnEnums.SkipReason.NONE
 			turn_state.phase = TurnEnums.MatchPhase.AWAIT_ACTION
-			turn_state.remaining_seconds = TURN_SECONDS
+			turn_state.remaining_seconds = 0.0
 			turn_state.deadline_unix_seconds = 0.0
 			return TurnEnums.MatchPhase.AWAIT_ACTION
 

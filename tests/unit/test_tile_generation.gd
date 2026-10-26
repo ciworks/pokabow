@@ -48,15 +48,10 @@ func test_rules_resource_on_disk_matches_the_approved_defaults() -> void:
 	check(rules.is_valid(), "the on-disk rules must validate: %s" % [rules.validate()])
 	check_eq(rules.schema_version, TileGenerationRules.SCHEMA_VERSION, "schema version must match")
 	check_eq(rules.bag_size, TileGenerationRules.DEFAULT_BAG_SIZE, "bag size must be the default")
-	check_eq(
-		rules.max_jokers,
-		TileGenerationRules.DEFAULT_MAX_JOKERS,
-		"the pot's Joker allowance must be the default (ADR-014)"
-	)
-	check_eq(rules.version_key(), "tile-generation:4", "the version key must be stable and versioned")
+	check_eq(rules.version_key(), "tile-generation:5", "the version key must be stable and versioned")
 	check_eq(rules.rank_weights, _uniform(TileEnums.TileRank.size()), "ranks must be uniformly weighted")
 	check_eq(
-		rules.face_color_weights, _uniform(TileEnums.FaceColor.size() - 1), "non-Joker face colours must be uniform"
+		rules.face_color_weights, _uniform(TileEnums.FaceColor.size() - 1), "face colours must be uniform"
 	)
 	check_eq(rules.suit_weights, _uniform(TileEnums.Suit.size() - 1), "normal suits must be uniform")
 	check_eq(
@@ -80,17 +75,9 @@ func test_rules_validation_rejects_unusable_configurations() -> void:
 	empty_bag.bag_size = 0
 	check(not empty_bag.is_valid(), "a non-positive bag size must be rejected")
 
-	var negative_jokers: TileGenerationRules = TileGenerationRules.create_default()
-	negative_jokers.max_jokers = -1
-	check(not negative_jokers.is_valid(), "a negative Joker allowance must be rejected")
-
 	var future_schema: TileGenerationRules = TileGenerationRules.create_default()
 	future_schema.schema_version = TileGenerationRules.SCHEMA_VERSION + 1
 	check(not future_schema.is_valid(), "an unsupported schema version must be rejected")
-	check(
-		not negative_jokers.is_valid(),
-		"a negative Joker allowance must be rejected (ADR-014)"
-	)
 
 
 func test_bag_contains_exactly_52_tiles() -> void:
@@ -104,85 +91,16 @@ func test_bag_contains_exactly_52_tiles() -> void:
 	check(not source.is_exhausted(), "a full bag must not report exhaustion")
 
 
-func test_pot_holds_at_most_max_jokers() -> void:
-	var rules: TileGenerationRules = TileGenerationRules.create_default()
-	var seen_jokers: int = 0
-
+func test_generated_bags_use_only_the_four_card_ranks() -> void:
+	var seen_ranks: Dictionary = {}
 	for offset: int in range(DISTRIBUTION_SAMPLE_SEEDS):
 		var source: TileSource = _generated_source(SAMPLE_MATCH_ID, 7000 + offset)
-		check_eq(source.get_bag_size(), 52, "the Joker allowance must not shrink the bag")
-		var jokers: int = _count_rank(source.debug_bag_snapshot(), TileEnums.TileRank.JOKER)
-		check(
-			jokers <= rules.max_jokers,
-			"ADR-014 caps the pot at %d Jokers, this bag held %d" % [rules.max_jokers, jokers]
-		)
-		seen_jokers += jokers
-
-	check(seen_jokers > 0, "the allowance must still let Jokers into the pot")
-
-
-func test_a_zero_joker_allowance_generates_a_joker_free_pot() -> void:
-	var rules: TileGenerationRules = TileGenerationRules.create_default()
-	rules.max_jokers = 0
-	var source: TileSource = TileSource.new()
-
-	check(source.initialize(SAMPLE_MATCH_ID, 20260927, rules), "a capped pot must still initialize")
-	check_eq(
-		_count_rank(source.debug_bag_snapshot(), TileEnums.TileRank.JOKER),
-		0,
-		"a zero allowance must produce no Jokers"
-	)
-	check_eq(source.get_bag_size(), 52, "capping Jokers must not change the bag size")
-
-
-func test_capping_jokers_stays_deterministic_for_a_seed() -> void:
-	var first: TileSource = _generated_source(SAMPLE_MATCH_ID, 31337)
-	var second: TileSource = _generated_source(SAMPLE_MATCH_ID, 31337)
-
-	check(
-		_count_rank(first.debug_bag_snapshot(), TileEnums.TileRank.JOKER)
-		<= TileGenerationRules.DEFAULT_MAX_JOKERS,
-		"a generated bag must respect the default allowance"
-	)
-	check_eq(
-		_bag_signature(first.debug_bag_snapshot()),
-		_bag_signature(second.debug_bag_snapshot()),
-		"a capped bag must still reproduce exactly from its seed (ADR-004 section 3)"
-	)
-
-
-func test_a_capped_pot_still_supplies_every_ordinary_rank() -> void:
-	var seen_ranks: Dictionary = {}
-
-	for offset: int in range(DISTRIBUTION_SAMPLE_SEEDS):
-		var source: TileSource = _generated_source(SAMPLE_MATCH_ID, 8000 + offset)
-		for tile in source.debug_bag_snapshot():
-			if tile.rank != TileEnums.TileRank.JOKER:
-				seen_ranks[tile.rank] = true
-
-	for rank: int in range(TileEnums.TileRank.JOKER):
-		check(
-			seen_ranks.has(rank),
-			"capping Jokers must not starve %s from the pot" % [TileEnums.rank_name(rank)]
-		)
-
-
-func test_an_allowance_at_or_above_bag_size_never_binds() -> void:
-	var generous: TileGenerationRules = TileGenerationRules.create_default()
-	generous.max_jokers = generous.bag_size
-	var bags_exceeding_the_default_cap: int = 0
-
-	for offset: int in range(DISTRIBUTION_SAMPLE_SEEDS):
-		var source: TileSource = TileSource.new()
-		check(source.initialize(SAMPLE_MATCH_ID, 9000 + offset, generous), "rules must initialize")
-		var jokers: int = _count_rank(source.debug_bag_snapshot(), TileEnums.TileRank.JOKER)
-		if jokers > TileGenerationRules.DEFAULT_MAX_JOKERS:
-			bags_exceeding_the_default_cap += 1
-
-	check(
-		bags_exceeding_the_default_cap > 0,
-		"an allowance at or above bag_size must leave ADR-004's uncapped distribution intact"
-	)
+		check_eq(source.get_bag_size(), 52, "the bag still contains 52 tiles")
+		for tile: TileDefinition in source.debug_bag_snapshot():
+			check(tile.is_valid(), "each generated tile has a legal rank and suit")
+			seen_ranks[int(tile.rank)] = true
+	for rank: int in TileEnums.TileRank.values():
+		check(seen_ranks.has(rank), "the bag sample includes %s" % TileEnums.rank_name(rank))
 
 
 func test_same_seed_and_match_id_produce_an_identical_bag() -> void:

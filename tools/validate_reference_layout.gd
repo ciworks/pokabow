@@ -70,21 +70,14 @@ func _run() -> void:
 		_check(is_equal_approx(overview.size.x, overview.size.y), "overview shows full square board")
 		screen.board_view.set_close_view(true)
 		await process_frame
-	# Inspect the countdown band at full, half, warning, and empty states.
+	# The active turn remains visible without a move countdown.
 	root.size = Vector2i(540, 960)
 	for frame: int in range(12):
 		await process_frame
-	for seconds: int in [60, 30, 10, 0]:
-		screen.tile_pile_view.set_seconds_left(seconds)
-		await process_frame
-		await process_frame
-		_check(is_equal_approx(screen.tile_pile_view.remaining_timer_angle(), TAU * float(seconds) / TurnManager.TURN_SECONDS), "pot ring tracks remaining time")
-		_check(not screen.human_score_panel.get_node("HumanScoreBox/TurnOutline").visible, "human border timer is hidden")
-		_check(not screen.ai_score_panel.get_node("AiScoreBox/TurnOutline").visible, "rival border timer is hidden")
-		if DisplayServer.get_name() != "headless":
-			await RenderingServer.frame_post_draw
-			root.get_texture().get_image().save_png("res://.tmp/pot-ring-%d-seconds.png" % seconds)
-	# Check an actual notification at phone width, including timer expiry.
+	_check(not screen.turn_clock_label.visible, "move countdown stays hidden")
+	_check(screen.turn_clock_label.text.is_empty(), "move countdown has no text")
+	_check(screen.get_node("%HeaderTurnStatus").text == "Your turn", "active turn remains visible")
+	# Check an actual notification at phone width, including notice expiry.
 	root.size = Vector2i(360, 800)
 	for frame: int in range(12):
 		await process_frame

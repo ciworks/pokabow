@@ -32,7 +32,7 @@ var _pot_count_label: Label = null
 func _ready() -> void:
 	custom_minimum_size.y = BAR_HEIGHT
 	var panel := Tabletop.panel(Tabletop.canvas(), 0, 0.0)
-	panel.border_color = Color("#D8D0C2")
+	panel.border_color = Tabletop.border()
 	panel.border_width_top = 1
 	panel.content_margin_top = 1.0
 	add_theme_stylebox_override("panel", panel)
@@ -76,10 +76,7 @@ func _ready() -> void:
 		content.add_child(icon_surface)
 		var icon := TextureRect.new()
 		icon.name = "Icon"
-		var icon_name: String = ICONS[action]
-		if action == &"Pot" and Tabletop.is_dark_mode():
-			icon_name = "pot_sack_light"
-		icon.texture = load("res://assets/ui/modern_tabletop/%s.svg" % icon_name)
+		icon.texture = Tabletop.icon_texture(ICONS[action])
 		icon.custom_minimum_size = Vector2(30, 30)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -109,7 +106,7 @@ func _ready() -> void:
 		label.text = "Play hand" if action == &"Play" else String(action)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.add_theme_font_override("font", Tabletop.SEMIBOLD)
-		label.add_theme_color_override("font_color", Tabletop.ink())
+		label.add_theme_color_override("font_color", Tabletop.on_primary() if action == &"Play" else Tabletop.ink())
 		label.add_theme_font_size_override("font_size", PLAY_LABEL_FONT_SIZE if action == &"Play" else 18)
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		content.add_child(label)
@@ -131,6 +128,22 @@ func set_pot_count(count: int) -> void:
 	button.accessibility_name = button.tooltip_text
 
 
+## Reuses the primary and left actions while the player chooses tiles to swap.
+func set_swap_selection(active: bool, selected_count: int) -> void:
+	var play: Button = buttons[&"Play"]
+	var undo: Button = buttons[&"Undo"]
+	var swap_label: String = "Select tiles" if selected_count <= 0 else "Swap %d %s" % [
+		selected_count, "tile" if selected_count == 1 else "tiles"
+	]
+	(play.get_node("Content/Label") as Label).text = swap_label if active else "Play hand"
+	(undo.get_node("Content/Label") as Label).text = "Keep" if active else "Undo"
+	play.tooltip_text = ("Select tiles to swap" if selected_count <= 0 else
+		"Swap %d selected %s" % [selected_count, "tile" if selected_count == 1 else "tiles"]) if active else TOOLTIPS[2]
+	undo.tooltip_text = "Keep your tiles and cancel the swap" if active else TOOLTIPS[0]
+	play.accessibility_name = play.tooltip_text
+	undo.accessibility_name = undo.tooltip_text
+
+
 func set_available(action: StringName, available: bool) -> void:
 	if not buttons.has(action):
 		return
@@ -140,5 +153,5 @@ func set_available(action: StringName, available: bool) -> void:
 	content.modulate = (
 		Color.WHITE
 		if available or action == &"Play"
-		else Color(0.42, 0.49, 0.50, 0.55)
+		else (Color(1, 1, 1, 0.75) if Tabletop.is_dark_mode() else Color(0.42, 0.49, 0.50, 0.55))
 	)

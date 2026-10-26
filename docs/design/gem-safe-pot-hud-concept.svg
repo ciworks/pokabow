@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title description">
+  <title id="title">Gem safe pot HUD concept</title>
+  <desc id="description">A cropped Pokabow game screen shows the gem safe between the player score cards. A honey circular arc around it is sixty percent complete.</desc>
+  <rect width="960" height="430" fill="#F6F2E9"/>
+
+  <g font-family="Fredoka, Arial, sans-serif" fill="#173D42">
+    <text x="480" y="45" font-size="28" font-weight="700" text-anchor="middle" letter-spacing="2">POKABOW</text>
+    <path d="M40 62h880" stroke="#DFEAE4" stroke-width="2"/>
+
+    <!-- The score cards and their positions match the existing HUD structure. -->
+    <rect x="45" y="106" width="407" height="166" rx="24" fill="#DFEAE4"/>
+    <rect x="508" y="106" width="407" height="166" rx="24" fill="#DFEAE4"/>
+    <circle cx="122" cy="189" r="52" fill="#F4BC9E"/>
+    <circle cx="838" cy="189" r="52" fill="#B7CCBC"/>
+    <circle cx="122" cy="179" r="20" fill="#173D42"/>
+    <path d="M88 222c5-20 18-31 34-31s29 11 34 31" fill="#173D42"/>
+    <circle cx="838" cy="179" r="20" fill="#173D42"/>
+    <path d="M804 222c5-20 18-31 34-31s29 11 34 31" fill="#173D42"/>
+    <text x="194" y="178" font-size="27" font-weight="500">You</text>
+    <text x="194" y="228" font-size="53" font-weight="700">128</text>
+    <text x="754" y="178" font-size="27" font-weight="500" text-anchor="end">Rival</text>
+    <text x="754" y="228" font-size="53" font-weight="700" text-anchor="end">96</text>
+
+  </g>
+
+  <!-- A quiet full-circle track and a 60% honey progress arc. -->
+  <circle cx="480" cy="188" r="82" fill="#F6F2E9" stroke="#C7D8CF" stroke-width="17"/>
+  <circle cx="480" cy="188" r="82" fill="none" stroke="#F4C86A" stroke-width="17" stroke-linecap="round" stroke-dasharray="309 516" transform="rotate(-90 480 188)"/>
+
+  <!-- Scaled copy of the proposed safe icon, kept as vectors for the concept. -->
+  <g transform="translate(422 137) scale(0.25)">
+    <g fill="#173D42">
+      <rect x="56" y="101" width="352" height="247" rx="11"/>
+      <rect x="77" y="337" width="62" height="33" rx="10"/>
+      <rect x="325" y="337" width="62" height="33" rx="10"/>
+    </g>
+    <g fill="#FFFFFF">
+      <rect x="56" y="183" width="51" height="21"/>
+      <rect x="56" y="245" width="51" height="20"/>
+      <path d="M108 151v145h248V151" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="304" y="204" width="21" height="41" rx="10.5"/>
+    </g>
+    <circle cx="232" cy="111" r="110" fill="#FFFFFF"/>
+    <circle cx="232" cy="111" r="93" fill="#173D42"/>
+    <path d="M202 63h60l18 24-48 68-48-68z" fill="#173D42" stroke="#FFFFFF" stroke-width="7" stroke-linejoin="round"/>
+  </g>
+
+  <!-- A hint of the existing board shows the HUD's screen context. -->
+  <rect x="42" y="316" width="876" height="114" rx="19" fill="#173D42"/>
+  <g fill="#89A69C">
+    <rect x="58" y="332" width="132" height="82" rx="8"/>
+    <rect x="201" y="332" width="132" height="82" rx="8"/>
+    <rect x="344" y="332" width="132" height="82" rx="8"/>
+    <rect x="487" y="332" width="132" height="82" rx="8"/>
+    <rect x="630" y="332" width="132" height="82" rx="8"/>
+    <rect x="773" y="332" width="129" height="82" rx="8"/>
+  </g>
+</svg>

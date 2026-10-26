@@ -1012,8 +1012,8 @@ static func from_snapshot(
 		String(dto.turn.get("active_player_id", ""))
 	)
 	session._turn_state.turn_number = int(dto.turn.get("turn_number", 0))
-	session._turn_state.remaining_seconds = float(dto.turn.get("remaining_seconds", TurnManager.TURN_SECONDS))
-	session._turn_state.deadline_unix_seconds = float(dto.turn.get("deadline_unix_seconds", 0.0))
+	session._turn_state.remaining_seconds = 0.0
+	session._turn_state.deadline_unix_seconds = 0.0
 	# ADR-010 sections 9 and 10: the restored turn position must continue the
 	# placement-index sequence of the turn it was saved in, so the index is
 	# re-derived from the history restored above.

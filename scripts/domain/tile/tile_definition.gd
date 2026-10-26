@@ -46,9 +46,7 @@ static func create(
 	tile.rank = rank
 	tile.face_color = face_color
 	if suit < 0:
-		tile.suit = TileEnums.Suit.NONE if rank == TileEnums.TileRank.JOKER else (
-			TileEnums.Suit.HEARTS if face_color == TileEnums.FaceColor.RED else TileEnums.Suit.CLUBS
-		)
+		tile.suit = TileEnums.Suit.HEARTS if face_color == TileEnums.FaceColor.RED else TileEnums.Suit.CLUBS
 	else:
 		tile.suit = suit
 	tile.base_edges = base_edges.duplicate()
@@ -114,10 +112,7 @@ func is_valid() -> bool:
 		return false
 	if not TileEnums.is_valid_suit(int(suit)):
 		return false
-	if rank == TileEnums.TileRank.JOKER:
-		if suit != TileEnums.Suit.NONE or face_color != TileEnums.FaceColor.NONE:
-			return false
-	elif suit == TileEnums.Suit.NONE or TileEnums.color_for_suit(suit) != face_color:
+	if TileEnums.color_for_suit(suit) != face_color:
 		return false
 	if base_edges.size() != TileEnums.EDGE_COUNT:
 		return false

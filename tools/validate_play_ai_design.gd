@@ -94,8 +94,8 @@ func _run() -> void:
 	verify(not screen.start_button.disabled and not screen.mode_picker.disabled, "Failure permits retry or returning to AI")
 	screen._select_mode(0)
 	var received: Array[int] = []
-	screen.opponent_selected.connect(func(difficulty: int, portrait: Texture2D) -> void:
-		received.append(difficulty)
+	screen.opponent_selected.connect(func(rival: Dictionary, portrait: Texture2D) -> void:
+		received.append(int(rival.get("difficulty", -1)))
 		verify(portrait != null, "Selected real portrait supplied"))
 	screen._begin_spin()
 	for button: Button in screen.get_node("%Modes").get_children():

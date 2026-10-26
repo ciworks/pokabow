@@ -3,39 +3,41 @@ extends RefCounted
 
 ## Provisional online Gem pot values from GAME_SPEC section 8.5.
 ## This projection reads committed server score events; it never grants wallet Gems.
-const POLICY_VERSION: String = "gem-pot-v1"
+const POLICY_VERSION: String = "gem-pot-v2"
+const ONLINE_POT_CAP: int = 40
 const COMPLETION_GEMS: int = 10
 
 
-static func contribution(event: ScoreEvent) -> int:
+static func contribution(event: ScoreEvent, current_total: int = 0, cap: int = 0) -> int:
 	if event == null or event.category != ScoringEnums.ScoreCategory.POKER_HAND:
 		return 0
+	var amount: int = 0
 	match String(event.evidence.get("category", "")):
 		"PAIR":
-			return 2
+			amount = 2
 		"TWO_PAIR":
-			return 4
+			amount = 4
 		"STRAIGHT_3":
-			return 6
+			amount = 6
 		"THREE_OF_A_KIND":
-			return 8
+			amount = 8
 		"STRAIGHT_4":
-			return 10
+			amount = 10
 		"FULL_HOUSE":
-			return 12
+			amount = 12
 		"FOUR_OF_A_KIND":
-			return 14
-	return 0
+			amount = 14
+	return mini(amount, maxi(0, cap - current_total)) if cap > 0 else amount
 
 
-static func total(events: Array[ScoreEvent]) -> int:
+static func total(events: Array[ScoreEvent], cap: int = 0) -> int:
 	var seen: Dictionary = {}
 	var amount: int = 0
 	for event: ScoreEvent in events:
 		if event == null or seen.has(event.event_id):
 			continue
 		seen[event.event_id] = true
-		amount += contribution(event)
+		amount += contribution(event, amount, cap)
 	return amount
 
 

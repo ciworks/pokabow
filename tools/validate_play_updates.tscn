@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dvr5mx0iom1wl"]
+
+[ext_resource type="Script" uid="uid://hx3cdw83npvy" path="res://tools/validate_play_updates.gd" id="1_test"]
+
+[node name="PlayUpdateCheck" type="Node" unique_id=1256275805]
+script = ExtResource("1_test")

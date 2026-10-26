@@ -1,5 +1,9 @@
 # Game API integration
 
+Crash reports currently use the device's email composer, addressed to
+support@pokabow.game. They are not submitted through this API; the player reviews
+and sends the draft. The app does not receive a delivery confirmation.
+
 ## Android development on the local network
 
 The Android export must enable `permissions/internet=true`, including for LAN
@@ -11,7 +15,9 @@ first, then `pokabow/server_ip` in the project settings, then its fallback.
 Requests currently use HTTP on port 3000. The development project's configured
 address is `192.168.0.189`; change it when the API host's LAN address changes.
 An installed app's saved address takes precedence over a newly exported default.
-The hub Settings screen can update the saved Server IP once accessible.
+The Settings screen does not expose the Server IP. Development builds can set
+`pokabow/server_ip` in Project Settings; an existing saved `network/server_ip`
+in `user://settings.cfg` still takes precedence until it is cleared.
 
 On 2026-10-05, the local Windows API was listening at `192.168.0.189:3000`;
 an HTTP GET to `/` returned 404, demonstrating HTTP connectivity even though
@@ -80,6 +86,17 @@ still a placeholder; it must not replace the local ledger or determine achieveme
 | View achievements | `GET /achievements` | Existing account catalog and unlock display. |
 | Earn achievement | `POST /achievements/unlocks` | Existing committed-event detection; pending IDs retry after transient failure or login. Previews award nothing. |
 | Track achievement progress | `POST /achievements/progress` | Sends stable IDs for committed human Two Pair and Perfect Match events. The API deduplicates per account and returns newly unlocked IDs; offline events retry. Requires migration `010_achievement_progress.sql`. |
+| View confirmed Gems | `GET /gems/me` | Reads the server-owned balance and recent transaction history. Requires API migration `013_gem_wallet.sql`; projected match pots are never counted as wallet funds. |
+| Rewarded ad | `GET /gems/rewarded-ad/status`, `POST /gems/rewarded-ad/session` | The Shop checks server availability, then sends the session ID to AdMob as signed callback data. Only the API's verified AdMob SSV callback credits 20 Gems and starts a rolling 24-hour cooldown. Requires migration `017_rewarded_ad_gems.sql` and production rewarded ad unit configuration. |
+
+To enable the Shop offer, set `pokabow/ads_android_rewarded_unit_id` and/or
+`pokabow/ads_ios_rewarded_unit_id` in `project.godot`, add the same production
+IDs to the API's `ADMOB_REWARDED_AD_UNITS`, configure each AdMob unit to reward
+20 Gems, and point its server-side verification URL to
+`https://YOUR_API/gems/rewarded-ad/callback`. Until configured, the Shop panel
+shows the offer as unavailable.
+| Verified AI match | `POST /ai-games/`, `GET /ai-games/active`, `GET /ai-games/current`, `GET /ai-games/{matchId}`, `POST /ai-games/{matchId}/commands` | Server owns the seed, moves, opponent decisions and terminal result. New Game creates a distinct match; `/active` lists every resumable AI match. No move deadline. Requires API migrations `014_verified_ai_matches.sql`, `015_verified_ai_gems.sql`, `016_remove_turn_deadlines.sql` and `020_multiple_verified_ai_matches.sql`. Newly created verified matches settle the human's capped pot; older and local matches remain ineligible. |
+| AI rival roster | `GET /ai-rivals/` | The API reads enabled named rivals and fixed difficulty tiers from PostgreSQL. Verified match creation sends a rival ID, and the response snapshots its display name and avatar key. Requires API migration `019_ai_rivals.sql`. The game uses its bundled 15-rival roster when the API cannot be reached. |
 
 `pokabow-api` already provides the separate authenticated avatar upload and
 download endpoints, backed by migration `009_user_avatars.sql`. The client

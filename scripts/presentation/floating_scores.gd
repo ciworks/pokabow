@@ -18,7 +18,12 @@ const DURATION: float = 1.15
 
 ## Popup font size.
 const FONT_SIZE: int = 55
-const OUTLINE_SIZE: int = 8
+const OUTLINE_SIZE: int = 5
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
+
+## A fixed light-on-dark treatment stays readable over ivory tiles and sage cells.
+const SCORE_COLOR: Color = Color("#F6F2E9")
+const SCORE_OUTLINE_COLOR: Color = Color("#173D42")
 
 
 func _ready() -> void:
@@ -30,13 +35,14 @@ func spawn(at: Vector2, points: int) -> void:
 	var label: Label = Label.new()
 	label.text = str(points)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_override("font", Tabletop.BOLD)
 	label.add_theme_font_size_override("font_size", FONT_SIZE)
-	label.add_theme_color_override("font_color", Color.WHITE)
-	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_color_override("font_color", SCORE_COLOR)
+	label.add_theme_color_override("font_outline_color", SCORE_OUTLINE_COLOR)
 	label.add_theme_constant_override("outline_size", OUTLINE_SIZE)
 	add_child(label)
 
-	# Measure the inherited font so large totals stay centred and on screen.
+	# Measure Fredoka Bold so large totals stay centred and on screen.
 	label.size = label.get_combined_minimum_size()
 	var inset: Vector2 = Vector2.ONE * OUTLINE_SIZE
 	var maximum: Vector2 = (size - label.size - inset).max(inset)

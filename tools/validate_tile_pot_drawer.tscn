@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://wpphgh4cl3nu"]
 
-[ext_resource type="Script" path="res://tools/validate_tile_pot_drawer.gd" id="1"]
+[ext_resource type="Script" uid="uid://d3bbdrdhop8s6" path="res://tools/validate_tile_pot_drawer.gd" id="1"]
 
-[node name="TilePotDrawerQA" type="Node"]
+[node name="TilePotDrawerQA" type="Node" unique_id=583516326]
 script = ExtResource("1")

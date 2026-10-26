@@ -1,8 +1,6 @@
-[gd_resource type="Resource" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="DeckRules" format=3 uid="uid://dxdvxvq1bh4i3"]
 
-[ext_resource type="Script" path="res://scripts/domain/turn/deck_rules.gd" id="1_deck"]
+[ext_resource type="Script" uid="uid://lirtquinh8l4" path="res://scripts/domain/turn/deck_rules.gd" id="1_deck"]
 
 [resource]
 script = ExtResource("1_deck")
-schema_version = 1
-deck_size = 6

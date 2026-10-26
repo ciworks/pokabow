@@ -1,15 +1,15 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://dqk3n8tslrg8j"]
 
-[ext_resource type="Script" path="res://scripts/presentation/opponent_selection_screen.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/presentation/matchup_portrait.gd" id="2"]
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/avatars/players/player_01.tres" id="3"]
+[ext_resource type="Script" uid="uid://0keka35nfev4" path="res://scripts/presentation/opponent_selection_screen.gd" id="1"]
+[ext_resource type="Script" uid="uid://dln00a4pa7n4a" path="res://scripts/presentation/matchup_portrait.gd" id="2"]
+[ext_resource type="Texture2D" uid="uid://e63j7nvswscm" path="res://assets/ui/modern_tabletop/avatars/players/player_01.tres" id="3"]
 [ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/avatars/rivals/rival_02.tres" id="4"]
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/mark.svg" id="5"]
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/game_back.svg" id="6"]
-[ext_resource type="Script" path="res://scripts/presentation/matchup_tile_art.gd" id="7"]
+[ext_resource type="Texture2D" uid="uid://bbrcrhfeorxpk" path="res://assets/ui/modern_tabletop/mark.svg" id="5"]
+[ext_resource type="Texture2D" uid="uid://dpo7yblt7u4vt" path="res://assets/ui/modern_tabletop/game_back.svg" id="6"]
+[ext_resource type="Script" uid="uid://dy5g3cvihulkx" path="res://scripts/presentation/matchup_tile_art.gd" id="7"]
 
-[node name="OpponentSelectionScreen" type="Control"]
-layout_mode = 1
+[node name="OpponentSelectionScreen" type="Control" unique_id=451443020]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -17,7 +17,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="ColorRect" parent="." unique_id=395901579]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -27,15 +27,17 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.964706, 0.94902, 0.913725, 1)
 
-[node name="ModePicker" type="OptionButton" parent="."]
+[node name="ModePicker" type="OptionButton" parent="." unique_id=1680130940]
 unique_name_in_owner = true
 visible = false
+layout_mode = 0
 
-[node name="DifficultyPicker" type="OptionButton" parent="."]
+[node name="DifficultyPicker" type="OptionButton" parent="." unique_id=1073000908]
 unique_name_in_owner = true
 visible = false
+layout_mode = 0
 
-[node name="ScreenMargin" type="MarginContainer" parent="."]
+[node name="ScreenMargin" type="MarginContainer" parent="." unique_id=671385990]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -43,25 +45,25 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Layout" type="VBoxContainer" parent="ScreenMargin"]
+[node name="Layout" type="VBoxContainer" parent="ScreenMargin" unique_id=1178651073]
 layout_mode = 2
 
-[node name="Header" type="HBoxContainer" parent="ScreenMargin/Layout"]
+[node name="Header" type="HBoxContainer" parent="ScreenMargin/Layout" unique_id=2023655369]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="BackButton" type="Button" parent="ScreenMargin/Layout/Header"]
+[node name="BackButton" type="Button" parent="ScreenMargin/Layout/Header" unique_id=1216570699]
 unique_name_in_owner = true
 layout_mode = 2
-icon = ExtResource("6")
 tooltip_text = "Back"
+icon = ExtResource("6")
 
-[node name="BrandRow" type="HBoxContainer" parent="ScreenMargin/Layout/Header"]
+[node name="BrandRow" type="HBoxContainer" parent="ScreenMargin/Layout/Header" unique_id=1373758107]
 layout_mode = 2
 size_flags_horizontal = 3
 alignment = 1
 
-[node name="Mark" type="TextureRect" parent="ScreenMargin/Layout/Header/BrandRow"]
+[node name="Mark" type="TextureRect" parent="ScreenMargin/Layout/Header/BrandRow" unique_id=59553052]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
@@ -69,185 +71,183 @@ texture = ExtResource("5")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="Brand" type="Label" parent="ScreenMargin/Layout/Header/BrandRow"]
+[node name="Brand" type="Label" parent="ScreenMargin/Layout/Header/BrandRow" unique_id=411401336]
 unique_name_in_owner = true
 layout_mode = 2
 text = "POKABOW"
 
-[node name="Balance" type="Control" parent="ScreenMargin/Layout/Header"]
+[node name="Balance" type="Control" parent="ScreenMargin/Layout/Header" unique_id=1816616289]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="Divider" type="HSeparator" parent="ScreenMargin/Layout"]
+[node name="Divider" type="HSeparator" parent="ScreenMargin/Layout" unique_id=1642180786]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="Scroll" type="ScrollContainer" parent="ScreenMargin/Layout"]
+[node name="Scroll" type="ScrollContainer" parent="ScreenMargin/Layout" unique_id=1853878610]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="Content" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll"]
+[node name="Content" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll" unique_id=214848596]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Heading" type="Label" parent="ScreenMargin/Layout/Scroll/Content"]
+[node name="Heading" type="Label" parent="ScreenMargin/Layout/Scroll/Content" unique_id=246320720]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Play AI"
 
-[node name="Subtitle" type="Label" parent="ScreenMargin/Layout/Scroll/Content"]
+[node name="Subtitle" type="Label" parent="ScreenMargin/Layout/Scroll/Content" unique_id=822522382]
 unique_name_in_owner = true
 layout_mode = 2
 text = "A friendly face. A fresh challenge."
 autowrap_mode = 3
 
-[node name="Modes" type="HBoxContainer" parent="ScreenMargin/Layout/Scroll/Content"]
+[node name="Modes" type="HBoxContainer" parent="ScreenMargin/Layout/Scroll/Content" unique_id=1187110939]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="AI" type="Button" parent="ScreenMargin/Layout/Scroll/Content/Modes"]
+[node name="AI" type="Button" parent="ScreenMargin/Layout/Scroll/Content/Modes" unique_id=1957361106]
 layout_mode = 2
 size_flags_horizontal = 3
+toggle_mode = true
 text = "AI rival"
-toggle_mode = true
 
-[node name="Online" type="Button" parent="ScreenMargin/Layout/Scroll/Content/Modes"]
+[node name="Online" type="Button" parent="ScreenMargin/Layout/Scroll/Content/Modes" unique_id=1291724084]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Online"
 toggle_mode = true
+text = "Online"
 
-[node name="Hero" type="PanelContainer" parent="ScreenMargin/Layout/Scroll/Content"]
+[node name="Hero" type="PanelContainer" parent="ScreenMargin/Layout/Scroll/Content" unique_id=81382742]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="HeroColumn" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero"]
+[node name="HeroColumn" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero" unique_id=1646903410]
 layout_mode = 2
 
-[node name="MatchupRow" type="HBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn"]
+[node name="MatchupRow" type="HBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn" unique_id=256789695]
 unique_name_in_owner = true
 layout_mode = 2
 alignment = 1
 
-[node name="YouCard" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow"]
+[node name="YouCard" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow" unique_id=1865265357]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="PortraitAspect" type="AspectRatioContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/YouCard"]
+[node name="PortraitAspect" type="AspectRatioContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/YouCard" unique_id=902461016]
 layout_mode = 2
-ratio = 1.0
 
-[node name="HumanPortrait" type="TextureRect" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/YouCard/PortraitAspect"]
+[node name="HumanPortrait" type="TextureRect" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/YouCard/PortraitAspect" unique_id=2026672523]
 unique_name_in_owner = true
 layout_mode = 2
-script = ExtResource("2")
 texture = ExtResource("3")
-show_ring = false
 expand_mode = 1
 stretch_mode = 5
+script = ExtResource("2")
+show_ring = false
 
-[node name="YouName" type="Label" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/YouCard"]
+[node name="YouName" type="Label" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/YouCard" unique_id=965953765]
 unique_name_in_owner = true
 layout_mode = 2
 text = "You"
 horizontal_alignment = 1
 autowrap_mode = 3
 
-[node name="Vs" type="Label" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow"]
+[node name="Vs" type="Label" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow" unique_id=976424771]
 unique_name_in_owner = true
 layout_mode = 2
 text = "vs"
-vertical_alignment = 1
 horizontal_alignment = 1
+vertical_alignment = 1
 
-[node name="RivalCard" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow"]
+[node name="RivalCard" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow" unique_id=560302245]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="PortraitAspect" type="AspectRatioContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/RivalCard"]
+[node name="PortraitAspect" type="AspectRatioContainer" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/RivalCard" unique_id=919599322]
 layout_mode = 2
-ratio = 1.0
 
-[node name="RivalPortrait" type="TextureRect" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/RivalCard/PortraitAspect"]
+[node name="RivalPortrait" type="TextureRect" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/RivalCard/PortraitAspect" unique_id=494681166]
 unique_name_in_owner = true
 layout_mode = 2
-script = ExtResource("2")
 texture = ExtResource("4")
-show_ring = false
 expand_mode = 1
 stretch_mode = 5
+script = ExtResource("2")
+show_ring = false
 
-[node name="RivalName" type="Label" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/RivalCard"]
+[node name="RivalName" type="Label" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn/MatchupRow/RivalCard" unique_id=268442022]
 unique_name_in_owner = true
 layout_mode = 2
 text = "AI rival"
 horizontal_alignment = 1
 autowrap_mode = 3
 
-[node name="TileArt" type="Control" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn"]
+[node name="TileArt" type="Control" parent="ScreenMargin/Layout/Scroll/Content/Hero/HeroColumn" unique_id=1505935048]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("7")
 
-[node name="DifficultyRow" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content"]
+[node name="DifficultyRow" type="VBoxContainer" parent="ScreenMargin/Layout/Scroll/Content" unique_id=316401]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="DifficultyLabel" type="Label" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow"]
+[node name="DifficultyLabel" type="Label" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow" unique_id=803909663]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Choose your difficulty"
 
-[node name="Difficulties" type="HBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow"]
+[node name="Difficulties" type="HBoxContainer" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow" unique_id=663745636]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="Easy" type="Button" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow/Difficulties"]
+[node name="Easy" type="Button" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow/Difficulties" unique_id=1649823750]
 layout_mode = 2
 size_flags_horizontal = 3
+toggle_mode = true
 text = "Easy"
-toggle_mode = true
 
-[node name="Medium" type="Button" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow/Difficulties"]
+[node name="Medium" type="Button" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow/Difficulties" unique_id=1144813151]
 layout_mode = 2
 size_flags_horizontal = 3
+toggle_mode = true
 text = "Medium"
-toggle_mode = true
 
-[node name="Hard" type="Button" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow/Difficulties"]
+[node name="Hard" type="Button" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow/Difficulties" unique_id=906734649]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Hard"
 toggle_mode = true
+text = "Hard"
 
-[node name="DifficultyHint" type="Label" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow"]
+[node name="DifficultyHint" type="Label" parent="ScreenMargin/Layout/Scroll/Content/DifficultyRow" unique_id=482295106]
 unique_name_in_owner = true
 layout_mode = 2
 horizontal_alignment = 1
 autowrap_mode = 3
 
-[node name="StatusLabel" type="Label" parent="ScreenMargin/Layout"]
+[node name="StatusLabel" type="Label" parent="ScreenMargin/Layout" unique_id=1234341182]
 unique_name_in_owner = true
 layout_mode = 2
 horizontal_alignment = 1
 autowrap_mode = 3
 
-[node name="ActionRow" type="HBoxContainer" parent="ScreenMargin/Layout"]
+[node name="ActionRow" type="HBoxContainer" parent="ScreenMargin/Layout" unique_id=567383664]
 unique_name_in_owner = true
 layout_mode = 2
 
-[node name="StartButton" type="Button" parent="ScreenMargin/Layout/ActionRow"]
+[node name="StartButton" type="Button" parent="ScreenMargin/Layout/ActionRow" unique_id=1701827637]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_stretch_ratio = 1.7
 text = "Choose rival"
 
-[node name="CancelMatchButton" type="Button" parent="ScreenMargin/Layout/ActionRow"]
+[node name="CancelMatchButton" type="Button" parent="ScreenMargin/Layout/ActionRow" unique_id=152646038]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
@@ -255,9 +255,9 @@ size_flags_horizontal = 3
 size_flags_stretch_ratio = 0.8
 text = "Cancel"
 
-[node name="FooterHint" type="Label" parent="ScreenMargin/Layout"]
+[node name="FooterHint" type="Label" parent="ScreenMargin/Layout" unique_id=1572618344]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Your match starts after a rival is chosen."
-autowrap_mode = 3
 horizontal_alignment = 1
+autowrap_mode = 3

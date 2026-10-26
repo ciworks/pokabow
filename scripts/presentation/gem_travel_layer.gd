@@ -5,9 +5,10 @@ extends Control
 ## The pot amount is applied on arrival; interrupted flights are reconciled from
 ## the authoritative ledger by GameScreen when the view is recreated.
 const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
+const GEM: Texture2D = preload("res://assets/ui/modern_tabletop/store_gem.svg")
 const DURATION: float = 0.88
 const ARRIVAL_RADIUS: float = 4.2
-const START_RADIUS: float = 15.0
+const START_ICON_WIDTH: float = 72.0 # Matches the Gem history balance icon's 72×72 box.
 
 var _flights: Array[Dictionary] = []
 
@@ -75,14 +76,14 @@ func _draw() -> void:
 			var step: float = clampf(shifted / travel_span, 0.0, 1.0)
 			var point: Vector2 = _curve(flight["start"], flight["end"], step)
 			var fade: float = 1.0 - 0.15 * (1.0 - step)
-			# Start as a legible board-sized Gem, then settle to the existing
+			# Start at the Gems page icon size, then settle to the existing
 			# small trail size before it reaches the pot.
 			var arrival_radius: float = ARRIVAL_RADIUS + float(gem_index % 3) * 0.8
-			var start_radius: float = START_RADIUS + float(gem_index % 3) * 1.2
+			var start_radius: float = START_ICON_WIDTH * GEM.get_size().y / GEM.get_size().x * 0.5
 			var radius: float = lerpf(start_radius, arrival_radius, smoothstep(0.0, 0.9, step))
 			_draw_gem(point, radius, fade)
 			if gem_index % 2 == 0:
-				var sparkle: Color = Color("#FFE49A")
+				var sparkle: Color = Color("#D8F5EF")
 				sparkle.a = 0.4 * fade
 				draw_circle(point + Vector2(-radius * 1.5, radius * 1.5), lerpf(2.2, 1.5, step), sparkle)
 
@@ -95,17 +96,11 @@ func _curve(start: Vector2, destination: Vector2, t: float) -> Vector2:
 
 
 func _draw_gem(point: Vector2, radius: float, alpha: float) -> void:
-	var light: Color = Color("#FFE49A")
-	light.a = alpha
-	var honey: Color = Color("#E9AC45")
-	honey.a = alpha
-	var vertices: PackedVector2Array = PackedVector2Array([
-		point + Vector2(0, -radius), point + Vector2(radius * 0.75, -radius * 0.2),
-		point + Vector2(radius * 0.55, radius * 0.7), point + Vector2(0, radius),
-		point + Vector2(-radius * 0.7, radius * 0.2), point + Vector2(-radius * 0.7, -radius * 0.25),
-	])
-	draw_colored_polygon(vertices, honey)
-	draw_colored_polygon(PackedVector2Array([vertices[0], vertices[1], point]), light)
+	var icon_size: Vector2 = GEM.get_size()
+	icon_size *= radius * 2.0 / icon_size.y
+	var tint: Color = Color.WHITE
+	tint.a = alpha
+	draw_texture_rect(GEM, Rect2(point - icon_size * 0.5, icon_size), false, tint)
 
 
 func _show_gain_label(at: Vector2, amount: int) -> void:

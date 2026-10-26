@@ -1,6 +1,6 @@
-[gd_resource type="AtlasTexture" load_steps=2 format=3]
+[gd_resource type="AtlasTexture" format=3 uid="uid://cfu6b8ye185s2"]
 
-[ext_resource type="Texture2D" path="res://assets/branding/pokabow-header-logo-v2.png" id="1_logo"]
+[ext_resource type="Texture2D" uid="uid://byyfcjgdqwxa8" path="res://assets/branding/pokabow-header-logo-v2.png" id="1_logo"]
 
 [resource]
 atlas = ExtResource("1_logo")

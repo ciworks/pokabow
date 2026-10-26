@@ -3,10 +3,12 @@ extends GameSessionController
 ## Reuses board gestures and previews; all committed changes come from the API.
 var client: OnlineGameApiClient
 var _version: int = -1
-var _seconds_at_sync: float = 0.0
-var _sync_ticks: int = 0
 var opponent_name: String = "Opponent"
 var opponent_connected: bool = true
+var gem_settlement: Dictionary = {}
+var gem_settlement_status: String = "none"
+var gem_policy_version: String = "gem-pot-v1"
+var gem_earnings: Dictionary = {}
 
 func attach_client(api: OnlineGameApiClient) -> void:
 	client = api
@@ -16,14 +18,19 @@ func attach_client(api: OnlineGameApiClient) -> void:
 		apply_response(client.state)
 
 func apply_response(data: Dictionary) -> void:
-	_seconds_at_sync = maxf(0.0, float(data.get("deadline", 0.0) if data.get("deadline") != null else 0.0) - float(data.serverTime))
-	_sync_ticks = Time.get_ticks_msec()
+	var previous_settlement: Dictionary = gem_settlement
+	gem_settlement = data.get("gemSettlement", {}) if data.get("gemSettlement") is Dictionary else {}
+	gem_settlement_status = String(data.get("gemSettlementStatus", "ineligible"))
+	gem_policy_version = String(data.get("gemPolicyVersion", "gem-pot-v1"))
+	gem_earnings = data.get("gemEarnings", {}) if data.get("gemEarnings") is Dictionary else {}
 	opponent_name = String(data.opponent.displayName)
 	opponent_connected = bool(data.opponent.connected)
 	var next_version: int = int(data.version)
 	if next_version == _version:
 		update_turn_clock()
 		state_changed.emit()
+		if _session != null and _session.is_over() and previous_settlement != gem_settlement:
+			match_ended.emit(MatchResult.build(_session))
 		return
 	var next: OnlineSessionView = OnlineSessionView.from_response(data)
 	if next == null:
@@ -59,15 +66,10 @@ func _connection_changed(_connected: bool, message: String) -> void:
 	state_changed.emit()
 
 func update_turn_clock(_now_unix: float = -1.0) -> void:
-	if _session == null:
-		return
-	var turn: TurnState = _session.get_turn_state()
-	turn.remaining_seconds = maxf(0.0, _seconds_at_sync - float(Time.get_ticks_msec() - _sync_ticks) / 1000.0) if not _session.is_over() else 0.0
-	_publish_turn_clock(turn.active_player_id, ceili(turn.remaining_seconds))
-	# Display only: reaching zero never resolves a turn on this client.
+	super.update_turn_clock(_now_unix)
 
 func is_human_turn() -> bool:
-	return client != null and client.connected and not client.has_pending_command() and turn_seconds_left() > 0 and super.is_human_turn()
+	return client != null and client.connected and not client.has_pending_command() and super.is_human_turn()
 
 func commit_line() -> LineResult:
 	if not is_human_turn() or not _staged_valid:

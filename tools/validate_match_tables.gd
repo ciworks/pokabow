@@ -48,12 +48,24 @@ func _run() -> void:
 	await capture("hub-tables")
 	verify(hub.get_node("%ActiveGameList").get_child_count() == 1, "hub shows one active row")
 	verify(hub.find_child("RecentResultRow", true, false).visible, "hub shows recent result")
+	var active_panel := hub.get_node("%ActiveGamesPanel") as PanelContainer
+	var result_panel := hub.get_node("%RecentMatchPanel") as PanelContainer
+	verify(active_panel.visible and result_panel.visible and active_panel.get_parent() == result_panel.get_parent(),
+		"resumable and completed games use separate sibling panels")
+	verify(hub.get_node("%RecentResultRow").get_parent() == result_panel,
+		"completed result belongs to its own panel")
+	verify(result_panel.get_global_rect().position.y > active_panel.get_global_rect().end.y,
+		"visible canvas gap separates the two game panels")
 	var header := hub.get_node("%ActiveGamesHeader") as HBoxContainer
-	var panel := hub.get_node("%ActiveGamesPanel") as PanelContainer
+	var panel := active_panel
 	var title := hub.get_node("%ActiveGamesTitle") as Label
 	var view_all := hub.find_child("ViewAllTables", true, false) as Button
 	verify(header.get_parent() == panel.get_parent() and title.get_parent() == header
 		and view_all.get_parent() == header, "tables heading and View all sit above the activity card")
+	hub.set_active_games([])
+	await get_tree().process_frame
+	verify(not active_panel.visible and result_panel.visible,
+		"completed-only tables show only their own panel")
 	hub.set_active_games([
 		{"kind": "ai", "id": "qa-active", "path": "user://qa-active.json",
 			"opponent": "Maya", "score": "You 42 · Maya 38", "status_label": "YOUR TURN"},
@@ -64,7 +76,7 @@ func _run() -> void:
 	verify(hub.get_node("%ActiveGameList").get_child_count() == 1,
 		"multiple active matches keep the compact card")
 	var play_style := (hub.get_node("%PlayButton") as Button).get_theme_stylebox("normal") as StyleBoxFlat
-	verify(play_style.bg_color == Color("#F4C86A"), "Play AI remains honey with active matches")
+	verify(play_style.bg_color == Color("#F4C86A"), "Play Now remains honey with active matches")
 	verify(title.get_global_rect().end.x < view_all.get_global_rect().position.x
 		and header.get_global_rect().end.y <= panel.get_global_rect().position.y,
 		"View all is right of the heading and both are outside the panel")
@@ -86,6 +98,7 @@ func _run() -> void:
 	verify(chosen == ["ai:qa-win"], "details routes to the exact completed match")
 	var active_suite: TestCase = load("res://tests/integration/test_active_games.gd").new()
 	active_suite.test_hub_prioritises_one_game_and_keeps_other_games_reachable()
+	active_suite.test_completed_match_cards_show_opponent_once_in_the_score()
 	verify(active_suite.failures.is_empty(), "active-game routing regression passes")
 	var history := MatchTablesScreen.new()
 	hub.hide()

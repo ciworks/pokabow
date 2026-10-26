@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://waxssifxvs2a"]
 
-[ext_resource type="Script" path="res://tools/validate_opponent_avatar.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://dmcdgalehca58" path="res://tools/validate_opponent_avatar.gd" id="1_qa"]
 
-[node name="OpponentAvatarQA" type="Node"]
+[node name="OpponentAvatarQA" type="Node" unique_id=1776885712]
 script = ExtResource("1_qa")

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844" role="img" aria-label="Pokabow gem shop concept with a daily rewarded ad and four gem packs">
+  <defs>
+    <style>
+      .title{font:700 27px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42}
+      .h2{font:600 18px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42}
+      .body{font:500 14px 'Fredoka','Trebuchet MS',sans-serif;fill:#53686A}
+      .tiny{font:500 11px 'Fredoka','Trebuchet MS',sans-serif;fill:#53686A}
+      .amount{font:700 25px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42}
+      .btn{font:600 14px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42}
+      .white{fill:#F6F2E9}
+    </style>
+    <symbol id="gem" viewBox="0 0 50 45">
+      <path d="M12 4H38L48 16L25 42L2 16Z" fill="#2C7477" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="spark" viewBox="0 0 20 20"><path d="M10 0L12 8L20 10L12 12L10 20L8 12L0 10L8 8Z" fill="#F4C86A"/></symbol>
+    <symbol id="home" viewBox="0 0 24 24"><path d="M3 11.5L12 4L21 11.5V21H14.5V15H9.5V21H3Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></symbol>
+    <symbol id="medal" viewBox="0 0 24 24"><circle cx="12" cy="9" r="5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M8.5 13L6.5 21L12 18L17.5 21L15.5 13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></symbol>
+    <symbol id="bag" viewBox="0 0 24 24"><path d="M5 9H19L18 21H6Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M9 10V7A3 3 0 0 1 15 7V10" fill="none" stroke="currentColor" stroke-width="2.2"/></symbol>
+  </defs>
+  <rect width="390" height="844" fill="#F6F2E9"/>
+  <rect x="0" y="0" width="390" height="30" fill="#F6F2E9"/>
+  <circle cx="35" cy="65" r="20" fill="#EFEDE1"/>
+  <path d="M39 58L32 65L39 72" fill="none" stroke="#173D42" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="67" y="73" class="title">Gem shop</text>
+  <use href="#spark" x="287" y="52" width="12" height="12"/>
+  <use href="#gem" x="304" y="49" width="24" height="22"/>
+  <text x="334" y="66" style="font:600 18px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42">1,240</text>
+
+  <!-- Wallet hero -->
+  <rect x="18" y="96" width="354" height="110" rx="23" fill="#173D42"/>
+  <path d="M254 96H349A23 23 0 0 1 372 119V183A23 23 0 0 1 349 206H277C299 184 302 129 254 96Z" fill="#205158" opacity=".7"/>
+  <text x="37" y="129" style="font:500 14px 'Fredoka','Trebuchet MS',sans-serif;fill:#DCEBE3">YOUR BALANCE</text>
+  <text x="37" y="171" style="font:700 39px 'Fredoka','Trebuchet MS',sans-serif;fill:#F6F2E9">1,240</text>
+  <text x="155" y="171" style="font:500 17px 'Fredoka','Trebuchet MS',sans-serif;fill:#DCEBE3">gems</text>
+  <text x="37" y="191" style="font:400 12px 'Fredoka','Trebuchet MS',sans-serif;fill:#BFD0D0">Earn in matches. Keep your table growing.</text>
+  <use href="#gem" x="276" y="127" width="55" height="50" transform="rotate(13 304 152)"/>
+  <use href="#gem" x="310" y="145" width="43" height="39" transform="rotate(-16 331 164)"/>
+  <use href="#spark" x="265" y="113" width="14" height="14"/>
+  <use href="#spark" x="349" y="118" width="9" height="9"/>
+
+  <!-- Free reward -->
+  <text x="20" y="241" class="h2">A little sparkle, on us</text>
+  <text x="20" y="260" class="body">One optional reward each day</text>
+  <rect x="18" y="275" width="354" height="107" rx="21" fill="#DFEAE4"/>
+  <rect x="19" y="276" width="352" height="105" rx="20" fill="none" stroke="#C6D9D0" stroke-width="2"/>
+  <circle cx="64" cy="326" r="35" fill="#C7DCD3"/>
+  <use href="#gem" x="41" y="312" width="30" height="27" transform="rotate(-13 56 326)"/>
+  <use href="#gem" x="58" y="302" width="33" height="30" transform="rotate(11 74 317)"/>
+  <use href="#gem" x="56" y="326" width="35" height="31" transform="rotate(-4 73 341)"/>
+  <text x="108" y="307" style="font:600 15px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42">Daily gem gift</text>
+  <text x="108" y="337" class="amount">20 <tspan style="font:500 14px 'Fredoka','Trebuchet MS',sans-serif">gems</tspan></text>
+  <text x="108" y="360" class="tiny">Watch one ad to collect</text>
+  <rect x="260" y="311" width="96" height="44" rx="15" fill="#F4C86A"/>
+  <text x="308" y="338" class="btn" text-anchor="middle">Watch ad</text>
+
+  <!-- Paid packs -->
+  <text x="20" y="420" class="h2">Gem packs</text>
+  <text x="20" y="439" class="body">A boost for your next chapter</text>
+
+  <g transform="translate(18 452)">
+    <rect width="354" height="75" rx="19" fill="#FFFFFF" stroke="#E0D9CC"/>
+    <circle cx="44" cy="38" r="27" fill="#DFEAE4"/>
+    <use href="#gem" x="27" y="22" width="35" height="32"/>
+    <text x="84" y="30" style="font:600 15px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42">Pocket gems</text>
+    <text x="84" y="58" class="amount">100</text>
+    <rect x="256" y="17" width="81" height="42" rx="14" fill="#173D42"/>
+    <text x="296.5" y="44" style="font:600 16px 'Fredoka','Trebuchet MS',sans-serif;fill:#F6F2E9" text-anchor="middle">£0.99</text>
+  </g>
+  <g transform="translate(18 534)">
+    <rect width="354" height="75" rx="19" fill="#FFFFFF" stroke="#E0D9CC"/>
+    <circle cx="44" cy="38" r="27" fill="#DFEAE4"/>
+    <use href="#gem" x="20" y="30" width="31" height="28" transform="rotate(-13 35 44)"/>
+    <use href="#gem" x="37" y="20" width="33" height="30" transform="rotate(10 54 35)"/>
+    <text x="84" y="30" style="font:600 15px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42">Handful of gems</text>
+    <text x="84" y="58" class="amount">340</text>
+    <rect x="256" y="17" width="81" height="42" rx="14" fill="#173D42"/>
+    <text x="296.5" y="44" style="font:600 16px 'Fredoka','Trebuchet MS',sans-serif;fill:#F6F2E9" text-anchor="middle">£2.99</text>
+  </g>
+  <g transform="translate(18 616)">
+    <rect width="354" height="75" rx="19" fill="#FFFFFF" stroke="#E0D9CC"/>
+    <circle cx="44" cy="38" r="27" fill="#DFEAE4"/>
+    <use href="#gem" x="18" y="32" width="29" height="27" transform="rotate(-18 32 45)"/>
+    <use href="#gem" x="34" y="24" width="30" height="28"/>
+    <use href="#gem" x="47" y="34" width="28" height="26" transform="rotate(15 61 47)"/>
+    <text x="84" y="30" style="font:600 15px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42">Treasure pile</text>
+    <text x="84" y="58" class="amount">800</text>
+    <rect x="256" y="17" width="81" height="42" rx="14" fill="#173D42"/>
+    <text x="296.5" y="44" style="font:600 16px 'Fredoka','Trebuchet MS',sans-serif;fill:#F6F2E9" text-anchor="middle">£5.99</text>
+  </g>
+  <g transform="translate(18 698)">
+    <rect width="354" height="75" rx="19" fill="#FFF8E9" stroke="#E9C265" stroke-width="2"/>
+    <circle cx="44" cy="38" r="27" fill="#F8E4AD"/>
+    <use href="#gem" x="17" y="33" width="28" height="26" transform="rotate(-20 31 46)"/>
+    <use href="#gem" x="31" y="20" width="32" height="29"/>
+    <use href="#gem" x="47" y="32" width="29" height="27" transform="rotate(16 61 45)"/>
+    <text x="84" y="27" style="font:600 15px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42">Gem vault</text>
+    <text x="84" y="58" class="amount">1,800</text>
+    <rect x="177" y="8" width="69" height="20" rx="10" fill="#F4C86A"/>
+    <text x="211.5" y="22" style="font:600 10px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42" text-anchor="middle">BEST VALUE</text>
+    <rect x="256" y="17" width="81" height="42" rx="14" fill="#F4C86A"/>
+    <text x="296.5" y="44" style="font:600 16px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42" text-anchor="middle">£9.99</text>
+  </g>
+
+  <!-- Shared navigation -->
+  <rect x="0" y="786" width="390" height="58" fill="#F6F2E9"/>
+  <path d="M0 786H390" stroke="#D8D0C2"/>
+  <use href="#home" x="63" y="794" width="22" height="22" style="color:#53686A"/>
+  <text x="74" y="831" style="font:500 12px 'Fredoka','Trebuchet MS',sans-serif;fill:#53686A" text-anchor="middle">Home</text>
+  <use href="#medal" x="184" y="794" width="22" height="22" style="color:#53686A"/>
+  <text x="195" y="831" style="font:500 12px 'Fredoka','Trebuchet MS',sans-serif;fill:#53686A" text-anchor="middle">Achievements</text>
+  <rect x="289" y="791" width="76" height="49" rx="16" fill="#DFEAE4"/>
+  <use href="#bag" x="316" y="795" width="22" height="22" style="color:#173D42"/>
+  <text x="327" y="831" style="font:600 12px 'Fredoka','Trebuchet MS',sans-serif;fill:#173D42" text-anchor="middle">Shop</text>
+</svg>

@@ -21,9 +21,9 @@ extends RefCounted
 const CARD_FACE: Color = Color("#F6F2E9")
 const CARD_BORDER: Color = Color("#173D42")
 
-## Temporary dark side visible as a tile turns edge-on.
-const FLIP_EDGE_COLOR: Color = Color(0.20, 0.20, 0.22, 1.0)
-const FLIP_DEPTH_RATIO: float = 0.20
+## A narrow edge highlight visible as a tile turns edge-on.
+const FLIP_EDGE_COLOR: Color = Color(0.09, 0.24, 0.26, 0.65)
+const FLIP_DEPTH_RATIO: float = 0.035
 
 ## Empty board cell.
 const EMPTY_CELL: Color = Color("#89A69C")
@@ -99,8 +99,6 @@ const EDGE_FILE_FORMAT: String = "%stile_%s_%s.png"
 
 ## Face file name: `tile_<value>_<suit>.png`.
 const FACE_FILE_FORMAT: String = "%stile_%s_%s.png"
-## The wildcard has its own face image and no suit suffix.
-const WILDCARD_FACE_TEXTURE: String = "%stile_wildcard.png"
 
 ## The four edge sides, indexed by `TileEnums.EdgePosition`.
 const EDGE_SIDES: Array[String] = ["top", "right", "bottom", "left"]
@@ -130,8 +128,6 @@ static func rank_glyph(rank: int) -> String:
 			return "Q"
 		TileEnums.TileRank.JACK:
 			return "J"
-		TileEnums.TileRank.JOKER:
-			return "W"
 	return "?"
 
 
@@ -279,7 +275,7 @@ static func _clip_glimmer_polygon(
 	return clipped
 
 
-## Draws the tile's perceived side, reaching 20% of its width at the half-turn.
+## Draws a restrained edge highlight over the compressed tile artwork.
 static func paint_flip_depth(canvas: CanvasItem, rect: Rect2, progress: float) -> void:
 	var side: Rect2 = flip_depth_rect(rect, progress)
 	if side.has_area():
@@ -371,8 +367,6 @@ static func suit_name(tile: TileDefinition) -> String:
 
 ## Returns the face image path for `tile`: `tile_<value>_<suit>.png`.
 static func _face_path(tile: TileDefinition) -> String:
-	if int(tile.rank) == TileEnums.TileRank.JOKER:
-		return WILDCARD_FACE_TEXTURE % TILE_FACE_DIR
 	return FACE_FILE_FORMAT % [
 		TILE_FACE_DIR, TileEnums.rank_name(int(tile.rank)).to_lower(), suit_name(tile)
 	]

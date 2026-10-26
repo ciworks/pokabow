@@ -1,12 +1,18 @@
+> Superseded by ADR-022 (2026-10-23). This decision is retained as history.
+
 # ADR-014: Joker supply cap
 
-* **Status:** Accepted
+* **Status:** Accepted; historical Joker classification superseded by ADR-021
 * **Date:** 2026-09-27
 * **Source:** owner instruction of 2026-09-27 ("limit the number of Jokers available in the pot to 4")
 * **Related:** ADR-004 (tile distribution and generation), ADR-013 (tile scoring multipliers)
 * **Resolves:** `GAME_SPEC.md` section 13.6
 
 ## Context
+
+The straight restriction described below was the rule when this cap was
+accepted. [ADR-021](ADR-021-joker-wildcard-hands.md) later changed poker
+classification to rank substitution; the four-Joker supply cap remains in force.
 
 ADR-004 section 2 generates every tile's rank independently and uniformly from
 the five ranks of ADR-013, so Joker is drawn at the same rate as Ace, King,

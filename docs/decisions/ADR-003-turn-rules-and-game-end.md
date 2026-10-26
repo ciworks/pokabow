@@ -107,8 +107,9 @@ Two consecutive automatic skips caused by an exhausted tile source end the game.
 - If the retry fails because of an implementation error, do not silently skip; stop the match in a recoverable error state and preserve diagnostic information.
 - Visual placement and score effects play from the committed result and cannot alter turn state.
 
-Superseded by [ADR-017](ADR-017-turn-timer.md): both players now have a 60-second
-action deadline. Expiry gives up the current turn without placing or scoring.
+Historical amendment: [ADR-017](ADR-017-turn-timer.md) added a 60-second
+action deadline. [ADR-023](ADR-023-untimed-turns.md) supersedes that deadline;
+turns no longer expire.
 
 ### 7. End conditions
 

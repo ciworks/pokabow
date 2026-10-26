@@ -61,11 +61,6 @@ signal swap_committed(returned_count: int, turn_phase: int)
 ## A forced no-move pass resolved; consumers can persist it without parsing UI text.
 signal turn_passed(player_id: StringName)
 
-## Separate from state_changed so each clock tick does not rebuild the board
-## or interrupt a drag. Zero belongs to the expired player before handover.
-signal turn_clock_changed(player_id: StringName, seconds_left: int)
-signal turn_timed_out(player_id: StringName)
-
 ## Score events were awarded by a committed move, in deterministic order.
 signal score_awarded(events: Array, cell: Vector2i)
 
@@ -111,7 +106,7 @@ const FIXTURE_PATH: String = "user://match_fixture.json"
 
 ## Notice shown when the active player's deck has no legal line on the board.
 const NO_VALID_MOVE_NOTICE: String = "No valid move available, now opponents turn"
-const TURN_TIMEOUT_NOTICE: String = "Time up, play moves to other player"
+const AI_ANALYSIS_BUDGET_MS: int = 12000
 const INVALID_POKER_HAND_NOTICE: String = "Form a valid poker hand"
 const NOT_CONNECTED_NOTICE: String = "Must touch an existing tile"
 
@@ -121,6 +116,11 @@ const NOT_CONNECTED_NOTICE: String = "Must touch an existing tile"
 ## save path cannot overwrite the player's real in-progress match.
 var save_path: String = SAVE_PATH
 var rival_avatar_path: String = ""
+var rival_id: String = ""
+var rival_name: String = "AI Rival"
+## Lowest AI difficulty used in this match sets the Gem ceiling. Raising the
+## rival's difficulty later cannot raise a nearly completed pot's reward.
+var _ai_gem_difficulty: int = DEFAULT_AI_DIFFICULTY
 
 ## The fixture location actually in use. Defaults to `FIXTURE_PATH`; a test points
 ## it at its own file, for the same reason `save_path` is redirectable.
@@ -164,62 +164,18 @@ var _ai_cancellation: AiCancellationToken = null
 ## The thinking state last reported, so the signal fires on change only.
 var _ai_thinking: bool = false
 
-var _clock_player: StringName = &""
-var _clock_seconds: int = -1
-var _updating_clock: bool = false
 var _app_in_background: bool = false
 
 
-func _process(_delta: float) -> void:
-	if not _app_in_background:
-		update_turn_clock()
-
-
-## Uses an absolute deadline so backgrounding and save/resume cannot reset it.
-## An injected time keeps deadline and race tests deterministic.
-func update_turn_clock(now_unix: float = -1.0) -> void:
-	if _updating_clock or _session == null:
-		return
-	var turn: TurnState = _session.get_turn_state()
-	if not turn.is_awaiting_action():
-		_publish_turn_clock(&"", 0)
-		return
-	var now: float = Time.get_unix_time_from_system() if now_unix < 0.0 else now_unix
-	if turn.deadline_unix_seconds <= 0.0:
-		turn.deadline_unix_seconds = now + turn.remaining_seconds
-	turn.remaining_seconds = minf(turn.remaining_seconds, maxf(0.0, turn.deadline_unix_seconds - now))
-	_publish_turn_clock(turn.active_player_id, ceili(turn.remaining_seconds))
-	if turn.remaining_seconds > 0.0:
-		return
-	_updating_clock = true
-	var expired_player: StringName = turn.active_player_id
-	_cancel_ai_analysis()
-	_ai_scheduled = false
-	_ai_move_paused = false
-	_ai_schedule_generation += 1
-	_set_ai_thinking(false)
-	_clear_staged()
-	TurnManager.resolve_timeout(_session)
-	turn_timed_out.emit(expired_player)
-	turn_passed.emit(expired_player)
-	preview_changed.emit()
-	notice.emit(TURN_TIMEOUT_NOTICE)
-	_updating_clock = false
-	_after_state_change()
+## Legacy timing fields remain readable in older saves but never govern play.
+func update_turn_clock(_now_unix: float = -1.0) -> void:
+	if _session != null:
+		_session.get_turn_state().remaining_seconds = 0.0
+		_session.get_turn_state().deadline_unix_seconds = 0.0
 
 
 func turn_seconds_left() -> int:
-	if _session == null or not _session.get_turn_state().is_awaiting_action():
-		return 0
-	return ceili(_session.get_turn_state().remaining_seconds)
-
-
-func _publish_turn_clock(player_id: StringName, seconds: int) -> void:
-	if player_id == _clock_player and seconds == _clock_seconds:
-		return
-	_clock_player = player_id
-	_clock_seconds = seconds
-	turn_clock_changed.emit(player_id, seconds)
+	return 0
 
 
 ## Creates the opponent's decision service.
@@ -267,6 +223,7 @@ func start_new_match(
 		return false
 
 	_session = session
+	_ai_gem_difficulty = ai_difficulty()
 	_cancel_ai_analysis()
 	_set_ai_thinking(false)
 	_ai_scheduled = false
@@ -311,6 +268,17 @@ func resume_match() -> bool:
 
 	_session = session
 	rival_avatar_path = String(payload.get("rival_avatar_path", ""))
+	rival_id = String(payload.get("rival_id", ""))
+	rival_name = String(payload.get("rival_name", "AI Rival"))
+	_ai_gem_difficulty = clampi(int(payload.get("ai_gem_difficulty", AiEnums.Difficulty.EASY)),
+		AiEnums.Difficulty.EASY, AiEnums.Difficulty.HARD)
+	var restored_difficulty: int = clampi(int(payload.get("ai_difficulty", _ai_gem_difficulty)),
+		AiEnums.Difficulty.EASY, AiEnums.Difficulty.HARD)
+	_ai_gem_difficulty = mini(_ai_gem_difficulty, restored_difficulty)
+	if _ai == null:
+		_ai = AiCoordinator.create(restored_difficulty)
+	else:
+		_ai.set_difficulty(restored_difficulty)
 	# ADR-003 section 9: a transient preview is never persisted, so resume with no
 	# pending placement and the active tile still uncommitted.
 	_cancel_ai_analysis()
@@ -365,9 +333,9 @@ static func saved_match_entries() -> Array[Dictionary]:
 			"kind": "ai",
 			"id": String(match_data.get("match_id", "")),
 			"path": path,
-			"opponent": "AI Rival",
-			"score": "You %d  |  AI Rival %d" % [
-				int(scores.get("human", 0)), int(scores.get("ai", 0))
+			"opponent": String(payload.get("rival_name", "AI Rival")),
+			"score": "You %d  |  %s %d" % [
+				int(scores.get("human", 0)), String(payload.get("rival_name", "AI Rival")), int(scores.get("ai", 0))
 			],
 			"saved_at": String(payload.get("saved_at", "")),
 			"avatar_path": String(payload.get("rival_avatar_path", "")),
@@ -463,6 +431,10 @@ func save_match() -> bool:
 		JSON.stringify({
 			"saved_at": Time.get_datetime_string_from_system(),
 			"rival_avatar_path": rival_avatar_path,
+			"rival_id": rival_id,
+			"rival_name": rival_name,
+			"ai_difficulty": ai_difficulty(),
+			"ai_gem_difficulty": _ai_gem_difficulty,
 			"match": dto.to_dictionary(),
 		})
 	)
@@ -1327,6 +1299,8 @@ func set_ai_difficulty(difficulty: int) -> void:
 	var selected: int = difficulty
 	if not AiEnums.is_valid_difficulty(selected):
 		selected = DEFAULT_AI_DIFFICULTY
+	if _session != null and not _session.is_over():
+		_ai_gem_difficulty = mini(_ai_gem_difficulty, selected)
 	if _ai == null:
 		_ai = AiCoordinator.create(selected)
 	else:
@@ -1335,8 +1309,13 @@ func set_ai_difficulty(difficulty: int) -> void:
 		_ai.set_difficulty(selected)
 	if _session == null or _session.is_over():
 		return
+	autosave()
 	if TurnManager.is_awaiting_ai_action(_session):
 		_schedule_ai_move()
+
+
+func ai_gem_difficulty() -> int:
+	return _ai_gem_difficulty
 
 
 ## Returns the opponent difficulty in force (`AiEnums.Difficulty` value).
@@ -1686,7 +1665,7 @@ func _play_ai_move() -> void:
 	# ADR-011 section 12: the candidate source is the rival's whole held deck, from
 	# which whole lines are generated - never the undrawn pot (ADR-004 section 7).
 	_ai_cancellation = AiCancellationToken.new()
-	_ai_cancellation.deadline_msec = Time.get_ticks_msec() + int(_session.get_turn_state().remaining_seconds * 1000.0)
+	_ai_cancellation.deadline_msec = Time.get_ticks_msec() + AI_ANALYSIS_BUDGET_MS
 	var deciding_session: GameSessionState = _session
 	var deciding_turn: int = _session.get_turn_state().turn_number
 	var decision: AiDecision = _ai.choose_move(_session, deck, _ai_cancellation)

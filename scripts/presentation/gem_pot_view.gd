@@ -1,56 +1,80 @@
 class_name GemPotView
 extends Control
 
-## Small shared-pot HUD. The title, gemstones and count occupy the former tile
-## stack between the two player score cards.
+## Shared-pot HUD between the score cards. Capped AI pots fill a honey ring;
+## uncapped online pots retain the neutral track without implying a limit.
 const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
+const SAFE_ICON: Texture2D = preload("res://assets/ui/modern_tabletop/gem_safe.svg")
+const RING_TRACK: Color = Color("#C7D8CF")
+const ICON_BACKDROP: Color = Color("#F6F2E9")
 
 var _total: int = 0
-var _title: Label
-var _count: Label
+var _cap: int = 0
 var _pulse_tween: Tween
+var _progress_tween: Tween
+var _display_fraction: float = 0.0
+var _online: bool = false
+var _earning_available: bool = true
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_title = Label.new()
-	_title.name = "Title"
-	_title.text = "GEM POT"
-	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_title.add_theme_font_override("font", Tabletop.SEMIBOLD)
-	_title.add_theme_font_size_override("font_size", 18)
-	_title.add_theme_color_override("font_color", Tabletop.ink())
-	add_child(_title)
-	_count = Label.new()
-	_count.name = "Count"
-	_count.text = str(_total)
-	_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_count.add_theme_font_override("font", Tabletop.BOLD)
-	_count.add_theme_font_size_override("font_size", 32)
-	_count.add_theme_color_override("font_color", Tabletop.ink())
-	add_child(_count)
 	AppearanceSettings.dark_mode_changed.connect(_refresh_theme)
-	resized.connect(_layout)
-	_layout()
+	resized.connect(_on_resized)
+	_update_accessibility()
+	_on_resized()
 
 
-func _refresh_theme(_enabled: bool) -> void:
-	_title.add_theme_color_override("font_color", Tabletop.ink())
-	_count.add_theme_color_override("font_color", Tabletop.ink())
+func _on_resized() -> void:
+	pivot_offset = size * 0.5
 	queue_redraw()
 
 
-func set_total(amount: int) -> void:
-	_total = maxi(0, amount)
-	if _count != null:
-		_count.text = str(_total)
-	_layout()
+func _refresh_theme(_enabled: bool) -> void:
+	queue_redraw()
+
+
+func set_total(amount: int, animate: bool = false) -> void:
+	_total = clampi(amount, 0, _cap) if _cap > 0 else maxi(0, amount)
+	_update_accessibility()
+	if _progress_tween != null and _progress_tween.is_running():
+		_progress_tween.kill()
+	var target: float = progress_fraction()
+	if animate and is_inside_tree() and not AccessibilitySettings.reduced_motion() and target > _display_fraction:
+		_progress_tween = create_tween()
+		_progress_tween.tween_method(_set_display_fraction, _display_fraction, target, 0.42)\
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	else:
+		_set_display_fraction(target)
+
+
+func set_cap(amount: int) -> void:
+	_cap = maxi(0, amount)
+	set_total(_total)
+
+
+func set_online(value: bool, earning_available: bool = true) -> void:
+	_online = value
+	_earning_available = earning_available
+	_update_accessibility()
+	queue_redraw()
 
 
 func total() -> int:
 	return _total
+
+
+func cap() -> int:
+	return _cap
+
+
+func progress_fraction() -> float:
+	return clampf(float(_total) / float(_cap), 0.0, 1.0) if _cap > 0 else 0.0
+
+
+func _set_display_fraction(fraction: float) -> void:
+	_display_fraction = clampf(fraction, 0.0, 1.0)
+	queue_redraw()
 
 
 func pulse() -> void:
@@ -65,53 +89,36 @@ func pulse() -> void:
 
 
 func arrival_global() -> Vector2:
-	return get_global_transform() * Vector2(size.x * 0.5, size.y * 0.48)
+	return get_global_transform() * (size * 0.5)
 
 
-func _layout() -> void:
-	if _title == null or _count == null:
-		return
-	_title.position = Vector2(0.0, 0.0)
-	_title.size = Vector2(size.x, 24.0)
-	_count.position = Vector2(0.0, size.y * 0.63)
-	_count.size = Vector2(size.x, size.y * 0.37)
-	_fit_label(_title, 18, 14)
-	_fit_label(_count, 32, 20)
-	pivot_offset = size * 0.5
-	queue_redraw()
-
-
-func _fit_label(label: Label, preferred: int, minimum: int) -> void:
-	var font: Font = label.get_theme_font("font")
-	var target: int = preferred
-	while target > minimum and (font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, target).x > label.size.x or font.get_height(target) > label.size.y):
-		target -= 1
-	label.add_theme_font_size_override("font_size", target)
+func _update_accessibility() -> void:
+	if _online and not _earning_available:
+		accessibility_name = "Online Gem earnings unavailable for this match"
+	elif _cap > 0:
+		var mode: String = "Online" if _online else "AI"
+		accessibility_name = "%s Gem pot full: %d of %d Gems" % [mode, _total, _cap] if _total >= _cap else \
+			"%s Gem pot: %d of %d Gems" % [mode, _total, _cap]
+	else:
+		accessibility_name = "Online Gem pot: %d Gems, no limit" % _total
+	tooltip_text = accessibility_name
 
 
 func _draw() -> void:
-	var center: Vector2 = Vector2(size.x * 0.5, size.y * 0.44)
-	var unit: float = minf(size.x / 100.0, size.y / 94.0)
-	# Tactile shallow bowl in deep teal, with three simple faceted gems.
-	var rim: PackedVector2Array = PackedVector2Array([
-		center + Vector2(-27, 8) * unit,
-		center + Vector2(27, 8) * unit,
-		center + Vector2(22, 21) * unit,
-		center + Vector2(-22, 21) * unit,
-	])
-	draw_colored_polygon(rim, Color("#304747") if Tabletop.is_dark_mode() else Color("#173D42"))
-	draw_line(center + Vector2(-26, 8) * unit, center + Vector2(26, 8) * unit, Color("#6B9991") if Tabletop.is_dark_mode() else Color("#4E7772"), 3.0 * unit, true)
-	_draw_gem(center + Vector2(-14, 1) * unit, 12.0 * unit, Color("#F4C86A"))
-	_draw_gem(center + Vector2(0, -7) * unit, 14.0 * unit, Color("#E9AC45"))
-	_draw_gem(center + Vector2(15, 1) * unit, 11.0 * unit, Color("#B5D5B9"))
-
-
-func _draw_gem(center: Vector2, radius: float, base: Color) -> void:
-	var diamond: PackedVector2Array = PackedVector2Array([
-		center + Vector2(0, -radius), center + Vector2(radius * 0.8, -radius * 0.25),
-		center + Vector2(radius * 0.55, radius * 0.7), center + Vector2(0, radius),
-		center + Vector2(-radius * 0.75, radius * 0.35), center + Vector2(-radius * 0.8, -radius * 0.25),
-	])
-	draw_colored_polygon(diamond, base)
-	draw_colored_polygon(PackedVector2Array([diamond[0], diamond[1], center]), base.lightened(0.30))
-	draw_colored_polygon(PackedVector2Array([diamond[3], diamond[4], center]), base.darkened(0.17))
+	var center: Vector2 = size * 0.5
+	var diameter: float = minf(size.x, size.y)
+	if diameter <= 0.0:
+		return
+	var ring_width: float = maxf(6.0, diameter * 0.095)
+	var radius: float = diameter * 0.43 - ring_width * 0.5
+	var icon_width: float = diameter * 0.65
+	var icon_size: Vector2 = Vector2(icon_width, icon_width * 408.0 / 464.0)
+	var icon_rect: Rect2 = Rect2(center - icon_size * 0.5, icon_size)
+	# The light disk keeps the deep-teal SVG legible in both appearance modes.
+	draw_circle(center, radius + ring_width * 0.5, ICON_BACKDROP)
+	draw_arc(center, radius, 0.0, TAU, 96, RING_TRACK, ring_width, true)
+	if _cap > 0 and _earning_available and _display_fraction > 0.0:
+		var fraction: float = _display_fraction
+		draw_arc(center, radius, -PI * 0.5, -PI * 0.5 + TAU * fraction,
+			maxi(4, ceili(96.0 * fraction)), Tabletop.honey(), ring_width, true)
+	draw_texture_rect(SAFE_ICON, icon_rect, false)

@@ -13,6 +13,7 @@ func _run_when_ready() -> void:
 func _collect_test_scripts() -> PackedStringArray:
 	return PackedStringArray([
 		"res://tests/unit/test_game_api_client.gd",
+		"res://tests/unit/test_gem_wallet_api_client.gd",
 		"res://tests/integration/test_authentication_recovery.gd",
 		"res://tests/integration/test_matchmaking.gd",
 		"res://tests/unit/test_account_deletion.gd",

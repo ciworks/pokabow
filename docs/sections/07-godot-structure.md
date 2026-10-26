@@ -3,8 +3,8 @@
 Pokabow uses the Tiletopia API for account authentication. The API project and
 its `openapi.json` are the contract for network requests; the game should not
 duplicate or redefine those endpoint schemas here. The API uses port `3000`
-and defaults to the configured server IP `192.168.0.1`; players can change and
-persist that IP in the hub Settings panel.
+and defaults to the configured server IP `192.168.0.1`. The hub Settings panel
+does not expose the API address.
 
 On a new installation, the player accepts the Terms of Use. Pokabow then
 generates an account identity and sends `POST /auth/register`; after a
@@ -63,10 +63,10 @@ server game ID and an authenticated token is available, the client sends
 `DELETE /games/{gameId}`. Deletion is best-effort; local saves are cleared even
 if the server cannot be reached or refuses the request.
 
-The Settings panel also stores the API server IP in `user://settings.cfg`. Auth,
-game sync, and achievement requests build their endpoint URLs from this shared
-setting, so changing the address takes effect for subsequent requests and
-persists across launches.
+`ApiConfiguration` still reads a saved API server IP from `user://settings.cfg`
+before the Project Settings default. The player-facing Settings panel does not
+expose that address. Auth, game sync, and achievement requests continue to build
+their endpoint URLs from the shared configuration.
 
 The current Tiletopia API treats submitted scores as temporary placeholder
 scores and does not provide server-side game-rule validation. Local play and

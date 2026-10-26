@@ -5,7 +5,10 @@ extends Control
 signal back_requested
 signal refresh_requested
 signal achievement_refresh_requested
+signal tournaments_requested
 signal profile_save_requested(username: String, avatar_png_base64: String)
+signal delete_account_requested
+signal account_deletion_acknowledged
 
 const PROFILE_FIELD_KEYS: Dictionary = {
 	"Username": ["username", "userName", "handle", "displayName", "display_name"],
@@ -41,11 +44,20 @@ var _avatar_dialog: FileDialog
 var _pending_avatar: Image
 var _profile_card: Panel
 var _profile_content: VBoxContainer
+var _delete_confirmation: VBoxContainer
+var _delete_account_button: Button
+var _delete_confirm_button: Button
+var _delete_cancel_button: Button
+var _delete_status: Label
+var _delete_warning: Label
+var _deletion_busy: bool = false
+var _deletion_complete: bool = false
+var _remote_account_deleted: bool = false
+var _profile_scroll_before_delete: int = 0
 var _photo_content: VBoxContainer
 var _photo_preview: TextureRect
 var _upload_target: Button
 var _change_photo: Button
-var _use_photo: Button
 var _avatar_choices: Array[Button] = []
 var _photo_mode: bool = false
 var _photo_before: Dictionary = {}
@@ -89,19 +101,12 @@ func _setup_avatar_selector() -> void:
 	$Title.add_theme_color_override("font_color", Tabletop.ink())
 	$Title.add_theme_font_size_override("font_size", 40)
 	$Title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	%BackButton.text = ""
-	%BackButton.icon = load("res://assets/ui/modern_tabletop/game_back.svg") as Texture2D
-	%BackButton.expand_icon = false
-	%BackButton.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	Tabletop.style_back_button(%BackButton)
 	%BackButton.tooltip_text = "Back to hub"
-	Tabletop.style_button(%BackButton, "quiet")
-	for state: String in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-		%BackButton.add_theme_color_override(state, Tabletop.ink())
-	%BackButton.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	var divider := HSeparator.new()
 	divider.name = "ProfileDivider"
 	var divider_style := StyleBoxLine.new()
-	divider_style.color = Color("#D8D0C2")
+	divider_style.color = Tabletop.border()
 	divider_style.thickness = 1
 	divider.add_theme_stylebox_override("separator", divider_style)
 	_profile_card.add_child(divider)
@@ -109,7 +114,7 @@ func _setup_avatar_selector() -> void:
 	for child: Control in form.get_children():
 		child.hide()
 	_profile_content = VBoxContainer.new()
-	_profile_content.name = "AvatarSelector"
+	_profile_content.name = "ProfileOverview"
 	_profile_content.add_theme_constant_override("separation", 16)
 	form.add_child(_profile_content)
 	var summary := VBoxContainer.new()
@@ -144,7 +149,7 @@ func _setup_avatar_selector() -> void:
 	_username_edit_button.name = "EditUsername"
 	_username_edit_button.tooltip_text = "Edit username"
 	_username_edit_button.accessibility_name = "Edit username"
-	_username_edit_button.icon = load("res://assets/ui/modern_tabletop/edit.svg") as Texture2D
+	_username_edit_button.icon = Tabletop.icon_texture("edit")
 	_username_edit_button.expand_icon = false
 	_username_edit_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_username_edit_button.custom_minimum_size = Vector2(48, 48)
@@ -285,16 +290,23 @@ func _setup_avatar_selector() -> void:
 	Tabletop.style_button(edit, "quiet")
 	edit.pressed.connect(_open_photo_editor)
 	summary.add_child(edit)
+	var save_profile := _avatar_button("Save profile")
+	save_profile.name = "SaveProfile"
+	save_profile.custom_minimum_size.y = 64
+	save_profile.pressed.connect(_save_profile)
+	_profile_content.add_child(save_profile)
+	_build_delete_account_section(form)
+	_setup_photo_editor()
 	var selector_heading := _label("Pick your look", 30, Tabletop.ink())
 	selector_heading.add_theme_font_override("font", Tabletop.BOLD)
-	_profile_content.add_child(selector_heading)
+	_photo_content.add_child(selector_heading)
 	var choices := GridContainer.new()
 	choices.name = "AvatarChoices"
 	choices.columns = 3
 	choices.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	choices.add_theme_constant_override("h_separation", 12)
 	choices.add_theme_constant_override("v_separation", 12)
-	_profile_content.add_child(choices)
+	_photo_content.add_child(choices)
 	_avatar_paths = PlayerAvatarStore.default_paths()
 	for index: int in range(_avatar_paths.size()):
 		var choice := Button.new()
@@ -338,7 +350,7 @@ func _setup_avatar_selector() -> void:
 		_avatar_choices.append(choice)
 	_avatar_caption = _label("", 18, Tabletop.muted())
 	_avatar_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_profile_content.add_child(_avatar_caption)
+	_photo_content.add_child(_avatar_caption)
 	var save := _avatar_button("Save changes")
 	save.name = "SaveAvatar"
 	save.custom_minimum_size.y = 64
@@ -346,8 +358,7 @@ func _setup_avatar_selector() -> void:
 	Tabletop.style_button(save, "primary")
 	save.add_theme_font_size_override("font_size", 30)
 	save.pressed.connect(_save_profile)
-	_profile_content.add_child(save)
-	_setup_photo_editor()
+	_photo_content.add_child(save)
 	_avatar_status = _label("", 18, Tabletop.muted())
 	_avatar_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	form.add_child(_avatar_status)
@@ -371,6 +382,114 @@ func _setup_avatar_selector() -> void:
 	_fit_profile()
 
 
+func _build_delete_account_section(form: VBoxContainer) -> void:
+	var divider := HSeparator.new()
+	divider.name = "AccountActionDivider"
+	var divider_style := StyleBoxLine.new()
+	divider_style.color = Tabletop.border()
+	divider.add_theme_stylebox_override("separator", divider_style)
+	_profile_content.add_child(divider)
+	_delete_account_button = _avatar_button("Delete account")
+	_delete_account_button.name = "DeleteAccountButton"
+	_delete_account_button.tooltip_text = "Permanently delete this account"
+	_style_delete_button(_delete_account_button)
+	_delete_account_button.pressed.connect(_on_delete_account_pressed)
+	_profile_content.add_child(_delete_account_button)
+
+	_delete_confirmation = VBoxContainer.new()
+	_delete_confirmation.name = "DeleteConfirmation"
+	_delete_confirmation.add_theme_constant_override("separation", 16)
+	_delete_confirmation.hide()
+	form.add_child(_delete_confirmation)
+	var panel := PanelContainer.new()
+	panel.name = "DeleteConfirmationPanel"
+	panel.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.canvas_alt(), 18, 16))
+	_delete_confirmation.add_child(panel)
+	var copy := VBoxContainer.new()
+	copy.add_theme_constant_override("separation", 12)
+	panel.add_child(copy)
+	var heading := _label("Delete account?", 26, Tabletop.ink())
+	heading.name = "DeleteHeading"
+	heading.add_theme_font_override("font", Tabletop.SEMIBOLD)
+	copy.add_child(heading)
+	_delete_warning = _label("Your account details, achievements and saved games will be irrevocably removed from the server. All saved account and game state on this device will also be deleted. This cannot be undone.", 18, Tabletop.ink())
+	_delete_warning.name = "DeleteWarning"
+	copy.add_child(_delete_warning)
+	_delete_status = _label("", 18, Tabletop.muted())
+	_delete_status.name = "DeleteStatus"
+	copy.add_child(_delete_status)
+	_delete_confirm_button = _avatar_button("Permanently delete account")
+	_delete_confirm_button.name = "ConfirmDeleteButton"
+	_style_delete_button(_delete_confirm_button)
+	_delete_confirm_button.pressed.connect(_on_confirm_delete_pressed)
+	_delete_confirmation.add_child(_delete_confirm_button)
+	_delete_cancel_button = _avatar_button("Cancel")
+	_delete_cancel_button.name = "CancelDeleteButton"
+	_style_profile_button(_delete_cancel_button, false)
+	_delete_cancel_button.pressed.connect(_on_cancel_delete_pressed)
+	_delete_confirmation.add_child(_delete_cancel_button)
+
+
+func _style_delete_button(button: Button) -> void:
+	_style_profile_button(button, false)
+	for state: String in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		button.add_theme_color_override(state, Tabletop.danger())
+
+
+func _on_delete_account_pressed() -> void:
+	if _profile_save_pending or _deletion_busy:
+		return
+	_profile_scroll_before_delete = $ScrollContainer.scroll_vertical
+	_profile_content.hide()
+	_delete_status.text = ""
+	_delete_warning.show()
+	_delete_confirm_button.text = "Permanently delete account"
+	_delete_confirmation.show()
+	$ScrollContainer.scroll_vertical = 0
+	_delete_cancel_button.grab_focus()
+
+
+func _on_cancel_delete_pressed() -> void:
+	if _deletion_busy or _remote_account_deleted:
+		return
+	_delete_confirmation.hide()
+	_profile_content.show()
+	$ScrollContainer.set_deferred("scroll_vertical", _profile_scroll_before_delete)
+	_delete_account_button.grab_focus()
+
+
+func _on_confirm_delete_pressed() -> void:
+	if _deletion_busy:
+		return
+	if _deletion_complete:
+		account_deletion_acknowledged.emit()
+		return
+	set_deletion_busy()
+	delete_account_requested.emit()
+
+
+func set_deletion_busy() -> void:
+	_deletion_busy = true
+	_delete_status.text = "Deleting account…"
+	_delete_confirm_button.disabled = true
+	_delete_cancel_button.disabled = true
+	%BackButton.disabled = true
+
+
+func show_deletion_result(success: bool, message: String, remote_deleted: bool = false) -> void:
+	_deletion_busy = false
+	_deletion_complete = success
+	_remote_account_deleted = remote_deleted or success
+	_delete_status.text = message
+	_delete_confirm_button.disabled = false
+	_delete_confirm_button.text = "Continue" if success else ("Retry local cleanup" if remote_deleted else "Retry deletion")
+	_delete_cancel_button.disabled = false
+	_delete_cancel_button.visible = not _remote_account_deleted
+	_delete_warning.visible = not success
+	%BackButton.disabled = _remote_account_deleted
+	_delete_confirm_button.grab_focus()
+
+
 func _fit_profile() -> void:
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
@@ -387,7 +506,7 @@ func _fit_profile() -> void:
 	$ScrollContainer.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	$ScrollContainer.position = Vector2(margin + 20, 104)
 	$ScrollContainer.size = Vector2(_profile_card.size.x - 40, maxf(0.0, size.y - 128))
-	var choices: GridContainer = _profile_content.get_node_or_null("AvatarChoices") as GridContainer
+	var choices: GridContainer = _photo_content.get_node_or_null("AvatarChoices") as GridContainer
 	if choices != null:
 		var gap: float = 12.0 if $ScrollContainer.size.x >= 360.0 else 8.0
 		var side: float = clampf(($ScrollContainer.size.x - gap * 2.0) / 3.0, 76.0, 112.0)
@@ -429,9 +548,6 @@ func _setup_photo_editor() -> void:
 	var help := _label(PHOTO_HELP, 18, Tabletop.muted())
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_photo_content.add_child(help)
-	_use_photo = _avatar_button("Use photo")
-	_use_photo.pressed.connect(_use_selected_photo)
-	_photo_content.add_child(_use_photo)
 	_photo_content.hide()
 
 
@@ -440,7 +556,8 @@ func _open_photo_editor() -> void:
 	_photo_mode = true
 	_profile_content.hide()
 	_photo_content.show()
-	$Title.text = "Photo Avatar"
+	$Title.text = "Edit photo"
+	%BackButton.tooltip_text = "Back to My Profile"
 	_avatar_status.text = ""
 	var has_photo: bool = _pending_avatar != null or (_avatar_index == -1 and PlayerAvatarStore.selection(avatar_store_path).has("png"))
 	(_photo_preview as FramedPlayerAvatar).set_portrait(_avatar_preview.texture if has_photo else null)
@@ -452,7 +569,6 @@ func _show_photo_state(has_photo: bool) -> void:
 	_upload_target.visible = not has_photo
 	_photo_preview.visible = has_photo
 	_change_photo.visible = has_photo
-	_use_photo.visible = has_photo and _pending_avatar != null
 
 
 func _close_photo_editor() -> void:
@@ -460,6 +576,7 @@ func _close_photo_editor() -> void:
 	_photo_content.hide()
 	_profile_content.show()
 	$Title.text = "My profile"
+	%BackButton.tooltip_text = "Back to hub"
 	$ScrollContainer.scroll_vertical = 0
 
 
@@ -467,6 +584,8 @@ func _select_avatar(index: int) -> void:
 	_avatar_index = index
 	_pending_avatar = null
 	(_avatar_preview as FramedPlayerAvatar).set_portrait(load(_avatar_paths[index]) as Texture2D)
+	if _photo_mode:
+		_show_photo_state(false)
 	_avatar_caption.text = "Avatar %d of %d" % [index + 1, _avatar_paths.size()]
 	_avatar_status.text = "Preview selected · Save changes to keep it."
 	_avatar_status.add_theme_color_override("font_color", Tabletop.muted())
@@ -552,9 +671,10 @@ func set_profile_save_pending(pending: bool) -> void:
 	_username_edit_button.disabled = pending
 	for choice: Button in _avatar_choices:
 		choice.disabled = pending
-	var save_button: Button = find_child("SaveAvatar", true, false) as Button
-	if save_button != null:
-		save_button.disabled = pending
+	for button_name: String in ["SaveAvatar", "SaveProfile"]:
+		var save_button: Button = find_child(button_name, true, false) as Button
+		if save_button != null:
+			save_button.disabled = pending
 	if pending:
 		_avatar_status.text = "Saving profile…"
 		_avatar_status.show()
@@ -562,6 +682,26 @@ func set_profile_save_pending(pending: bool) -> void:
 
 func set_username_update_result(success: bool, message: String = "") -> void:
 	set_profile_save_result(success, message)
+
+
+func show_username_taken(attempted_name: String) -> void:
+	set_profile_save_pending(false)
+	_username_editing = true
+	_draft_username = attempted_name
+	_username_editor.text = attempted_name
+	_username_display_row.hide()
+	_username_edit_row.show()
+	_username_status.text = "That username is already in use. Choose another."
+	_username_status.add_theme_color_override("font_color", Tabletop.danger())
+	_username_status.show()
+	_avatar_status.text = "Avatar saved, but that username is already in use. Choose another."
+	_avatar_status.add_theme_color_override("font_color", Tabletop.danger())
+	_avatar_status.show()
+	if _photo_mode:
+		_close_photo_editor()
+	if is_inside_tree() and _profile_content.visible:
+		_username_editor.grab_focus()
+		_username_editor.select_all()
 
 
 func set_profile_save_result(success: bool, message: String = "") -> void:
@@ -590,9 +730,10 @@ func _save_profile() -> void:
 		return
 	var username: String = _username_editor.text.strip_edges() if _username_editing else _draft_username
 	if username.is_empty() or username.length() > 50:
-		_username_status.text = "Enter a username between 1 and 50 characters."
-		_username_status.add_theme_color_override("font_color", Tabletop.danger())
-		_username_status.show()
+		var status: Label = _avatar_status if _photo_mode else _username_status
+		status.text = "Enter a username between 1 and 50 characters."
+		status.add_theme_color_override("font_color", Tabletop.danger())
+		status.show()
 		return
 	var avatar_data: String = PlayerAvatarStore.png_base64_for_selection(avatar_store_path, _pending_avatar, _avatar_index, _avatar_paths)
 	if avatar_data.is_empty():
@@ -603,15 +744,6 @@ func _save_profile() -> void:
 	_avatar_status.text = ""
 	_avatar_status.hide()
 	profile_save_requested.emit(username, avatar_data)
-
-
-func _use_selected_photo() -> void:
-	if _pending_avatar == null:
-		return
-	_close_photo_editor()
-	_avatar_status.text = "Photo preview ready · Save changes to keep it."
-	_avatar_status.add_theme_color_override("font_color", Tabletop.muted())
-	_avatar_status.show()
 
 
 func _update_avatar_choices() -> void:
@@ -674,7 +806,7 @@ func _on_avatar_file_selected(filename: String) -> void:
 	_show_photo_state(true)
 	_update_avatar_choices()
 	_avatar_caption.text = "Your uploaded picture"
-	_avatar_status.text = "Preview selected · Use photo, then Save changes."
+	_avatar_status.text = "Preview selected · Save changes to keep it."
 	_avatar_status.add_theme_color_override("font_color", Tabletop.muted())
 
 
@@ -756,7 +888,6 @@ func set_progression_error(message: String) -> void:
 	if _progression_xp_label != null and not _progression_bar.visible:
 		_progression_xp_label.text = message
 
-
 func set_achievement_rows(rows: Array) -> void:
 	%AchievementsPage.set_rows(rows)
 
@@ -784,6 +915,7 @@ func show_achievements_only(enabled: bool) -> void:
 func _setup_achievements() -> void:
 	%AchievementsPage.home_requested.connect(_on_back_pressed)
 	%AchievementsPage.profile_requested.connect(show_achievements_only.bind(false))
+	%AchievementsPage.tournaments_requested.connect(func() -> void: tournaments_requested.emit())
 	%AchievementsPage.refresh_requested.connect(func() -> void: achievement_refresh_requested.emit())
 
 
@@ -817,6 +949,11 @@ func _value_for(details: Dictionary, keys: Array) -> String:
 
 
 func _on_back_pressed() -> void:
+	if _profile_save_pending or _deletion_busy or _remote_account_deleted:
+		return
+	if _delete_confirmation != null and _delete_confirmation.visible:
+		_on_cancel_delete_pressed()
+		return
 	if _photo_mode:
 		_pending_avatar = _photo_before.image as Image
 		_avatar_index = int(_photo_before.index)

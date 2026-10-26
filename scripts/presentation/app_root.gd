@@ -38,8 +38,15 @@ const OPPONENT_SELECTION_SCENE: String = "res://scenes/hub/opponent_selection_sc
 
 ## Editable account details, hosted as a separate screen.
 const PROFILE_SCREEN_SCENE: String = "res://scenes/profile/profile_screen.tscn"
+const STORE_SCREEN_SCENE: String = "res://scenes/store/store_screen.tscn"
+const GEM_HISTORY_SCREEN_SCENE: String = "res://scenes/hub/gem_history_screen.tscn"
+const CRASH_REPORT_SCREEN_SCENE: String = "res://scenes/hub/crash_report_screen.tscn"
+const TUTORIAL_SCREEN_SCENE: String = "res://scenes/tutorial/tutorial_screen.tscn"
 
 const ProgressionClient = preload("res://scripts/infrastructure/progression_api_client.gd")
+const RewardedAdService = preload("res://scripts/infrastructure/rewarded_ad_controller.gd")
+const Tabletop = preload("res://scripts/presentation/modern_tabletop_theme.gd")
+const PlayUpdater = preload("res://addons/inapp_update/InappUpdate.gd")
 
 ## How long the authored splash is held before the match boots, in seconds.
 ##
@@ -48,6 +55,7 @@ const ProgressionClient = preload("res://scripts/infrastructure/progression_api_
 ## without a deliberate beat here the composition root would replace the splash in
 ## the same frame it appeared and no player would ever see it.
 const SPLASH_HOLD_SECONDS: float = 1.2
+const CHIBI_SPLASH_SECONDS: float = 1.0
 const AUTH_RECOVERY_WINDOW_MSEC: int = 60000
 
 ## Host for the active screen. Screens are swapped inside this node.
@@ -80,14 +88,29 @@ var _open_online_when_received: bool = false
 var opponent_selection_screen: OpponentSelectionScreen = null
 var matchmaking_client: MatchmakingApiClient = null
 var online_client: OnlineGameApiClient = null
+var verified_ai_client: OnlineGameApiClient = null
+var verified_ai_match_list: VerifiedAiMatchListClient = null
+var _open_verified_ai_when_received: bool = false
+var _pending_verified_ai_difficulty: int = -1
+var _pending_verified_ai_portrait: Texture2D = null
+var _pending_verified_ai_rival: Dictionary = {}
+var _active_ai_rival: Dictionary = {}
 
 ## Account details screen, or null while another screen is visible.
 var profile_screen: ProfileScreen = null
+var store_screen: StoreScreen = null
+var gem_history_screen: GemHistoryScreen = null
+var crash_report_screen: CrashReportScreen = null
+var crash_reports: CrashReportService = null
+var _crash_prompt_shown: bool = false
+var tutorial_screen: TutorialScreen = null
+var _startup_tutorial_checked: bool = false
 
 ## The platform feedback service (ADR-008 section 5; Milestone 8). Owned here and
 ## injected into the screen, so haptics and audio are composed in one place and
 ## the screen holds no platform call of its own.
 var feedback_adapter: FeedbackAdapter = null
+var _background_music: BackgroundMusic = null
 
 ## Terms gate. Null once the player has accepted, or when the local state file
 ## already records an accepted account.
@@ -101,6 +124,8 @@ var user_state: Dictionary = {}
 var achievement_client: AchievementApiClient = null
 var achievement_toast: AchievementToast = null
 var progression_client: ProgressionClient = null
+var gem_wallet_client: GemWalletApiClient = null
+var rewarded_ad_controller: RewardedAdController = null
 var _last_progression_match_id: String = ""
 
 ## Authenticated match creation and turn synchronization transport.
@@ -119,6 +144,14 @@ var users_path: String = UsersStateStore.DEFAULT_PATH
 var _authentication_blocked: bool = false
 var _last_login_success_msec: int = -AUTH_RECOVERY_WINDOW_MSEC
 var _authentication_dialog: ConfirmationDialog = null
+var _play_updater: InappUpdate = null
+var _play_update_dialog: ConfirmationDialog = null
+var _play_update_offer_pending: bool = false
+var _play_update_ready: bool = false
+var _play_update_offer_dismissed: bool = false
+var _play_update_ready_dismissed: bool = false
+var _play_update_check_started: bool = false
+var _play_update_dialog_action: String = ""
 var _authentication_error: String = ""
 var _account_reset_pending: bool = false
 var _cleanup_account_id: String = ""
@@ -152,9 +185,13 @@ func _ready() -> void:
 			% ", ".join(missing)
 		)
 		return
+	crash_reports = CrashReportService.new()
+	add_child(crash_reports)
+	crash_reports.begin_session()
 	achievement_toast = AchievementToast.new()
 	achievement_toast.name = "AchievementToast"
 	overlay_layer.add_child(achievement_toast)
+	_setup_play_updates()
 
 	print("[AppRoot] bootstrap ready (screens hosted: %d)" % scene_host.get_child_count())
 	achievement_client = AchievementApiClient.new()
@@ -168,6 +205,18 @@ func _ready() -> void:
 	progression_client.received.connect(_on_progression_received)
 	progression_client.failed.connect(_on_progression_failed)
 	progression_client.authentication_required.connect(_refresh_api_login)
+	gem_wallet_client = GemWalletApiClient.new()
+	add_child(gem_wallet_client)
+	gem_wallet_client.received.connect(_on_gem_wallet_received)
+	gem_wallet_client.failed.connect(_on_gem_wallet_failed)
+	gem_wallet_client.authentication_required.connect(_refresh_api_login)
+	rewarded_ad_controller = RewardedAdService.new()
+	add_child(rewarded_ad_controller)
+	rewarded_ad_controller.status_received.connect(_on_rewarded_ad_status)
+	rewarded_ad_controller.progress.connect(_on_rewarded_ad_progress)
+	rewarded_ad_controller.notice.connect(_on_rewarded_ad_notice)
+	rewarded_ad_controller.credited.connect(_on_rewarded_ad_credited)
+	rewarded_ad_controller.authentication_required.connect(_refresh_api_login)
 	matchmaking_client = MatchmakingApiClient.new()
 	add_child(matchmaking_client)
 	matchmaking_client.authentication_required.connect(_refresh_api_login)
@@ -176,12 +225,171 @@ func _ready() -> void:
 	add_child(online_client)
 	online_client.authentication_required.connect(_refresh_api_login)
 	online_client.received.connect(_on_online_received)
+	verified_ai_client = OnlineGameApiClient.new()
+	verified_ai_client.base_path = "/ai-games"
+	add_child(verified_ai_client)
+	verified_ai_client.authentication_required.connect(_refresh_api_login)
+	verified_ai_client.received.connect(_on_verified_ai_received)
+	verified_ai_client.connection_changed.connect(_on_verified_ai_connection_changed)
+	verified_ai_match_list = VerifiedAiMatchListClient.new()
+	add_child(verified_ai_match_list)
+	verified_ai_match_list.received.connect(_on_verified_ai_matches_received)
 	game_sync_client = GameSyncApiClient.new()
 	add_child(game_sync_client)
 	game_sync_client.authentication_required.connect(_refresh_api_login)
 	game_sync_client.sync_notice.connect(_on_sync_notice)
 	game_sync_client.score_preview_received.connect(_on_api_score_preview)
 	achievement_client.authentication_required.connect(_refresh_api_login)
+	_show_startup_splashes()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_RESUMED and _play_updater != null and not _play_update_ready:
+		_play_update_check_started = false
+		_check_play_update()
+
+
+## Play owns version discovery and installation. The shell only decides when it
+## is safe to offer or finish an update, so a match is never interrupted by a
+## restart prompt.
+func _setup_play_updates() -> void:
+	if not OS.has_feature("android"):
+		return
+	_play_updater = PlayUpdater.new() as InappUpdate
+	add_child(_play_updater)
+	if not _play_updater.is_available():
+		return
+	_play_updater.update_available.connect(_on_play_update_available)
+	_play_updater.update_not_available.connect(_on_play_update_not_available)
+	_play_updater.update_check_failed.connect(_on_play_update_check_failed)
+	_play_updater.update_downloaded.connect(_on_play_update_downloaded)
+	_play_updater.update_flow_canceled.connect(_on_play_update_flow_canceled)
+	_play_updater.update_flow_failed.connect(_on_play_update_flow_failed)
+
+
+func _check_play_update() -> void:
+	if _play_updater == null or not _play_updater.is_available() or _play_update_check_started:
+		return
+	_play_update_check_started = true
+	_play_updater.check_for_update()
+
+
+func _on_play_update_available(_version_code: int, _priority: int) -> void:
+	if _play_updater.get_install_status() == InappUpdate.INSTALL_STATUS_DOWNLOADED:
+		_on_play_update_downloaded()
+		return
+	_play_update_offer_pending = true
+	_present_play_update_if_needed()
+
+
+func _on_play_update_not_available() -> void:
+	_play_update_offer_pending = false
+	if _play_updater.get_install_status() == InappUpdate.INSTALL_STATUS_DOWNLOADED:
+		_on_play_update_downloaded()
+
+
+func _on_play_update_check_failed(reason: String) -> void:
+	push_warning("Google Play update check failed: %s" % reason)
+
+
+func _on_play_update_downloaded() -> void:
+	_play_update_ready = true
+	_play_update_offer_pending = false
+	if _play_update_dialog != null and _play_update_dialog.visible:
+		_play_update_dialog.hide()
+	_present_play_update_if_needed()
+
+
+func _on_play_update_flow_canceled() -> void:
+	_play_update_offer_dismissed = true
+
+
+func _on_play_update_flow_failed(reason: String) -> void:
+	push_warning("Google Play update flow failed: %s" % reason)
+	if is_instance_valid(hub_screen) and hub_screen.visible:
+		hub_screen.show_notice("Update could not be started. Please try again later.")
+
+
+func _present_play_update_if_needed() -> void:
+	if not is_instance_valid(hub_screen) or not hub_screen.visible:
+		return
+	_check_play_update()
+	if _play_updater == null or not _play_updater.is_available():
+		return
+	if _play_update_dialog != null and _play_update_dialog.visible:
+		return
+	if _play_update_ready and not _play_update_ready_dismissed:
+		_show_play_update_dialog("install", "Update ready", "The update has downloaded. Restart the game to install it?", "Restart now")
+	elif _play_update_offer_pending and not _play_update_offer_dismissed:
+		if _play_updater.is_flexible_allowed():
+			_show_play_update_dialog("download", "Update available", "A new version is available on Google Play. Download it in the background?", "Download")
+		elif _play_updater.is_immediate_allowed():
+			_show_play_update_dialog("immediate", "Update available", "A new version is available on Google Play. Update the game now?", "Update now")
+
+
+func _show_play_update_dialog(action: String, title: String, message: String, button_text: String) -> void:
+	if overlay_layer == null:
+		return
+	if _play_update_dialog == null:
+		_play_update_dialog = ConfirmationDialog.new()
+		_play_update_dialog.dialog_autowrap = true
+		_play_update_dialog.cancel_button_text = "Later"
+		_play_update_dialog.theme = Tabletop.create()
+		overlay_layer.add_child(_play_update_dialog)
+		_play_update_dialog.confirmed.connect(_on_play_update_confirmed)
+		_play_update_dialog.canceled.connect(_on_play_update_deferred)
+		Tabletop.style_button(_play_update_dialog.get_ok_button(), "primary")
+		Tabletop.style_button(_play_update_dialog.get_cancel_button(), "secondary")
+	_play_update_dialog_action = action
+	_play_update_dialog.title = title
+	_play_update_dialog.dialog_text = message
+	_play_update_dialog.ok_button_text = button_text
+	_play_update_dialog.popup_centered(Vector2i(440, 230))
+
+
+func _on_play_update_confirmed() -> void:
+	if _play_updater == null:
+		return
+	match _play_update_dialog_action:
+		"download":
+			_play_update_offer_dismissed = true
+			_play_updater.start_flexible_update()
+		"immediate":
+			_play_update_offer_dismissed = true
+			_play_updater.start_immediate_update()
+		"install":
+			_play_updater.complete_flexible_update()
+
+
+func _on_play_update_deferred() -> void:
+	if _play_update_dialog_action == "install":
+		_play_update_ready_dismissed = true
+	else:
+		_play_update_offer_dismissed = true
+
+
+func _show_startup_splashes() -> void:
+	var chibi_splash: Control = scene_host.get_node_or_null("ChibiSplashScreen") as Control
+	var welcome_splash: Control = scene_host.get_node_or_null("SplashScreen") as Control
+	if chibi_splash != null and welcome_splash != null:
+		var timer := Timer.new()
+		timer.name = "ChibiSplashHold"
+		timer.one_shot = true
+		timer.wait_time = CHIBI_SPLASH_SECONDS
+		add_child(timer)
+		timer.timeout.connect(_finish_chibi_splash)
+		timer.start()
+	else:
+		_prepare_startup_assets()
+
+
+func _finish_chibi_splash() -> void:
+	var chibi_splash: Control = scene_host.get_node_or_null("ChibiSplashScreen") as Control
+	var welcome_splash: Control = scene_host.get_node_or_null("SplashScreen") as Control
+	if chibi_splash != null:
+		chibi_splash.queue_free()
+	if welcome_splash != null:
+		welcome_splash.show()
 	_prepare_startup_assets()
 
 
@@ -242,10 +450,13 @@ func _after_splash() -> void:
 		user_state = UsersStateStore.load_user_state()
 		achievement_client.set_access_token(String(user_state.get("token", "")))
 		progression_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
+		gem_wallet_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
+		rewarded_ad_controller.set_credentials(String(user_state.get("token", "")), _account_id())
 		game_sync_client.set_access_token(String(user_state.get("token", "")))
 		if user_state.is_empty():
 			_login_returning_account(UsersStateStore.load_record())
 		show_hub()
+		call_deferred("_maybe_show_startup_tutorial")
 		return
 	_show_terms_dialog()
 
@@ -281,10 +492,14 @@ func _on_terms_accepted(state: Dictionary) -> void:
 		terms_dialog.queue_free()
 		terms_dialog = null
 	user_state = state.duplicate(true)
+	TutorialProgressStore.mark_eligible(_account_id())
 	achievement_client.set_access_token(String(user_state.get("token", "")))
 	progression_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
+	gem_wallet_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
+	rewarded_ad_controller.set_credentials(String(user_state.get("token", "")), _account_id())
 	game_sync_client.set_access_token(String(user_state.get("token", "")))
 	show_hub()
+	call_deferred("_maybe_show_startup_tutorial")
 	achievement_client.fetch_catalog()
 
 
@@ -354,7 +569,7 @@ func _login_returning_account(record: Dictionary) -> void:
 	if err != OK:
 		_login_active = false
 		client.queue_free()
-		_api_login_failed("Could not connect to your account. Check the Server IP in Settings and try again.")
+		_api_login_failed("Could not connect to your account. Check your connection and try again.")
 		return
 	# The request is fire-and-observe. The hub is already the next screen.
 
@@ -379,7 +594,7 @@ func _on_returning_login_completed(
 		_begin_unavailable_account_reset()
 		return
 	if result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
-		_api_login_failed("Could not sign in. Check your connection and the Server IP in Settings, then retry.")
+		_api_login_failed("Could not sign in. Check your connection, then retry.")
 		return
 	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(parsed) != TYPE_DICTIONARY:
@@ -391,10 +606,16 @@ func _on_returning_login_completed(
 		return
 	_last_login_success_msec = Time.get_ticks_msec()
 	user_state = UsersStateStore.load_user_state(users_path)
+	call_deferred("_maybe_show_startup_tutorial")
 	if achievement_client != null:
 		achievement_client.set_access_token(String(user_state.get("token", "")))
 	if progression_client != null:
 		progression_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
+	if gem_wallet_client != null:
+		gem_wallet_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
+		_sync_hub_gems()
+	if rewarded_ad_controller != null:
+		rewarded_ad_controller.set_credentials(String(user_state.get("token", "")), _account_id())
 	if game_sync_client != null:
 		game_sync_client.set_access_token(String(user_state.get("token", "")))
 	if matchmaking_client != null:
@@ -402,6 +623,8 @@ func _on_returning_login_completed(
 	if online_client != null:
 		online_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
 		_refresh_online_hub_state()
+	if verified_ai_client != null:
+		verified_ai_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
 	if game_screen != null:
 		game_screen.set_player_display_name(_player_display_name())
 	if profile_screen != null and is_instance_valid(profile_screen):
@@ -418,7 +641,7 @@ func _refresh_api_login() -> void:
 	_clear_api_session()
 	# A fresh login token being rejected immediately must not create a loop.
 	if Time.get_ticks_msec() - _last_login_success_msec < AUTH_RECOVERY_WINDOW_MSEC:
-		_api_login_failed("The server rejected the refreshed session (401). Check the Server IP in Settings, then retry.")
+		_api_login_failed("The server rejected the refreshed session (401). Please sign in again.")
 		return
 	_login_returning_account(UsersStateStore.load_record(users_path))
 
@@ -432,6 +655,12 @@ func _clear_api_session() -> void:
 		achievement_client.set_access_token("")
 	if progression_client != null:
 		progression_client.set_credentials("", "")
+	if gem_wallet_client != null:
+		gem_wallet_client.set_credentials("", "")
+		if is_instance_valid(hub_screen):
+			hub_screen.set_gem_wallet({})
+	if rewarded_ad_controller != null:
+		rewarded_ad_controller.set_credentials("", "")
 	_last_progression_match_id = ""
 	if game_sync_client != null:
 		game_sync_client.set_access_token("")
@@ -439,6 +668,8 @@ func _clear_api_session() -> void:
 		matchmaking_client.set_credentials("", matchmaking_client.account_id)
 	if online_client != null:
 		online_client.set_credentials("", online_client.account_id)
+	if verified_ai_client != null:
+		verified_ai_client.set_credentials("", verified_ai_client.account_id)
 
 
 func _api_login_failed(message: String) -> void:
@@ -658,6 +889,9 @@ func _on_profile_username_saved(result: int, code: int, _headers: PackedStringAr
 		var error_message: String = "Avatar saved, but the display name could not be saved. Please retry."
 		var error_data: Variant = JSON.parse_string(body.get_string_from_utf8())
 		var api_error: String = String(error_data.get("error", "")) if error_data is Dictionary else ""
+		if code == 409 and api_error == "USERNAME_TAKEN":
+			profile_screen.show_username_taken(submitted_name)
+			return
 		if code == 400:
 			error_message = "Avatar saved, but the display name was rejected. Use 1–50 characters and retry."
 		elif code == 404 or code == 405:
@@ -733,16 +967,23 @@ func show_hub() -> bool:
 	_bind_layers()
 	if scene_host == null:
 		return false
+	_close_store()
+	_close_gem_history()
+	_close_crash_report()
 	if hub_screen != null and hub_screen.get_parent() == scene_host:
 		if profile_screen != null and profile_screen.get_parent() == scene_host:
 			scene_host.remove_child(profile_screen)
 			profile_screen.free()
 			profile_screen = null
 		hub_screen.visible = true
+		_start_background_music()
 		_update_hub_play_label()
 		_refresh_hub_active_games()
 		_refresh_hub_recent_match()
 		_refresh_online_hub_state()
+		_present_play_update_if_needed()
+		_sync_hub_gems()
+		call_deferred("_offer_crash_report_if_needed")
 		return true
 
 	var wrapper: PackedScene = load(HUB_SCREEN_SCENE) as PackedScene
@@ -757,16 +998,20 @@ func show_hub() -> bool:
 	hub_screen = hub
 	_replace_hosted_screens()
 	scene_host.add_child(hub)
+	_start_background_music()
 	# The hub reports the intent; the shell decides what Play means. That way the
 	# hub script holds no reference to the match, and Presentation stays out of
 	# Application (ADR-008 section 1).
 	hub.play_requested.connect(_on_hub_play_requested)
-	hub.online_requested.connect(_on_hub_online_requested)
 	hub.profile_requested.connect(_on_hub_profile_requested)
 	hub.achievements_requested.connect(_on_hub_achievements_requested)
+	hub.shop_requested.connect(show_store)
+	hub.gem_history_requested.connect(show_gem_history)
+	hub.report_problem_requested.connect(show_crash_report)
+	hub.tournaments_requested.connect(_on_tournaments_requested)
+	hub.tutorial_requested.connect(_open_tutorial)
 	hub.clear_game_cache_requested.connect(_on_clear_game_cache_requested)
-	hub.delete_account_requested.connect(_on_delete_account_requested)
-	hub.account_deletion_acknowledged.connect(_on_account_deletion_acknowledged)
+	hub.music_volume_changed.connect(_on_music_volume_changed)
 	hub.resume_game_requested.connect(_on_active_game_resume_requested)
 	hub.tables_requested.connect(_show_tables)
 	hub.completed_match_requested.connect(_show_completed_match)
@@ -774,7 +1019,67 @@ func show_hub() -> bool:
 	_refresh_hub_active_games()
 	_refresh_hub_recent_match()
 	_refresh_online_hub_state()
+	_present_play_update_if_needed()
+	_sync_hub_gems()
+	call_deferred("_offer_crash_report_if_needed")
 	return true
+
+
+func _start_background_music() -> void:
+	if _background_music == null:
+		_background_music = BackgroundMusic.new()
+		_background_music.name = "BackgroundMusic"
+		add_child(_background_music)
+	_background_music.start_music()
+
+
+func _on_music_volume_changed(level: float) -> void:
+	if _background_music != null:
+		_background_music.set_level(level)
+
+
+func _sync_hub_gems() -> void:
+	if not is_instance_valid(hub_screen) or gem_wallet_client == null:
+		return
+	hub_screen.set_gem_wallet(gem_wallet_client.current)
+	gem_wallet_client.fetch()
+
+
+func _maybe_show_startup_tutorial() -> void:
+	if _startup_tutorial_checked:
+		return
+	# A returning account may reach the hub before its saved user details are
+	# recovered by the asynchronous login request.
+	if _account_id().is_empty():
+		return
+	_startup_tutorial_checked = true
+	if TutorialProgressStore.should_show(_account_id()):
+		_open_tutorial()
+
+
+func _open_tutorial() -> void:
+	_bind_layers()
+	if overlay_layer == null or tutorial_screen != null:
+		return
+	var packed: PackedScene = load(TUTORIAL_SCREEN_SCENE) as PackedScene
+	if packed == null:
+		push_error("AppRoot: could not load tutorial screen")
+		return
+	var screen: TutorialScreen = packed.instantiate() as TutorialScreen
+	if screen == null:
+		push_error("AppRoot: tutorial scene root is invalid")
+		return
+	tutorial_screen = screen
+	overlay_layer.add_child(screen)
+	screen.finished.connect(_on_tutorial_finished)
+
+
+func _on_tutorial_finished(choice: String) -> void:
+	if choice == "complete" or choice == "never":
+		TutorialProgressStore.finish(_account_id(), choice == "never")
+	if tutorial_screen != null:
+		tutorial_screen.queue_free()
+		tutorial_screen = null
 
 
 func _update_hub_play_label() -> void:
@@ -787,6 +1092,7 @@ func _refresh_hub_active_games() -> void:
 	if hub_screen == null or not is_instance_valid(hub_screen):
 		return
 	var games: Array[Dictionary] = GameSessionController.saved_match_entries()
+	games.append_array(_verified_ai_active_entries())
 	if online_client != null and not online_client.state.is_empty():
 		var remote_state: Dictionary = online_client.state
 		if String(remote_state.get("status", "active")) != "completed":
@@ -874,6 +1180,7 @@ func _on_tables_resume(kind: String, id: String, path: String) -> void:
 
 func _hub_active_entries() -> Array[Dictionary]:
 	var games: Array[Dictionary] = GameSessionController.saved_match_entries()
+	games.append_array(_verified_ai_active_entries())
 	if online_client != null and not online_client.state.is_empty() and String(online_client.state.get("status", "")) == "active":
 		var data: Dictionary = online_client.state
 		var opponent: Dictionary = data.get("opponent", {})
@@ -892,6 +1199,35 @@ func _hub_active_entries() -> Array[Dictionary]:
 	return games
 
 
+func _verified_ai_active_entries() -> Array[Dictionary]:
+	var games: Array[Dictionary] = []
+	var states: Array[Dictionary] = []
+	if verified_ai_match_list != null:
+		states = verified_ai_match_list.matches.duplicate()
+	if verified_ai_client != null and not verified_ai_client.state.is_empty():
+		var current_id: String = String(verified_ai_client.state.get("matchId", ""))
+		for index: int in range(states.size() - 1, -1, -1):
+			if String(states[index].get("matchId", "")) == current_id:
+				states.remove_at(index)
+		if String(verified_ai_client.state.get("status", "")) == "active":
+			states.push_front(verified_ai_client.state)
+	for ai_data: Dictionary in states:
+		var ai_view: OnlineSessionView = OnlineSessionView.from_response(ai_data)
+		if ai_view != null:
+			games.append({"kind": "verified_ai", "id": String(ai_data.get("matchId", "")), "path": "",
+				"opponent": String(ai_data.get("opponent", {}).get("displayName", "AI Rival")),
+				"avatar_path": _ai_avatar_path(ai_data),
+				"score": "You %d · Rival %d" % [ai_view.score_for(TurnEnums.HUMAN_PLAYER_ID), ai_view.score_for(TurnEnums.AI_PLAYER_ID)],
+				"status_label": "YOUR TURN"})
+	return games
+
+
+func _on_verified_ai_matches_received(_matches: Array[Dictionary]) -> void:
+	_refresh_hub_active_games()
+	if is_instance_valid(tables_screen):
+		tables_screen.set_records(_hub_active_entries(), MatchHistoryStore.entries(_account_id()))
+
+
 func _refresh_online_hub_state() -> void:
 	if online_client == null or user_state.is_empty():
 		return
@@ -902,10 +1238,19 @@ func _refresh_online_hub_state() -> void:
 	if not online_client._wanted and game_screen == null:
 		_open_online_when_received = false
 		online_client.recover()
+	if verified_ai_client != null:
+		verified_ai_client.set_credentials(String(user_state.get("token", "")), _account_id())
+		if not verified_ai_client._wanted and game_screen == null:
+			verified_ai_client.recover()
+	if verified_ai_match_list != null:
+		verified_ai_match_list.set_credentials(String(user_state.get("token", "")), _account_id())
+		verified_ai_match_list.refresh()
 
 
 ## Handles the hub's Play request.
 func _on_hub_play_requested() -> void:
+	if game_screen != null:
+		return
 	show_opponent_selection()
 
 
@@ -954,26 +1299,53 @@ func _on_opponent_selection_back() -> void:
 	show_hub()
 
 
-func _on_opponent_selected(difficulty: int, rival_portrait: Texture2D) -> void:
+func _on_opponent_selected(rival: Dictionary, rival_portrait: Texture2D) -> void:
+	if not AiRivalCatalog.valid_rival(rival):
+		return
+	var difficulty: int = int(rival["difficulty"])
+	_active_ai_rival = rival.duplicate(true)
 	if opponent_selection_screen != null:
 		var selection: OpponentSelectionScreen = opponent_selection_screen
 		if selection.get_parent() == scene_host:
 			scene_host.remove_child(selection)
 		selection.queue_free()
 		opponent_selection_screen = null
+	if verified_ai_client != null and not String(user_state.get("token", "")).is_empty():
+		_pending_verified_ai_difficulty = difficulty
+		_pending_verified_ai_portrait = rival_portrait
+		_pending_verified_ai_rival = rival.duplicate(true)
+		_open_verified_ai_when_received = true
+		verified_ai_client.set_credentials(String(user_state.get("token", "")), _account_id())
+		verified_ai_client.start_verified_ai(difficulty, String(rival["id"]))
+		show_hub()
+		if hub_screen != null:
+			hub_screen.show_notice("Opening verified AI match...")
+		return
 	_pending_local_match_id = "ai-%d-%d" % [
 		Time.get_unix_time_from_system(), Time.get_ticks_usec()
 	]
 	_pending_local_save_path = GameSessionController.save_path_for_match(
 		_pending_local_match_id
 	)
-	if not _boot_match(difficulty, rival_portrait):
+	if not _boot_match(difficulty, rival_portrait, rival):
 		_pending_local_match_id = ""
 		_pending_local_save_path = ""
 		show_hub()
+	elif session_controller != null:
+		session_controller.notice.emit("Playing locally; Gems are not credited.")
 
 
 func _on_active_game_resume_requested(kind: String, id: String, path: String) -> void:
+	if kind == "verified_ai":
+		if verified_ai_client == null:
+			hub_screen.show_notice("Verified AI match is unavailable")
+			return
+		_pending_verified_ai_difficulty = -1
+		_pending_verified_ai_portrait = null
+		_pending_verified_ai_rival = {}
+		_open_verified_ai_when_received = true
+		verified_ai_client.start(id)
+		return
 	if kind == "online":
 		if online_client == null:
 			hub_screen.show_notice("Online match is unavailable")
@@ -1001,6 +1373,200 @@ func _on_hub_profile_requested() -> void:
 func _on_hub_achievements_requested() -> void:
 	if show_profile() and profile_screen != null:
 		profile_screen.show_achievements_only(true)
+
+
+## Hosts the shop. The wallet remains the sole source for confirmed Gems.
+func show_store() -> bool:
+	_bind_layers()
+	if scene_host == null:
+		return false
+	if is_instance_valid(store_screen) and store_screen.get_parent() == scene_host:
+		store_screen.visible = true
+		if is_instance_valid(hub_screen):
+			hub_screen.visible = false
+		if gem_wallet_client != null:
+			gem_wallet_client.fetch()
+		if rewarded_ad_controller != null:
+			rewarded_ad_controller.refresh_status()
+		return true
+	var packed: PackedScene = load(STORE_SCREEN_SCENE) as PackedScene
+	if packed == null:
+		push_error("AppRoot.show_store: '%s' could not be loaded." % STORE_SCREEN_SCENE)
+		return false
+	var screen: StoreScreen = packed.instantiate() as StoreScreen
+	if screen == null:
+		push_error("AppRoot.show_store: '%s' is not a StoreScreen." % STORE_SCREEN_SCENE)
+		return false
+	# The outgoing profile is a hosted screen and is released by the swap.
+	profile_screen = null
+	gem_history_screen = null
+	_replace_hosted_screens()
+	store_screen = screen
+	scene_host.add_child(screen)
+	screen.home_requested.connect(_on_store_home_requested)
+	screen.achievements_requested.connect(_on_store_achievements_requested)
+	screen.tournaments_requested.connect(_on_tournaments_requested)
+	screen.ad_requested.connect(_on_store_ad_requested)
+	if is_instance_valid(hub_screen):
+		hub_screen.visible = false
+	if gem_wallet_client != null:
+		if not gem_wallet_client.current.is_empty():
+			screen.set_gem_wallet(gem_wallet_client.current)
+		gem_wallet_client.fetch()
+	if rewarded_ad_controller != null:
+		rewarded_ad_controller.refresh_status()
+	return true
+
+
+func show_gem_history() -> bool:
+	_bind_layers()
+	if scene_host == null:
+		return false
+	var packed := load(GEM_HISTORY_SCREEN_SCENE) as PackedScene
+	if packed == null:
+		push_error("AppRoot.show_gem_history: scene could not be loaded.")
+		return false
+	var screen := packed.instantiate() as GemHistoryScreen
+	if screen == null:
+		push_error("AppRoot.show_gem_history: scene is not a GemHistoryScreen.")
+		return false
+	profile_screen = null
+	store_screen = null
+	_replace_hosted_screens()
+	gem_history_screen = screen
+	scene_host.add_child(screen)
+	screen.back_requested.connect(show_hub)
+	screen.shop_requested.connect(_on_gem_history_shop_requested)
+	if is_instance_valid(hub_screen):
+		hub_screen.visible = false
+	if gem_wallet_client != null:
+		if not gem_wallet_client.current.is_empty():
+			screen.set_gem_wallet(gem_wallet_client.current)
+		gem_wallet_client.fetch()
+	return true
+
+
+func show_crash_report() -> bool:
+	_bind_layers()
+	if scene_host == null:
+		return false
+	var packed := load(CRASH_REPORT_SCREEN_SCENE) as PackedScene
+	if packed == null:
+		push_error("AppRoot.show_crash_report: scene could not be loaded.")
+		return false
+	var screen := packed.instantiate() as CrashReportScreen
+	if screen == null:
+		push_error("AppRoot.show_crash_report: scene is not a CrashReportScreen.")
+		return false
+	profile_screen = null
+	store_screen = null
+	gem_history_screen = null
+	_replace_hosted_screens()
+	crash_report_screen = screen
+	scene_host.add_child(screen)
+	screen.back_requested.connect(show_hub)
+	screen.email_requested.connect(_on_crash_report_email_requested)
+	screen.discard_requested.connect(_on_crash_report_discard_requested)
+	if is_instance_valid(hub_screen):
+		hub_screen.visible = false
+	if crash_reports != null and crash_reports.has_pending_report():
+		screen.set_report(crash_reports.pending_report(), true)
+	elif crash_reports != null:
+		screen.set_report({"log": crash_reports.current_log_excerpt()}, false)
+	return true
+
+
+func _on_crash_report_email_requested(report: String) -> void:
+	var result := OS.shell_open(CrashReportService.email_uri(report))
+	if is_instance_valid(crash_report_screen):
+		crash_report_screen.show_email_status(
+			"Email draft requested. Review and send the report in your email app." if result == OK
+			else "No email app opened. Check that an email app is installed."
+		)
+
+
+func _on_crash_report_discard_requested() -> void:
+	if crash_reports != null:
+		crash_reports.dismiss_pending_report()
+	if is_instance_valid(crash_report_screen):
+		crash_report_screen.clear_saved_state()
+
+
+func _offer_crash_report_if_needed() -> void:
+	if _crash_prompt_shown or crash_reports == null or not crash_reports.has_pending_report() \
+		or not (OS.has_feature("android") or OS.has_feature("ios")) \
+		or not is_instance_valid(hub_screen) or not hub_screen.visible:
+		return
+	_crash_prompt_shown = true
+	var prompt := ConfirmationDialog.new()
+	prompt.title = "Report a problem?"
+	prompt.dialog_text = "The previous session ended unexpectedly. You can review its log and tell support what happened."
+	prompt.ok_button_text = "Review report"
+	prompt.cancel_button_text = "Later"
+	prompt.theme = Tabletop.create()
+	overlay_layer.add_child(prompt)
+	prompt.confirmed.connect(show_crash_report)
+	prompt.popup_centered()
+	prompt.visibility_changed.connect(func() -> void:
+		if not prompt.visible:
+			prompt.queue_free()
+	)
+
+
+func _on_gem_history_shop_requested() -> void:
+	call_deferred("show_store")
+
+
+func _close_store() -> void:
+	if not is_instance_valid(store_screen):
+		store_screen = null
+		return
+	if store_screen.get_parent() == scene_host:
+		scene_host.remove_child(store_screen)
+	store_screen.queue_free()
+	store_screen = null
+
+
+func _close_gem_history() -> void:
+	if not is_instance_valid(gem_history_screen):
+		gem_history_screen = null
+		return
+	if gem_history_screen.get_parent() == scene_host:
+		scene_host.remove_child(gem_history_screen)
+	gem_history_screen.queue_free()
+	gem_history_screen = null
+
+
+func _close_crash_report() -> void:
+	if not is_instance_valid(crash_report_screen):
+		crash_report_screen = null
+		return
+	if crash_report_screen.get_parent() == scene_host:
+		scene_host.remove_child(crash_report_screen)
+	crash_report_screen.queue_free()
+	crash_report_screen = null
+
+
+func _on_store_home_requested() -> void:
+	call_deferred("show_hub")
+
+
+func _on_store_achievements_requested() -> void:
+	call_deferred("_open_achievements_from_store")
+
+
+func _open_achievements_from_store() -> void:
+	_close_store()
+	_on_hub_achievements_requested()
+
+
+func _on_tournaments_requested() -> void:
+	call_deferred("_show_tournaments_placeholder")
+
+
+func _show_tournaments_placeholder() -> void:
+	if show_hub() and is_instance_valid(hub_screen):
+		hub_screen.show_notice("Tournaments are coming soon.")
 
 
 func _on_clear_game_cache_requested() -> void:
@@ -1042,6 +1608,7 @@ func show_profile() -> bool:
 		push_error("AppRoot.show_profile: '%s' is not a ProfileScreen." % PROFILE_SCREEN_SCENE)
 		return false
 	profile_screen = screen
+	gem_history_screen = null
 	profile_screen.set_user_state(user_state)
 	_replace_hosted_screens()
 	scene_host.add_child(profile_screen)
@@ -1049,7 +1616,10 @@ func show_profile() -> bool:
 	profile_screen.refresh_requested.connect(_fetch_current_user)
 	profile_screen.refresh_requested.connect(progression_client.fetch)
 	profile_screen.profile_save_requested.connect(_save_profile)
+	profile_screen.delete_account_requested.connect(_on_delete_account_requested)
+	profile_screen.account_deletion_acknowledged.connect(_on_account_deletion_acknowledged)
 	profile_screen.achievement_refresh_requested.connect(achievement_client.fetch_catalog)
+	profile_screen.tournaments_requested.connect(_on_tournaments_requested)
 	if hub_screen != null:
 		hub_screen.visible = false
 	profile_screen.back_requested.connect(_on_profile_back_requested)
@@ -1065,14 +1635,63 @@ func show_profile() -> bool:
 func _on_progression_received(data: Dictionary) -> void:
 	if is_instance_valid(profile_screen):
 		profile_screen.set_progression(data)
+	if is_instance_valid(game_screen):
+		game_screen.set_player_level(int(data.get("level", 0)))
 
 
 func _on_progression_failed(message: String) -> void:
 	if is_instance_valid(profile_screen):
 		profile_screen.set_progression_error(message)
 
+func _on_gem_wallet_received(data: Dictionary) -> void:
+	if is_instance_valid(hub_screen):
+		hub_screen.set_gem_wallet(data)
+	if is_instance_valid(gem_history_screen):
+		gem_history_screen.set_gem_wallet(data)
+	if is_instance_valid(store_screen):
+		store_screen.set_gem_wallet(data)
+
+func _on_gem_wallet_failed(message: String) -> void:
+	if is_instance_valid(hub_screen) and gem_wallet_client != null and gem_wallet_client.current.is_empty():
+		hub_screen.set_gem_wallet({})
+	if is_instance_valid(gem_history_screen):
+		gem_history_screen.set_gem_wallet_error(message)
+	if is_instance_valid(store_screen):
+		store_screen.set_gem_wallet_error(message)
+
+
+func _on_store_ad_requested() -> void:
+	if rewarded_ad_controller != null:
+		rewarded_ad_controller.request_ad()
+
+
+func _on_rewarded_ad_status(data: Dictionary) -> void:
+	if is_instance_valid(store_screen):
+		store_screen.set_rewarded_ad_status(data)
+
+
+func _on_rewarded_ad_progress(message: String) -> void:
+	if is_instance_valid(store_screen):
+		store_screen.set_ad_progress(message)
+
+
+func _on_rewarded_ad_notice(message: String) -> void:
+	if is_instance_valid(store_screen):
+		store_screen.show_notice(message)
+	if rewarded_ad_controller != null:
+		rewarded_ad_controller.refresh_status()
+
+
+func _on_rewarded_ad_credited() -> void:
+	if gem_wallet_client != null:
+		gem_wallet_client.fetch()
+	if is_instance_valid(store_screen):
+		store_screen.show_notice("20 Gems added to your balance!")
+
 
 func _on_profile_back_requested() -> void:
+	if _account_delete_active or _remote_account_deleted:
+		return
 	if profile_screen != null:
 		if profile_screen.get_parent() == scene_host:
 			scene_host.remove_child(profile_screen)
@@ -1099,6 +1718,8 @@ func _on_hub_requested() -> void:
 func return_to_hub() -> bool:
 	if online_client != null:
 		online_client.stop()
+	if verified_ai_client != null:
+		verified_ai_client.stop()
 	if matchmaking_client != null and matchmaking_client.state == "playing":
 		matchmaking_client._finish_leave()
 	_bind_layers()
@@ -1134,7 +1755,14 @@ func return_to_hub() -> bool:
 ## The hub is hidden rather than freed, so it survives the match and returning to
 ## it is instant.
 func boot_game_screen() -> bool:
-	var booted: bool = _boot_match()
+	var booted: bool = false
+	if not FileAccess.file_exists(GameSessionController.SAVE_PATH) and _pending_local_save_path.is_empty():
+		var roster: Array[Dictionary] = AiRivalCatalog.bundled()
+		var rival: Dictionary = roster.pick_random()
+		var portrait: Texture2D = load("res://assets/ui/modern_tabletop/avatars/rivals/%s.tres" % rival["avatarKey"]) as Texture2D
+		booted = _boot_match(int(rival["difficulty"]), portrait, rival)
+	else:
+		booted = _boot_match()
 	if booted and hub_screen != null:
 		hub_screen.visible = false
 	return booted
@@ -1146,12 +1774,15 @@ func boot_game_screen() -> bool:
 ## screen, and then asked to start. That ordering means the screen already
 ## renders authoritative state by the time the first turn opens, so no UI code
 ## has to cope with a half-built session.
-func _boot_match(ai_difficulty: int = -1, rival_portrait: Texture2D = null) -> bool:
+func _boot_match(ai_difficulty: int = -1, rival_portrait: Texture2D = null,
+		rival: Dictionary = {}) -> bool:
 	_bind_layers()
 	if scene_host == null:
 		return false
 	_ensure_feedback_adapter()
 	_active_ai_rival_path = rival_portrait.resource_path if rival_portrait != null else ""
+	if not rival.is_empty():
+		_active_ai_rival = rival.duplicate(true)
 	# Booting twice would build a second match service and host a second screen,
 	# stranding the first one's session. The splash hold calls this after a caller
 	# may already have booted, so the guard is what makes both paths safe together.
@@ -1172,6 +1803,8 @@ func _boot_match(ai_difficulty: int = -1, rival_portrait: Texture2D = null) -> b
 		)
 		return false
 
+	if hub_screen != null:
+		hub_screen.visible = false
 	session_controller = GameSessionController.new()
 	var target_save_path: String = (
 		_pending_local_save_path
@@ -1193,7 +1826,12 @@ func _boot_match(ai_difficulty: int = -1, rival_portrait: Texture2D = null) -> b
 	scene_host.add_child(screen)
 	screen.set_player_display_name(_player_display_name())
 	screen.set_rival_portrait(rival_portrait)
+	if not _active_ai_rival.is_empty():
+		screen.set_rival_name(String(_active_ai_rival.get("displayName", "AI Rival")))
 	screen.set_player_portrait(PlayerAvatarStore.texture())
+	if progression_client != null:
+		screen.set_player_level(int(progression_client.current.get("level", 0)))
+		progression_client.fetch()
 
 	# The way back to the hub. Reported by the screen and handled here, because
 	# leaving a match means releasing match-scoped services (ADR-008 section 5);
@@ -1206,6 +1844,8 @@ func _boot_match(ai_difficulty: int = -1, rival_portrait: Texture2D = null) -> b
 	screen.attach_feedback_adapter(feedback_adapter)
 	screen.attach_controller(session_controller)
 	session_controller.rival_avatar_path = _active_ai_rival_path
+	session_controller.rival_id = String(_active_ai_rival.get("id", ""))
+	session_controller.rival_name = String(_active_ai_rival.get("displayName", "AI Rival"))
 	session_controller.score_awarded.connect(_on_score_events_for_achievements)
 	session_controller.match_ended.connect(_on_match_result_for_achievements)
 
@@ -1217,9 +1857,22 @@ func _boot_match(ai_difficulty: int = -1, rival_portrait: Texture2D = null) -> b
 	# player.
 	if session_controller.resume_match():
 		_active_ai_rival_path = session_controller.rival_avatar_path
+		_active_ai_rival = {"id": session_controller.rival_id,
+			"displayName": session_controller.rival_name}
+		screen.set_rival_name(session_controller.rival_name)
 		if not _active_ai_rival_path.is_empty():
 			screen.set_rival_portrait(HubScreen._portrait_for(_active_ai_rival_path))
 		return true
+	if session_controller.rival_id.is_empty():
+		var fallback: Dictionary = AiRivalCatalog.bundled().pick_random()
+		_active_ai_rival = fallback
+		_active_ai_rival_path = "res://assets/ui/modern_tabletop/avatars/rivals/%s.tres" % fallback["avatarKey"]
+		session_controller.rival_id = String(fallback["id"])
+		session_controller.rival_name = String(fallback["displayName"])
+		session_controller.rival_avatar_path = _active_ai_rival_path
+		screen.set_rival_name(session_controller.rival_name)
+		screen.set_rival_portrait(HubScreen._portrait_for(_active_ai_rival_path))
+		ai_difficulty = int(fallback["difficulty"])
 	session_controller.start_new_match(StringName(target_match_id), 0, ai_difficulty)
 	return true
 
@@ -1263,7 +1916,7 @@ func _on_score_events_for_achievements(events: Array, _cell: Vector2i) -> void:
 func _on_match_result_for_achievements(result: MatchResult) -> void:
 	if result != null and session_controller != null:
 		MatchHistoryStore.add(_account_id(), String(session_controller.get_match_id()), "ai",
-			"AI Rival", result.to_dictionary(), _active_ai_rival_path)
+			session_controller.rival_name, result.to_dictionary(), _active_ai_rival_path)
 	if result != null and result.outcome == TurnEnums.MatchOutcome.HUMAN_WIN and achievement_client != null:
 		achievement_client.report_unlocks(["ai_victory"])
 
@@ -1290,10 +1943,8 @@ func _replace_hosted_screens() -> void:
 ## Holds the authored splash for a short fixed beat, then runs `on_complete`.
 ##
 ## The hold is branding rather than a loading wait (see `SPLASH_HOLD_SECONDS`).
-## It also hands over cleanly: the engine's own boot splash is set to the same
-## background colour (`application/boot_splash/bg_color`), so the engine splash,
-## this screen, and the first drawn frame of the next screen are one continuous
-## colour rather than a flash between them.
+## The engine boot colour matches the preceding black CHIBI card. This hold begins
+## after the ivory welcome splash has finished its real resource warm-up.
 ##
 ## The handler is a parameter rather than a fixed call to the match boot, because
 ## the splash now hands over to the hub (owner direction, 2026-09-26) and a hold
@@ -1330,21 +1981,30 @@ func _on_delete_account_requested() -> void:
 func _on_account_deleted(success: bool, message: String) -> void:
 	if not success:
 		_account_delete_active = false
-		hub_screen.show_deletion_result(false, message)
+		if is_instance_valid(profile_screen):
+			profile_screen.show_deletion_result(false, message)
 		return
 	_remote_account_deleted = true
 	_cleanup_account_id = String(user_state.get("user", {}).get("id", ""))
-	_release_account_services()
+	_release_account_services(true)
 	_finish_account_cleanup()
 
 
 ## Stop every account writer before clearing disk state or starting a new user.
-func _release_account_services() -> void:
+func _release_account_services(preserve_profile: bool = false) -> void:
 	_clear_opponent_avatar()
 	_bind_layers()
 	if online_client != null:
 		online_client.free()
 		online_client = null
+	if verified_ai_client != null:
+		verified_ai_client.free()
+		verified_ai_client = null
+	if verified_ai_match_list != null:
+		verified_ai_match_list.free()
+		verified_ai_match_list = null
+	_open_verified_ai_when_received = false
+	_pending_verified_ai_portrait = null
 	if matchmaking_client != null:
 		matchmaking_client.free()
 		matchmaking_client = null
@@ -1360,6 +2020,12 @@ func _release_account_services() -> void:
 	if progression_client != null:
 		progression_client.free()
 		progression_client = null
+	if gem_wallet_client != null:
+		gem_wallet_client.free()
+		gem_wallet_client = null
+	if rewarded_ad_controller != null:
+		rewarded_ad_controller.free()
+		rewarded_ad_controller = null
 	_last_progression_match_id = ""
 	for child: Node in get_children():
 		if child is HTTPRequest:
@@ -1370,9 +2036,17 @@ func _release_account_services() -> void:
 	if session_controller != null:
 		session_controller.free()
 		session_controller = null
-	_replace_hosted_screens()
+	if preserve_profile:
+		for child: Node in scene_host.get_children():
+			if child == hub_screen or child == profile_screen:
+				continue
+			scene_host.remove_child(child)
+			child.free()
+	else:
+		_replace_hosted_screens()
 	game_screen = null
-	profile_screen = null
+	if not preserve_profile:
+		profile_screen = null
 	opponent_selection_screen = null
 	user_state.clear()
 
@@ -1380,11 +2054,13 @@ func _release_account_services() -> void:
 func _finish_account_cleanup() -> void:
 	_account_delete_active = false
 	if not UsersStateStore.clear_local_state(users_path.get_base_dir(), _cleanup_account_id):
-		hub_screen.show_deletion_result(false, "The server account was deleted, but some data could not be removed from this device. Retry local cleanup.", true)
+		if is_instance_valid(profile_screen):
+			profile_screen.show_deletion_result(false, "The server account was deleted, but some data could not be removed from this device. Retry local cleanup.", true)
 		return
 	_reset_account_preferences()
 	_update_hub_play_label()
-	hub_screen.show_deletion_result(true, "Account deleted successfully. Your account details and saved state have been removed.", true)
+	if is_instance_valid(profile_screen):
+		profile_screen.show_deletion_result(true, "Account deleted successfully. Your account details and saved state have been removed.", true)
 
 
 func _reset_account_preferences() -> void:
@@ -1412,15 +2088,6 @@ func _sync_feedback_settings() -> void:
 func _on_account_deletion_acknowledged() -> void:
 	# Reload the shell to discard every in-memory view and start at account setup.
 	get_tree().reload_current_scene()
-
-
-func _on_hub_online_requested() -> void:
-	if show_opponent_selection():
-		opponent_selection_screen.select_online()
-		if online_client != null:
-			online_client.set_credentials(String(user_state.get("token", "")), String(user_state.get("user", {}).get("id", "")))
-			_open_online_when_received = true
-			online_client.recover()
 
 
 func _clear_opponent_avatar() -> void:
@@ -1479,7 +2146,8 @@ func _on_opponent_avatar_received(result: int, code: int, _headers: PackedString
 		image.save_png(ProjectSettings.globalize_path(_online_avatar_path(_opponent_avatar_id)))
 	if is_instance_valid(opponent_selection_screen):
 		opponent_selection_screen.set_online_opponent_portrait(_opponent_avatar_texture)
-	if is_instance_valid(game_screen) and session_controller is OnlineGameController:
+	if (is_instance_valid(game_screen) and session_controller is OnlineGameController
+			and not session_controller is VerifiedAiGameController):
 		game_screen.set_rival_portrait(_opponent_avatar_texture)
 	if is_instance_valid(hub_screen) and hub_screen.visible:
 		_refresh_hub_active_games()
@@ -1500,6 +2168,7 @@ func _on_online_lobby_changed(state: String, _message: String, lobby: Dictionary
 
 
 func _on_online_received(data: Dictionary) -> void:
+	TurnNotifications.observe_online_state(data, _account_id())
 	var opponent: Dictionary = data.get("opponent", {})
 	var opponent_id: Variant = opponent.get("id", "")
 	_fetch_opponent_avatar(str(opponent_id) if opponent_id is String else "")
@@ -1514,6 +2183,8 @@ func _on_online_received(data: Dictionary) -> void:
 			_last_progression_match_id = match_id
 			if progression_client != null:
 				progression_client.fetch()
+		if gem_wallet_client != null and String(data.get("gemSettlementStatus", "")) == "confirmed":
+			gem_wallet_client.fetch()
 	if session_controller is OnlineGameController or game_screen != null:
 		return
 	_refresh_hub_active_games()
@@ -1523,18 +2194,59 @@ func _on_online_received(data: Dictionary) -> void:
 	_open_online_when_received = false
 	_boot_online_match.call_deferred(data)
 
+func _on_verified_ai_received(data: Dictionary) -> void:
+	if verified_ai_match_list != null:
+		verified_ai_match_list.refresh()
+	if String(data.get("status", "")) == "completed":
+		var match_id: String = String(data.get("matchId", ""))
+		var view: OnlineSessionView = OnlineSessionView.from_response(data)
+		if view != null:
+			MatchHistoryStore.add(_account_id(), match_id, "ai",
+				String(data.get("opponent", {}).get("displayName", "AI Rival")),
+				MatchResult.build(view).to_dictionary(), _ai_avatar_path(data))
+		if gem_wallet_client != null and String(data.get("gemSettlementStatus", "")) == "confirmed":
+			gem_wallet_client.fetch()
+	if session_controller is VerifiedAiGameController or game_screen != null:
+		return
+	_refresh_hub_active_games()
+	if not _open_verified_ai_when_received:
+		return
+	_open_verified_ai_when_received = false
+	_boot_online_match.call_deferred(data, true)
 
-func _boot_online_match(data: Dictionary) -> void:
-	if game_screen != null or online_client == null:
+func _on_verified_ai_connection_changed(_connected: bool, message: String) -> void:
+	if not _open_verified_ai_when_received or message not in [
+		"This verified AI match is no longer available.",
+		"The AI rival service rejected this match request.",
+	]:
+		return
+	_open_verified_ai_when_received = false
+	var difficulty: int = _pending_verified_ai_difficulty
+	var portrait: Texture2D = _pending_verified_ai_portrait
+	_pending_verified_ai_difficulty = -1
+	_pending_verified_ai_portrait = null
+	if difficulty < 0:
+		if is_instance_valid(hub_screen):
+			hub_screen.show_notice("Verified AI match is no longer available")
+		return
+	_pending_local_match_id = "ai-%d-%d" % [Time.get_unix_time_from_system(), Time.get_ticks_usec()]
+	_pending_local_save_path = GameSessionController.save_path_for_match(_pending_local_match_id)
+	if _boot_match(difficulty, portrait, _pending_verified_ai_rival) and session_controller != null:
+		session_controller.notice.emit("AI rival service unavailable. Playing locally; Gems are not credited.")
+
+
+func _boot_online_match(data: Dictionary, verified_ai: bool = false) -> void:
+	var active_client: OnlineGameApiClient = verified_ai_client if verified_ai else online_client
+	if game_screen != null or active_client == null:
 		return
 	_ensure_feedback_adapter()
-	if not online_client._wanted and String(data.get("status")) != "completed":
+	if not active_client._wanted and String(data.get("status")) != "completed":
 		return
 	if hub_screen != null:
 		hub_screen.visible = false
 	_replace_hosted_screens()
 	opponent_selection_screen = null
-	var controller: OnlineGameController = OnlineGameController.new()
+	var controller: OnlineGameController = VerifiedAiGameController.new() if verified_ai else OnlineGameController.new()
 	session_controller = controller
 	add_child(controller)
 	var screen: GameScreen = (load(GAME_SCREEN_SCENE) as PackedScene).instantiate()
@@ -1543,9 +2255,23 @@ func _boot_online_match(data: Dictionary) -> void:
 	screen.set_player_display_name(_player_display_name())
 	screen.hub_requested.connect(_on_hub_requested)
 	screen.set_player_portrait(PlayerAvatarStore.texture())
-	if _opponent_avatar_texture != null:
+	if progression_client != null:
+		screen.set_player_level(int(progression_client.current.get("level", 0)))
+		progression_client.fetch()
+	if verified_ai:
+		var ai_portrait: Texture2D = HubScreen._portrait_for(_ai_avatar_path(data))
+		screen.set_rival_portrait(ai_portrait)
+		screen.set_rival_name(String(data.get("opponent", {}).get("displayName", "AI Rival")))
+	elif _opponent_avatar_texture != null:
 		screen.set_rival_portrait(_opponent_avatar_texture)
 	_sync_feedback_settings()
 	screen.attach_feedback_adapter(feedback_adapter)
 	screen.attach_controller(controller)
-	controller.attach_client(online_client)
+	controller.attach_client(active_client)
+
+
+func _ai_avatar_path(data: Dictionary) -> String:
+	var key: String = String(data.get("opponent", {}).get("avatarKey", ""))
+	if not key.begins_with("rival_") or not AiRivalCatalog._known_ids().has(key):
+		return _active_ai_rival_path
+	return "res://assets/ui/modern_tabletop/avatars/rivals/%s.tres" % key

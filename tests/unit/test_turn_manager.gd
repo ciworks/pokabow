@@ -794,7 +794,7 @@ func _new_session(match_id: StringName, seed: int) -> GameSessionState:
 func _all_ace_generation(bag_size: int) -> TileGenerationRules:
 	var rules: TileGenerationRules = TileGenerationRules.new()
 	rules.bag_size = bag_size
-	rules.rank_weights = [1.0, 0.0, 0.0, 0.0, 0.0] as Array[float]
+	rules.rank_weights = [1.0, 0.0, 0.0, 0.0] as Array[float]
 	return rules
 
 

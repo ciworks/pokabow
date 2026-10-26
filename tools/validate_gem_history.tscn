@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://h66p6mbixvku"]
+
+[ext_resource type="Script" uid="uid://ck1vbvg1vq7m5" path="res://tools/validate_gem_history.gd" id="1_validator"]
+
+[node name="GemHistoryValidation" type="Node" unique_id=1850017955]
+script = ExtResource("1_validator")

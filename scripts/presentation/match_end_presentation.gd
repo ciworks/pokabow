@@ -5,7 +5,7 @@ signal share_requested
 const T = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 const PORTRAIT = preload("res://scripts/presentation/matchup_portrait.gd")
 const ACCENT = preload("res://scripts/presentation/result_accent.gd")
-const GEM_ICON = preload("res://scripts/presentation/gem_reward_icon.gd")
+const GEM_ICON: Texture2D = preload("res://assets/ui/modern_tabletop/store_gem.svg")
 const DURATION: float = 0.8
 const ACCENT_CYCLE_SECONDS: float = 2.4
 var _elapsed: float = DURATION
@@ -34,6 +34,8 @@ var _card_row: HBoxContainer
 var _reward_card: PanelContainer
 var _reward_heading: Label
 var _reward_pending: Label
+var _reward_divider: VSeparator
+var _reward_columns: Array[VBoxContainer] = []
 var _reward_names: Array[Label] = []
 var _reward_values: Array[Label] = []
 var _reward_details: Array[Label] = []
@@ -155,14 +157,20 @@ func _ready() -> void:
 			line.vertical = true
 			divider.add_theme_stylebox_override("separator", line)
 			reward_row.add_child(divider)
+			_reward_divider = divider
 		var player_reward := VBoxContainer.new()
 		player_reward.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		reward_row.add_child(player_reward)
+		_reward_columns.append(player_reward)
 		_reward_names.append(_label(player_reward, "You" if i == 0 else "Rival", T.SEMIBOLD))
 		var amount_row := HBoxContainer.new()
 		amount_row.alignment = BoxContainer.ALIGNMENT_CENTER
 		player_reward.add_child(amount_row)
-		var gem: Control = GEM_ICON.new()
+		var gem := TextureRect.new()
+		gem.texture = GEM_ICON
+		gem.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		gem.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		gem.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		amount_row.add_child(gem)
 		var amount := _label(amount_row, "+0", T.BOLD)
 		_reward_values.append(amount)
@@ -192,7 +200,7 @@ func _ready() -> void:
 	_share_button = Button.new()
 	_share_button.name = "ShareWinButton"
 	_share_button.text = "Share"
-	_share_button.icon = preload("res://assets/ui/modern_tabletop/share.svg")
+	_share_button.icon = T.icon_texture("share")
 	_share_button.add_theme_constant_override("icon_max_width", 24)
 	_share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	T.style_button(_share_button, "secondary")
@@ -262,12 +270,22 @@ func play(result: MatchResult, projected_rewards: Dictionary = {}) -> void:
 	_scores[1].text = str(result.ai_score)
 	_reward_card.visible = not projected_rewards.is_empty()
 	if _reward_card.visible:
+		var ai_pot: bool = String(projected_rewards.get("mode", "")) == "ai"
+		_reward_heading.text = "AI GEM POT" if ai_pot else "GEMS EARNED"
+		_reward_pending.text = ("Confirmed" if bool(projected_rewards.get("confirmed", false)) else
+			("Pending" if bool(projected_rewards.get("verified", false)) or not ai_pot else "Not credited"))
+		_reward_columns[1].visible = not ai_pot
+		_reward_divider.visible = not ai_pot
 		for i: int in range(2):
 			var prefix: String = "human" if i == 0 else "rival"
 			var pot: int = int(projected_rewards.get(prefix + "_pot", 0))
 			var completion: int = int(projected_rewards.get(prefix + "_completion", 0))
 			_reward_values[i].text = "+%d" % int(projected_rewards.get(prefix + "_total", 0))
-			if result.is_draw():
+			if ai_pot and i == 0:
+				var qualifier: String = "" if bool(projected_rewards.get("confirmed", false)) else " · projected"
+				_reward_details[i].text = ("%d draw share%s" % [pot, qualifier] if result.is_draw() else
+					"%d pot%s" % [pot, qualifier]) if pot > 0 else "Pot unclaimed"
+			elif result.is_draw():
 				_reward_details[i].text = "%d share + %d completion" % [pot, completion]
 			elif pot > 0 and completion > 0:
 				_reward_details[i].text = "%d pot + %d completion" % [pot, completion]

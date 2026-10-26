@@ -16,6 +16,8 @@ var _delay: float = 0.0
 var _pending: Dictionary = {}
 var _request_kind: String = ""
 var _authentication_pending: bool = false
+var base_path: String = "/online-games"
+var _create_payload: Dictionary = {}
 
 func set_credentials(token: String, user_id: String) -> void:
 	if token != access_token and _request != null:
@@ -27,6 +29,7 @@ func set_credentials(token: String, user_id: String) -> void:
 		state = {}
 		match_id = ""
 		_pending = {}
+		_create_payload = {}
 	account_id = user_id
 	access_token = token
 	_authentication_pending = false
@@ -51,6 +54,23 @@ func start(id: String) -> void:
 	var file: FileAccess = FileAccess.open(_resume_path(), FileAccess.WRITE)
 	if file != null:
 		file.store_string(id)
+
+func start_verified_ai(difficulty: int, rival_id: String = "") -> void:
+	base_path = "/ai-games"
+	# A poll for the previous match may still be in flight when New Game is
+	# selected. Its response must not replace the new create request.
+	if _request != null:
+		_request.cancel_request()
+		_request.queue_free()
+		_request = null
+	match_id = ""
+	state = {}
+	_pending = {}
+	_create_payload = {"requestId": MatchmakingApiClient._uuid(), "difficulty": difficulty}
+	if not rival_id.is_empty():
+		_create_payload["rivalId"] = rival_id
+	_wanted = true
+	_delay = 0.0
 
 func stop() -> void:
 	_wanted = false
@@ -84,17 +104,17 @@ func _process(delta: float) -> void:
 		_delay = 8.0
 		return
 	var path: String = "/current" if match_id.is_empty() else "/%s" % match_id
-	_request_kind = "poll" if _pending.is_empty() else "command"
+	_request_kind = "create" if not _create_payload.is_empty() else ("poll" if _pending.is_empty() else "command")
 	if _request_kind == "command":
 		path += "/commands"
 	_request = HTTPRequest.new()
 	_request.timeout = 8.0
 	add_child(_request)
 	_request.request_completed.connect(_completed.bind(_request, _request_kind))
-	var error: int = _send_http(_request, ApiConfiguration.api_base_url() + "/online-games" + path,
+	var error: int = _send_http(_request, ApiConfiguration.api_base_url() + base_path + ("/" if _request_kind == "create" else path),
 		PackedStringArray(["Content-Type: application/json", "Authorization: Bearer %s" % access_token]),
 		HTTPClient.METHOD_GET if _request_kind == "poll" else HTTPClient.METHOD_POST,
-		"" if _request_kind == "poll" else JSON.stringify(_pending))
+		JSON.stringify(_create_payload) if _request_kind == "create" else ("" if _request_kind == "poll" else JSON.stringify(_pending)))
 	if error != OK:
 		_request.queue_free()
 		_request = null
@@ -121,15 +141,21 @@ func _completed(result: int, code: int, _headers: PackedStringArray, body: Packe
 	if code == 404:
 		_clear_resume()
 		_pending = {}
+		_create_payload = {}
 		stop()
-		_set_connection(false, "This online match is no longer available.")
+		_set_connection(false, "This verified AI match is no longer available." if base_path == "/ai-games" else "This online match is no longer available.")
+		return
+	if code == 400 and kind == "create" and base_path == "/ai-games":
+		_create_payload = {}
+		stop()
+		_set_connection(false, "The AI rival service rejected this match request.")
 		return
 	var payload: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if not payload is Dictionary or code not in [200, 409]:
 		_pending = {}
 		_retry()
 		return
-	if match_id.is_empty():
+	if match_id.is_empty() and kind != "create":
 		payload = payload.get("match")
 		if payload == null:
 			stop()
@@ -139,6 +165,8 @@ func _completed(result: int, code: int, _headers: PackedStringArray, body: Packe
 		return
 	if kind == "command":
 		_pending = {}
+	if kind == "create":
+		_create_payload = {}
 	if match_id.is_empty():
 		start(String(payload.matchId))
 	state = payload
@@ -146,8 +174,11 @@ func _completed(result: int, code: int, _headers: PackedStringArray, body: Packe
 	received.emit(state)
 	_delay = 1.0
 	if String(state.get("status")) == "completed":
-		_clear_resume()
-		_wanted = false
+		if String(state.get("gemSettlementStatus", "ineligible")) == "pending":
+			_delay = 2.0
+		else:
+			_clear_resume()
+			_wanted = false
 
 func authentication_failed(message: String) -> void:
 	access_token = ""
@@ -161,14 +192,14 @@ func authentication_failed(message: String) -> void:
 
 func _retry() -> void:
 	_delay = 2.0
-	_set_connection(false, "Connection lost. Reconnecting; the turn clock continues.")
+	_set_connection(false, "Connection lost. Reconnecting to your match.")
 
 func _set_connection(value: bool, message: String) -> void:
 	connected = value
 	connection_changed.emit(value, message)
 
 func _resume_path() -> String:
-	return "user://online_%s.txt" % account_id.sha256_text()
+	return "user://%s_%s.txt" % ["verified_ai" if base_path == "/ai-games" else "online", account_id.sha256_text()]
 
 func _clear_resume() -> void:
 	if FileAccess.file_exists(_resume_path()):

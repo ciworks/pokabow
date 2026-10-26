@@ -65,6 +65,18 @@ func _run() -> void:
 	await settle()
 	await capture("splash-phone-360x800")
 	splash.free()
+	root.content_scale_size = Vector2i.ZERO
+	var chibi: Control = load("res://scenes/splash/chibi_splash_screen.tscn").instantiate()
+	root.add_child(chibi)
+	for dimensions: Vector2i in [Vector2i(320, 568), Vector2i(390, 844), Vector2i(540, 960)]:
+		root.size = dimensions
+		await settle()
+		var logo: TextureRect = chibi.get_node("Logo") as TextureRect
+		var viewport_bounds := Rect2(Vector2.ZERO, Vector2(dimensions))
+		verify(viewport_bounds.encloses(logo.get_global_rect()), "CHIBI logo fits " + str(dimensions))
+		verify(logo.get_global_rect().get_center().distance_to(viewport_bounds.get_center()) < 1.0, "CHIBI logo is centered " + str(dimensions))
+		await capture("chibi-%dx%d" % [dimensions.x, dimensions.y])
+	chibi.free()
 	var app: Node = load("res://scenes/app/app_root.tscn").instantiate()
 	app.set_script(ObservedRoot)
 	var startup_progress: ProgressBar = app.get_node("SceneHost/SplashScreen/CenterContainer/TitleBlock/LoadingProgress")
@@ -72,6 +84,8 @@ func _run() -> void:
 	startup_progress.value_changed.connect(func(value: float) -> void: samples.append(value))
 	var start: int = Time.get_ticks_msec()
 	root.add_child(app)
+	verify(app.get_node_or_null("SceneHost/ChibiSplashScreen") != null, "CHIBI splash starts before the welcome splash")
+	verify(not (app.get_node("SceneHost/SplashScreen") as Control).visible, "Welcome splash starts hidden")
 	# Check layers on the complete startup fixture: the synchronous bootstrap test
 	# tears down audio preloading mid-frame.
 	for path: String in ["SceneHost", "SceneHost/SplashScreen", "OverlayLayer", "AccessibilityLayer"]:
@@ -79,6 +93,8 @@ func _run() -> void:
 	while not app.handed_over and Time.get_ticks_msec() - start < 15000:
 		await process_frame
 	verify(app.handed_over, "Real startup warm-up and splash hold reach the handoff")
+	verify(app.get_node_or_null("SceneHost/ChibiSplashScreen") == null, "CHIBI splash clears before handoff")
+	verify((app.get_node("SceneHost/SplashScreen") as Control).visible, "Welcome splash appears after CHIBI")
 	verify(startup_progress.value == 100, "Audio, tile art and shader warm-up reach completion")
 	verify(samples.size() > 4, "Indicator receives actual startup progress")
 	verify(Time.get_ticks_msec() - start >= 1200, "Existing branding hold preserved")

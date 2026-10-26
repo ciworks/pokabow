@@ -120,10 +120,10 @@ AppRoot
   AccessibilityLayer
 ```
 
-The `AppRoot` boot sequence is: the engine's own boot splash shows first, set
-from `application/boot_splash` to the same background colour as the scene
-splash, with the default image disabled. `AppRoot._ready()` then holds the
-authored `SplashScreen` for `SPLASH_HOLD_SECONDS` before showing the hub. A new
+The `AppRoot` boot sequence is: the engine's own black boot splash shows first,
+with the default image disabled. `AppRoot._ready()` then shows the centered CHIBI
+card on black for one second, followed by the authored ivory `SplashScreen` for
+resource warm-up and its `SPLASH_HOLD_SECONDS` branding hold before showing the hub. A new
 match moves from the hub through `OpponentSelectionScreen` to `GameScreen`; a
 saved match resumes directly into `GameScreen`.
 

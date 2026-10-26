@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://q7gn5xvlaptm"]
 
-[ext_resource type="Script" path="res://tools/validate_final_board_pause.gd" id="1"]
+[ext_resource type="Script" uid="uid://da0ncq1n1x7s8" path="res://tools/validate_final_board_pause.gd" id="1"]
 
-[node name="ValidateFinalBoardPause" type="Node"]
+[node name="ValidateFinalBoardPause" type="Node" unique_id=1962939705]
 script = ExtResource("1")

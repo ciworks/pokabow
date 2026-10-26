@@ -39,7 +39,7 @@ func _run() -> void:
 	var hub: HubScreen = load("res://scenes/hub/hub_screen.tscn").instantiate()
 	root.add_child(hub)
 	await settle()
-	for name: String in ["SettingsButton", "SoundButton"]:
+	for name: String in ["ProfileButton", "SettingsButton", "SoundButton"]:
 		var icon_button: Button = hub.get_node("%" + name)
 		verify(not icon_button.expand_icon, name + " keeps its icon centered within the touch target")
 		verify(icon_button.icon_alignment == HORIZONTAL_ALIGNMENT_CENTER, name + " centers its icon alignment")
@@ -51,13 +51,20 @@ func _run() -> void:
 	]
 	var requests: Array[String] = []
 	hub.play_requested.connect(func() -> void: requests.append("play"))
-	hub.online_requested.connect(func() -> void: requests.append("online"))
 	hub.profile_requested.connect(func() -> void: requests.append("profile"))
 	hub.achievements_requested.connect(func() -> void: requests.append("achievements"))
+	hub.shop_requested.connect(func() -> void: requests.append("shop"))
+	hub.tournaments_requested.connect(func() -> void: requests.append("tournaments"))
 	hub.resume_game_requested.connect(func(kind: String, id: String, path: String) -> void: requests.append(kind + "|" + id + "|" + path))
-	for name: String in ["PlayButton", "OnlineButton", "ProfileButton", "AchievementsButton"]:
+	verify(hub.get_node_or_null("%OnlineButton") == null, "Hub has one play action")
+	verify((hub.get_node("%PlayButton") as Button).text == "Play Now", "Primary action is Play Now")
+	for name: String in ["PlayButton", "ProfileButton", "AchievementsButton"]:
 		hub.get_node("%" + name).pressed.emit()
-	verify(requests == ["play", "online", "profile", "achievements"], "Existing navigation signals route once")
+	verify(requests == ["play", "profile", "achievements"], "Navigation signals route once")
+	hub.get_node("%ShopButton").pressed.emit()
+	verify(requests.back() == "shop", "Shop opens its own destination")
+	hub.get_node("%TournamentsButton").pressed.emit()
+	verify(requests.back() == "tournaments", "Tournaments opens its placeholder destination")
 	for dimensions: Vector2i in [Vector2i(320, 568), Vector2i(360, 800), Vector2i(390, 844), Vector2i(540, 960), Vector2i(540, 1200)]:
 		root.size = dimensions
 		await settle()
@@ -69,29 +76,28 @@ func _run() -> void:
 			verify(hub.get_node("%ActiveGameList").get_child_count() == mini(count, 1), "Compact hub shows at most one saved game")
 			verify(hub.get_node("%ActiveGamesPanel").visible == (count > 0), "No fictitious resume card")
 			var fill: StyleBoxFlat = hub.get_node("%PlayButton").get_theme_stylebox("normal")
-			verify(fill.bg_color == Color("#F4C86A"), "Play AI stays honey with or without saved games")
-			for name: String in ["SettingsButton", "SoundButton", "HomeButton", "AchievementsButton", "ProfileButton"]:
+			verify(fill.bg_color == Color("#F4C86A"), "Play Now stays honey with or without saved games")
+			for name: String in ["GemBalanceButton", "ShopButton", "ProfileButton", "SettingsButton", "SoundButton", "HomeButton", "AchievementsButton", "TournamentsButton"]:
 				var button: Control = hub.get_node("%" + name)
 				verify(viewport.encloses(button.get_global_rect()), name + " stays visible at " + str(dimensions))
 				verify(button.size.x >= 48 and button.size.y >= 48, name + " touch target")
-			for name: String in ["Hero", "Headline", "PlayButton", "OnlineButton", "ActiveGamesPanel"]:
+			for name: String in ["Hero", "Brand", "PlayButton", "ActiveGamesPanel"]:
 				var control: Control = hub.get_node("%" + name)
 				if control.is_visible_in_tree():
 					verify(control.get_global_rect().end.x <= dimensions.x, name + " fits width")
-			for name: String in ["Brand", "Headline"]:
+			for name: String in ["Brand"]:
 				var label: Label = hub.get_node("%" + name)
 				var font: Font = label.get_theme_font("font")
 				verify(font.get_font_name().contains("Fredoka"), name + " resolves Fredoka")
 				for line: String in label.text.split("\n"):
 					verify(font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, label.get_theme_font_size("font_size")).x <= label.size.x + 1, name + " text fits")
-			for name: String in ["HomeButton", "AchievementsButton", "ProfileButton"]:
+			for name: String in ["HomeButton", "AchievementsButton", "TournamentsButton"]:
 				var button: Button = hub.get_node("%" + name)
 				var caption: Label = button.get_node("Contents/Caption")
 				verify(caption.get_minimum_size().x <= button.size.x + 1, name + " caption fits")
-			for name: String in ["PlayButton", "OnlineButton"]:
-				var button: Button = hub.get_node("%" + name)
-				var width: float = button.get_theme_font("font").get_string_size(button.text, HORIZONTAL_ALIGNMENT_LEFT, -1, button.get_theme_font_size("font_size")).x
-				verify(width + button.get_theme_stylebox("normal").get_minimum_size().x <= button.size.x + 1, name + " text fits")
+			var play_button: Button = hub.get_node("%PlayButton") as Button
+			var play_width: float = play_button.get_theme_font("font").get_string_size(play_button.text, HORIZONTAL_ALIGNMENT_LEFT, -1, play_button.get_theme_font_size("font_size")).x
+			verify(play_width + play_button.get_theme_stylebox("normal").get_minimum_size().x <= play_button.size.x + 1, "Play Now text fits")
 			var page_scroll: ScrollContainer = hub.get_node("%PageScroll")
 			verify(page_scroll.get_h_scroll_bar().max_value <= page_scroll.size.x + 1, "No horizontal scroll")
 			if count == 1:
@@ -121,7 +127,7 @@ func _run() -> void:
 	root.content_scale_size = Vector2i(540, 1200)
 	hub.set_active_games(games.slice(0, 1))
 	await settle()
-	for name: String in ["SettingsButton", "SoundButton", "PlayButton", "OnlineButton"]:
+	for name: String in ["ProfileButton", "SettingsButton", "SoundButton", "PlayButton"]:
 		var control: Control = hub.get_node("%" + name)
 		verify(control.size.y * 360.0 / 540.0 >= 48, name + " physical phone touch target")
 	var phone_resume: Button = hub.get_node("%ActiveGameList").get_child(0).find_child("Resume", true, false)

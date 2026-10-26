@@ -12,7 +12,7 @@ extends RefCounted
 ## The record is versioned because ADR-004 section 3 requires the serialization
 ## format to be versioned.
 
-const SCHEMA_VERSION: int = 3
+const SCHEMA_VERSION: int = 4
 
 var schema_version: int = SCHEMA_VERSION
 var tile_id: StringName = &""
@@ -34,10 +34,7 @@ func is_valid() -> bool:
 		return false
 	if not TileEnums.is_valid_suit(suit):
 		return false
-	if rank == TileEnums.TileRank.JOKER:
-		if suit != TileEnums.Suit.NONE or face_color != TileEnums.FaceColor.NONE:
-			return false
-	elif suit == TileEnums.Suit.NONE or TileEnums.color_for_suit(suit) != face_color:
+	if TileEnums.color_for_suit(suit) != face_color:
 		return false
 	if edges.size() != TileEnums.EDGE_COUNT:
 		return false

@@ -74,9 +74,9 @@ Each tile has:
 
 | Property | Values / Notes |
 |---|---|
-| Face | Ace, King, Queen, Jack, Joker |
-| Face Color | Red / Black; Joker has neither |
-| Suit | Hearts, Diamonds, Clubs, Spades; Joker has no suit |
+| Face | Ace, King, Queen, Jack |
+| Face Color | Red / Black |
+| Suit | Hearts, Diamonds, Clubs, Spades |
 | Edges | Top, Right, Bottom, Left |
 | Edge Colors | Blue, Red, Green, Yellow |
 | Rotation | 0°, 90°, 180°, 270° |
@@ -105,25 +105,16 @@ This returns the tile's edges in its current orientation.
 New tiles are generated using:
 
 - Random face.
-- Random red/black color and suit for non-Jokers; Joker has neither.
+- Random red/black color and matching suit.
 - Random edge colors.
 - Initial rotation of 0°.
 
 The source specification does not define probability distributions or weighting for faces or edge colors. Do not introduce such weighting without an explicit design decision.
 
-### 3.4 Joker supply (decided 2026-09-27)
+### 3.4 Four-rank supply (decided 2026-10-23)
 
-One pot contains at most 4 Joker-ranked tiles (ADR-014). Joker is drawn at the
-ordinary rank rate until that allowance is spent, after which the remaining
-tiles draw from the other four ranks only. The allowance is the `max_jokers`
-value of the versioned tile-generation rules resource, never a literal in code.
-
-Joker supply is capped (decided 2026-09-27, ADR-014): one generated pot holds at
-most 4 Joker-ranked tiles, set by `max_jokers` on the versioned tile-generation
-rules. While the allowance is unspent Joker is drawn at its configured rank
-weight; once it is spent the remaining tiles draw from the ordinary ranks only.
-Scoring is unchanged - card values and factors remain as section 5.7 defines
-them.
+The shared pot contains only Ace, King, Queen, and Jack tiles (ADR-022).
+All four ranks use the configured generation weights. No special face is generated.
 
 ---
 
@@ -321,15 +312,15 @@ and matching-edge multipliers. The owner clarified the interactions with existin
 rules on 2026-09-27.
 
 For each newly scored valid hand, add its existing category points (section 5.3)
-to its card values: Jack 1, Queen 2, King 3, Ace 4, Joker 5. Multiply this sum by
+to its card values: Jack 1, Queen 2, King 3, Ace 4. Multiply this sum by
 one card-match factor and then by its edge factor. The card factor is 4 when every
 tile has the same rank and suit, otherwise 3 when every tile has the same suit,
 otherwise 2 when every tile has the same red/black color, otherwise 1. These
-factors never stack. A hand containing a Joker always has card factor 1.
+factors never stack.
 
-Joker is its own rank. Repeated Jokers can form frequency hands under the existing
-hand list. Joker is outside the Jack–Queen–King–Ace straight ladder, has no suit
-or red/black color, and does not substitute for another rank.
+**Current rule (ADR-022, 2026-10-23):** Every tile has one printed rank.
+Poker hands use those ranks directly. No wildcard substitution or rank choice
+is available.
 
 The hand edge factor starts at 1. For each boundary between consecutive tiles in
 that hand that the current move creates, add 1 when the touching edges have the
@@ -579,16 +570,17 @@ Future features identified by the specification include:
 
 - Additional multiplier systems beyond section 5.7.
 - Special/power tiles.
-- PvP multiplayer.
+- Additional PvP formats beyond the existing online matches.
 - Cosmetic unlocks.
-- Leaderboards.
+- General account-wide leaderboards; tournament-specific leaderboards are
+  decided in section 8.6.
 
 These should not be treated as part of the base game.
 
 ## 8.5 Gems and Match Pot (partly Decided, 2026-10-22)
 
 The owner chose **Gems** as the earned in-game currency, replacing the earlier
-proposed earned Credits. In the first release, only online matches generate a
+proposed earned Credits. Online matches generate a
 shared, system-funded Gem pot: qualifying hands played by either player add to
 the pot without debiting either player's balance. Every distinct committed
 poker-hand event contributes, even when the same category is scored again.
@@ -596,28 +588,67 @@ The winner receives the pot; a draw splits it evenly. A player who completes a
 normal match receives a fixed completion grant outside the pot. A resigning
 player receives no completion grant and the opponent receives the pot only,
 with no completion grant. The same reward outcome is intended
-for a future match-ending timeout/forfeit; existing turn timeouts only pass a
-turn and are unchanged. AI matches do not generate pot or completion Gems in
-the first release. Achievement and optional rewarded-ad grants are desired
+for a future match-ending timeout/forfeit; current turns have no timer or
+automatic forfeit. Human-vs-AI matches now project a separate system-funded
+pot with a whole-match cap of 20 Gems on Easy, 40 on Medium, and 80 on Hard.
+Both players' distinct committed hands contribute using the same hand table,
+up to the cap. A human win projects the full pot, a draw half, and a loss or
+resignation nothing; the AI never receives Gems. No AI completion grant applies.
+The match's lowest selected difficulty fixes its reward ceiling, including
+after save/resume. These are provisional balancing values. Spendable AI awards
+require server-controlled AI turns and server-verified settlement. A locally
+played AI match may show a pot projection, but cannot credit the wallet after
+reconnection: replay can check legal moves and scoring, but cannot prove the AI
+chose its recorded moves. Achievement and optional rewarded-ad grants are desired
 sources; the existing result interstitial is not a rewarded ad. Tournament entry
-will spend Gems when tournaments launch; prices and tournament rules are open.
+will spend Gems when tournaments launch under the separate rules in section 8.6.
 
 For the first balancing pass, each distinct committed hand contributes an even
 Gem amount to the pot: Pair 2, Two Pair 4, 3-straight 6, Three-of-a-Kind 8,
-4-straight 10, Full House 12 and 4-of-a-Kind 14. A normal completed match
+4-straight 10, Full House 12 and 4-of-a-Kind 14. A normal completed online match
 awards 10 additional Gems to each player. The amounts are provisional and
 separate from poker points; all draw pots therefore divide evenly.
 
-[Gems and Online Match Pot](sections/11-gems-and-match-pot.md) records the
-settled direction, proposed accounting model and open decisions. The online
+[Gems and Match Pots](sections/11-gems-and-match-pot.md) records the
+settled direction, proposed accounting model and open decisions. The
 gameplay screen now shows a live pot projection and gain animation from
-committed score events. Final balancing, edge cases, tournament pricing and
-rules, achievement/ad grant policy and rollout remain Proposed. No Gem wallet
-or payout settlement is implemented. The earlier [Credits and Cosmetic
+committed score events. Final balancing, achievement/ad
+grant policy and rollout remain open. The account Gem
+wallet and settlement for newly completed, server-controlled online and AI
+matches are implemented; deployment and device verification remain. The earlier [Credits and Cosmetic
 Economy proposal](sections/10-credits-and-cosmetics.md) and
 [ADR-016](decisions/ADR-016-cosmetic-currencies.md) are superseded where they
 conflict with the Gem direction. A future separate premium currency remains a
-proposal; no purchase or conversion rule is approved.
+proposal; no purchase or conversion rule is approved. The Shop screen now
+previews the five owner-reviewed offers (one optional daily ad and four priced
+packs), but its actions are placeholders and no Gems can be granted or bought
+through that screen yet.
+
+## 8.6 Tournaments (Decided 2026-10-26; not implemented)
+
+Tournaments are live, server-authoritative single-elimination brackets of 4,
+8, or 16 players. The backend and an administrator web interface own their
+published rules and schedule. Entry may require minimum Table Level, verified
+online wins, and/or confirmed Gems; all configured thresholds must be met.
+One registered or live tournament per player is allowed. A confirmed entry
+deducts its Gem stake. Withdrawal before registration closes, underfill, and
+administrator cancellation refund eligible existing accounts under the rules in
+[the tournament specification](sections/13-tournaments.md).
+
+Registration closes at the published start time. A full bracket starts
+automatically with random seeding; otherwise it cancels and refunds entrants.
+Tournament-only turns have an administrator-selected 1, 2, or 5 minute server
+clock, and ready matches have a five-minute join window. Draws are replayed
+without another stake until decisive. Winners advance as feeder matches
+finish. The bracket and its tied-placement leaderboard are server-owned.
+
+The champion receives a fixed, system-funded Gem prize, separate from entry
+stakes. Tournament matches give ordinary Table Level XP and online rating for
+deciding played matches but no ordinary Gem pot or completion Gems. Unplayed
+no-show advances give no win, XP, or rating. Ordinary online and AI matches
+retain their untimed rules. The [tournament specification](sections/13-tournaments.md)
+defines forfeits, cancellations, account deletion, public identity, payouts,
+and backend verification requirements in full.
 
 ---
 
@@ -831,14 +862,12 @@ Need to define:
 
 ## 13.5 Turn Rules
 
-Decided and implemented (2026-10-05, [ADR-017](decisions/ADR-017-turn-timer.md)):
-both players have 60 seconds per action phase. A line or swap still ends the
-turn immediately. At zero, return unconfirmed tiles to the rack and pass without
-placing or scoring. The remaining time is shown as a compact `m:ss` text timer
-in the gameplay information row, as amended in [ADR-017](decisions/ADR-017-turn-timer.md).
-Existing match-end conditions still apply. The deadline continues while away;
-on return, expire only the abandoned turn, then start the next player's full
-60 seconds. The settings drawer does not pause the timer.
+Decided and implemented (2026-10-24, [ADR-023](decisions/ADR-023-untimed-turns.md)):
+neither player has a move deadline. A line or swap still ends the turn
+immediately. Waiting, backgrounding, closing settings or reconnecting does not
+pass the turn or discard an unconfirmed line. The gameplay row shows whose turn
+it is without a countdown. Existing match-end conditions still apply. The
+earlier 60-second timer in ADR-017 is superseded.
 
 Need to define:
 
@@ -859,16 +888,16 @@ Resignation after the match has ended is unavailable.
 
 ## 13.6 Tile Distribution
 
-Decided (ADR-004, ADR-010, ADR-014):
+Decided (ADR-004, ADR-010, ADR-022):
 
 - Generation uses one finite shared pot, not unbounded randomness.
 - Face and edge probabilities are uniform unless a design decision changes them.
 - Duplicate tile configurations are permitted; identity is by tile ID.
-- The pot holds at most 4 Joker-ranked tiles.
+- The pot contains only Ace, King, Queen, and Jack tiles.
 - The live pot drawer shows the faces, suits and edges of all remaining tiles, without tile IDs or future draw order. Both online seats see the same unordered inventory.
 
 Resolved by ADR-004 (finite seeded bag, uniform rank/colour/edge selection,
-duplicates permitted) and ADR-014 (at most 4 Jokers in one pot).
+duplicates permitted) and ADR-022 (four ranks only).
 
 ## 13.7 AI Evaluation
 
@@ -944,10 +973,20 @@ permission; see `API_INTEGRATION.md` for local-network setup and diagnosis.
 
 The hub labels its primary action **New Game** when no local saved session is
 present and **Resume** when one is present. New Game shows a pre-match reveal
-with a difficulty picker. It cycles through images in the selected difficulty's
-rival folder, randomly settles on one, and starts the local match with that AI
-difficulty and portrait. Online matchmaking pairs authenticated accounts into a lobby; both players can ready up for server-authoritative live PvP (see `ONLINE_PLAY.md` and `MATCHMAKING.md`). Empty folders
-temporarily use the legacy shared portraits. Resume skips the reveal and
+with a difficulty picker. **Decided (2026-10-26):** the AI rival is one of 15
+named characters, five at each Easy, Medium and Hard tier. Each has a stable ID,
+one bundled cartoon portrait, and a fixed difficulty. The Tiletopia API owns
+the editable roster in PostgreSQL and returns enabled rivals to the selector.
+The selector randomly chooses within the selected tier. A cached API roster,
+then a bundled copy of the 15 identities, supports local play and temporary API outages. Verified AI
+matches store the chosen identity on the server; local saves store its ID, name
+and portrait path. A match keeps its identity if the catalogue changes later.
+Changing difficulty during a match with a named rival is unavailable.
+New Game creates a distinct AI match even when another AI match is active.
+Each active AI match remains available through its own Resume card; selecting
+Resume opens that match by ID. The API may therefore hold multiple active AI
+matches for one account.
+Online matchmaking pairs authenticated accounts into a lobby; both players can ready up for server-authoritative live PvP (see `ONLINE_PLAY.md` and `MATCHMAKING.md`). Resume skips the reveal and
 restores the saved match. Starting a new match creates or reconnects its
 matching Tiletopia game record; resuming reuses the local match identity and
 associated API record.
@@ -957,8 +996,8 @@ Only a completed, server-verified online match awards XP, equally for wins,
 draws and losses. Online pairing uses a separate skill rating. See
 `sections/06-game-modes.md` for the initial thresholds and `MATCHMAKING.md`
 for search behavior. Migration 012 was verified on the configured local database
-on 2026-10-20; tournament
-access and mystery-tile unlock rules remain Future.
+on 2026-10-20. Tournament access is Decided in section 8.6 but is not
+implemented; mystery-tile unlock rules remain Future.
 
 The Settings panel provides **Clear game cache**, which deletes the local saved
 match and its client-side API sync record. If the sync record contains a server

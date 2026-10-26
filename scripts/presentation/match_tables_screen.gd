@@ -41,10 +41,8 @@ func _ready() -> void:
 	var header := HBoxContainer.new()
 	column.add_child(header)
 	_back_button = Button.new()
-	_back_button.text = "‹"
 	_back_button.tooltip_text = "Back"
-	_back_button.custom_minimum_size = Vector2(72, 72)
-	T.style_button(_back_button, "quiet")
+	T.style_back_button(_back_button)
 	_back_button.pressed.connect(_on_back)
 	header.add_child(_back_button)
 	var wordmark := Label.new()
@@ -55,7 +53,7 @@ func _ready() -> void:
 	wordmark.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(wordmark)
 	var balance := Control.new()
-	balance.custom_minimum_size.x = 72
+	balance.custom_minimum_size.x = T.BACK_BUTTON_SIZE.x
 	header.add_child(balance)
 	var divider := HSeparator.new()
 	column.add_child(divider)
@@ -72,7 +70,7 @@ func _ready() -> void:
 	column.add_child(_footer)
 	_share_button = Button.new()
 	_share_button.text = "Share"
-	_share_button.icon = load("res://assets/ui/modern_tabletop/share.svg")
+	_share_button.icon = T.icon_texture("share")
 	_share_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_share_button.custom_minimum_size.y = 72
 	T.style_button(_share_button, "secondary")
@@ -176,7 +174,6 @@ func _build_list() -> void:
 		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(column)
 		_label(column, "%s · %s" % [HubScreen._outcome_label(int(result.get("outcome", 0))).to_upper(), _date_label(String(entry.get("finished_at", "")))], 16, T.MEDIUM)
-		_label(column, String(entry.get("opponent", "Rival")), 23, T.SEMIBOLD)
 		_label(column, "You %d · %s %d" % [int(result.get("human_score", 0)),
 			String(entry.get("opponent", "Rival")), int(result.get("ai_score", 0))], 17, T.REGULAR)
 		var button := Button.new()

@@ -442,7 +442,7 @@ func test_the_representative_sample_is_versioned_and_collision_free() -> void:
 	check_eq(
 		sample.sample_size(),
 		AiRepresentativeSample.SAMPLE_SIZE,
-		"the sample covers five ranks in four rotations"
+		"the sample covers four ranks in four rotations"
 	)
 	check_eq(sample.weights().size(), sample.sample_size(), "every sample tile needs a weight")
 
@@ -466,9 +466,9 @@ func test_the_representative_sample_is_versioned_and_collision_free() -> void:
 
 	check_eq(ranks.size(), TileEnums.TileRank.size(), "every rank must be represented")
 	check_eq(
-		face_colors.size(), TileEnums.FaceColor.size(), "both face colours and Joker's neutral color must be represented"
+		face_colors.size(), TileEnums.FaceColor.size() - 1, "both face colours must be represented"
 	)
-	check_eq(suits.size(), TileEnums.Suit.size(), "all suits and Joker's no-suit state must be represented")
+	check_eq(suits.size(), TileEnums.Suit.size() - 1, "all four suits must be represented")
 
 	# Real bag identities are `<match-id>:tile:<index>` (ADR-004 section 5), so a
 	# sample id must never coincide with one.

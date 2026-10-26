@@ -33,6 +33,11 @@ name and Online Tier. When a match is found, the client requests that player's
 avatar through the paired-opponent endpoint. A missing avatar or failed request
 keeps the packaged rival portrait.
 
+The join request uses `rulesVersion: "pokabow-v3"`. The sibling API's
+`MATCHMAKING_RULES_VERSION` must match before the client can enter the queue;
+deploy and restart the API when this compatibility marker changes. A mismatch
+returns HTTP 400 before a ticket is created.
+
 ## Lifecycle and concurrency
 
 - One active ticket per account, enforced by a partial unique database index.
@@ -95,9 +100,14 @@ settings-icon UID fallback warning; no matchmaking script errors were reported.
    instance, stop that instance first: `/health` alone does not prove that the
    running server includes matchmaking. An unauthenticated
    `GET /matchmaking/tickets/current` should return 401, not 404.
-2. Keep the phone and the API computer on the same LAN. On both game clients,
-   set **Settings > API server IP address** to the API computer's address
-   (currently `192.168.0.189`, port 3000). Do not use `localhost` on the phone.
+2. Keep the phone and the API computer on the same LAN. Configure the API
+   computer's address in `pokabow/server_ip` before export, and clear any older
+   `network/server_ip` value in `user://settings.cfg` on each client if it
+   overrides the new default. The development address is currently
+   `192.168.0.215` on port 3000. Do not use `localhost` on the phone.
+   Android permits cleartext HTTP only to this address and the older
+   `192.168.0.189` development address in `android/build/src/main/res/xml/network_security_config.xml`.
+   If the API address changes, update that allowlist and rebuild the APK.
 3. Use two distinct accounts. A fresh installation creates its own account
    through the first-launch gate. Two ordinary editor runs share the same saved
    account; use phone plus desktop, two devices, or isolated desktop profiles.
@@ -122,7 +132,7 @@ need confirmation on the physical phone.
 
 The legacy /games API still mirrors local AI snapshots. Live PvP now uses
 separate /online-games routes, server-side Godot rules, private player views,
-versioned commands, deadlines and reconnect/resume. Both players ready up before
+versioned commands and reconnect/resume without move deadlines. Both players ready up before
 one shared match is created. Apply migration 008 and configure the server's
 Godot executable and rules checkout as described in ONLINE_PLAY.md.
 

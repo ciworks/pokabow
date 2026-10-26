@@ -15,12 +15,15 @@ const COMPACT_HORIZONTAL_GAP: float = 20.0
 @onready var plate: NinePatchRect = $Plate
 @onready var title: Label = get_node(title_path) as Label
 @onready var value: Label = get_node(value_path) as Label
+@onready var level_badge: AvatarLevelBadge = get_node_or_null("LevelBadge") as AvatarLevelBadge
 
 
 func _ready() -> void:
 	resized.connect(_layout)
 	title.minimum_size_changed.connect(_queue_layout)
 	value.minimum_size_changed.connect(_queue_layout)
+	if level_badge != null:
+		level_badge.minimum_size_changed.connect(_queue_layout)
 	_layout()
 
 
@@ -129,3 +132,17 @@ func _layout_compact_horizontal() -> void:
 	title.size = Vector2(text_width, title_height)
 	value.position = Vector2(text_left, top + title_height)
 	value.size = Vector2(text_width, value_height)
+	_layout_level_badge()
+
+
+func _layout_level_badge() -> void:
+	if level_badge == null or not level_badge.visible:
+		return
+	var badge_size: Vector2 = level_badge.get_combined_minimum_size()
+	level_badge.size = badge_size
+	var portrait_center_x: float = portrait.position.x + portrait.size.x * 0.5
+	var portrait_bottom: float = portrait.position.y + portrait.size.y * (1.0 + portrait.scale.y) * 0.5
+	level_badge.position = Vector2(
+		clampf(portrait_center_x - badge_size.x * 0.5, 2.0, maxf(2.0, size.x - badge_size.x - 2.0)),
+		minf(size.y - badge_size.y, portrait_bottom - badge_size.y * 0.65)
+	)

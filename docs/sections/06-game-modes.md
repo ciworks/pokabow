@@ -87,16 +87,17 @@ the closest available rating inside a search window starting at the greater of
 200 points or the player's uncertainty, then widening by 50 points every
 15 seconds to a 500-point cap. Both players' windows must admit the pairing.
 The profile displays level, XP progress and Online Tier; the matched lobby
-displays the opponent's tier. Tournament entry and mystery-tile rewards remain
-Future until their own eligibility and reward rules are approved.
+displays the opponent's tier. [Tournament rules](13-tournaments.md) are Decided
+but not implemented; mystery-tile rewards remain Future.
 
-The owner chose earned [Gems and an online match pot](11-gems-and-match-pot.md)
+The owner chose earned [Gems and match pots](11-gems-and-match-pot.md)
 in place of proposed earned Credits. Every distinct committed poker hand adds
 to the pot; winner and draw settlement, normal completion grants, resignation
 treatment, and future Gem-spending tournament entry are decided. The seven
-hand contribution amounts and 10-Gem normal completion grant are provisional
-balancing values. Wallet architecture, tournament rules and rollout remain
-Proposed. A separate
+hand contribution amounts and 10-Gem online completion grant are provisional
+balancing values. AI matches project capped pots of 20/40/80 Gems by difficulty,
+with no AI payout or completion grant. Tournament bracket, entry, prize and
+timing rules are [Decided](13-tournaments.md), with rollout pending. A separate
 premium currency and shop remain Future. Existing achievement triggers are
 unchanged.
 
@@ -121,7 +122,7 @@ Explicitly out of scope for the base game:
 | Two Pair Collector and Perfect Match | Decided; progress event path and client detection implemented, pending deployment of API migration 010 |
 | First Login, Streak Starter and Loyal User | Decided; client/API check-in path implemented, pending deployment of API migration 011 |
 | Table Level and Online Tier | Decided; client/API implemented; local migration, endpoint and disposable database lifecycle tests verified 2026-10-20; device verification pending |
-| Earned Gems and online match pot | Core direction Decided; online gameplay projection and animation Implemented and headless-tested; wallet, settlement and redemption Proposed |
+| Earned Gems and match pots | Core direction Decided; online and capped AI projections and animations Implemented and headless-tested; wallet, settlement and redemption Proposed |
 | Separate premium currency | Future proposal; no purchase implementation |
 | Timed challenges, pre-set boards and daily/weekly events | Future |
 | Multipliers, power tiles, PvP, cosmetics, leaderboards | Future |

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://3tqajjm0fxac"]
+
+[ext_resource type="Script" uid="uid://c8ffcxu8a08m8" path="res://tools/validate_store.gd" id="1_store"]
+
+[node name="StoreValidation" type="Node" unique_id=1189173197]
+script = ExtResource("1_store")

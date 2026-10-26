@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b2hn4x4nf3dwa"]
+
+[ext_resource type="Script" uid="uid://b4ycu8del2lti" path="res://tools/validate_achievement_navigation.gd" id="1_nav"]
+
+[node name="AchievementNavigationCheck" type="Node" unique_id=691211809]
+script = ExtResource("1_nav")

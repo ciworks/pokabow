@@ -68,6 +68,7 @@ var gem_pot_view: GemPotView = null
 var gem_travel_layer: GemTravelLayer = null
 var _gem_seen_event_ids: Dictionary = {}
 var _gem_pot_initialized: bool = false
+var _gem_announced_total: int = 0
 @onready var deal_layer: DealLayer = %DealLayer
 @onready var rival_move_layer: RivalMoveLayer = %RivalMoveLayer
 @onready var confetti_layer: ConfettiLayer = %ConfettiLayer
@@ -85,10 +86,8 @@ var _gem_pot_initialized: bool = false
 @onready var ai_score_panel: PanelContainer = %AiScorePanel
 @onready var turn_info_panel: PanelContainer = %TurnInfoPanel
 @onready var turn_info_row: HBoxContainer = %TurnInfoRow
-@onready var turn_status_label: Label = %TurnStatusLabel
 @onready var turn_clock_label: Label = %TurnClockLabel
 @onready var turn_indicator: Label = %TurnIndicator
-@onready var status_label: Label = %StatusLabel
 @onready var board_message_label: Label = %BoardMessageLabel
 @onready var floating_scores: FloatingScores = %FloatingScores
 @onready var summary_overlay: Control = %SummaryOverlay
@@ -118,6 +117,15 @@ func set_player_portrait(portrait: Texture2D) -> void:
 			result_view.texture = portrait
 
 
+## Displays the server-owned Table Level on the player's HUD portrait.
+func set_player_level(level: int) -> void:
+	var badge: AvatarLevelBadge = get_node_or_null(
+		"Root/Column/Hud/HumanScorePanel/HumanScoreBox/LevelBadge"
+	) as AvatarLevelBadge
+	if badge != null:
+		badge.set_level(level)
+
+
 ## Applies the opponent chosen by the pre-match reveal to the rival score card.
 func set_rival_portrait(portrait: Texture2D) -> void:
 	if portrait == null:
@@ -136,6 +144,12 @@ func set_rival_portrait(portrait: Texture2D) -> void:
 			(result_view as FramedPlayerAvatar).set_portrait(portrait)
 		else:
 			result_view.texture = portrait
+
+
+func set_rival_name(display_name: String) -> void:
+	var title: Label = get_node_or_null("Root/Column/Hud/AiScorePanel/AiScoreBox/AiScoreTitle") as Label
+	if title != null and not display_name.is_empty():
+		title.text = display_name
 
 ## Deck identities the row has already drawn, so `_refresh_deck` can tell which
 ## tiles are new and deal only those.
@@ -165,6 +179,8 @@ var _swap_mode: bool = false
 ## untouched (ADR-011 section 5).
 var _drag_tile_id: StringName = &""
 var _presented_board: BoardState = null
+var _presented_move_count: int = 0
+var _presented_rival_hand_count: int = 0
 
 const DeckDragPreviewScript = preload("res://scripts/presentation/deck_drag_preview.gd")
 var _deck_drag_preview: DeckDragPreviewScript = null
@@ -189,9 +205,11 @@ var _move_from_cell: Vector2i = BoardMetrics.NO_CELL
 var feedback: FeedbackAdapter = null
 var _header_notice: String = ""
 var _header_notice_timer: Timer
+var _status_message: String = ""
 var _original_canvas_size: Vector2i
 var _rival_score_events: Array = []
 var _rival_score_cell: Vector2i = Vector2i.ZERO
+var _verified_rival_score_before_flight: int = -1
 var _rival_match_result: MatchResult
 var _pending_match_result: MatchResult
 var _final_board_pause_timer: Timer
@@ -274,9 +292,14 @@ func _process(_delta: float) -> void:
 		return
 	if floating_scores != null and floating_scores.active_count() > 0:
 		return
+	if gem_travel_layer != null and gem_travel_layer.active_flights() > 0:
+		return
 	_set_hand_overview_pending(false)
 	board_input.reset()
 	board_view.show_centered_overview()
+	if controller is VerifiedAiGameController:
+		(controller as VerifiedAiGameController).start_rival_reveal_delay()
+		return
 	if not controller.is_human_turn():
 		_rival_thinking_pause = true
 		turn_indicator.text = RIVAL_THINKING_TEXT
@@ -498,10 +521,8 @@ func _bind_nodes() -> void:
 	ai_score_panel = get_node_or_null("%AiScorePanel") as PanelContainer
 	turn_info_panel = get_node_or_null("%TurnInfoPanel") as PanelContainer
 	turn_info_row = get_node_or_null("%TurnInfoRow") as HBoxContainer
-	turn_status_label = get_node_or_null("%TurnStatusLabel") as Label
 	turn_clock_label = get_node_or_null("%TurnClockLabel") as Label
 	turn_indicator = get_node_or_null("%TurnIndicator") as Label
-	status_label = get_node_or_null("%StatusLabel") as Label
 	board_message_label = get_node_or_null("%BoardMessageLabel") as Label
 	floating_scores = get_node_or_null("%FloatingScores") as FloatingScores
 	summary_overlay = get_node_or_null("%SummaryOverlay") as Control
@@ -526,12 +547,15 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 	_bind_nodes()
 	controller = controller_ref
 	_setup_rival_animation()
+	_setup_gem_pot()
 	if controller is OnlineGameController:
-		_setup_gem_pot()
 		get_node("%DifficultyPicker").hide()
 		get_node("CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions/DifficultyTitle").hide()
 		get_node("%RestartButton").hide()
-		get_node("%MenuHubButton").tooltip_text = "The live turn clock continues while you are away. Use Online lobby to return."
+		get_node("%MenuHubButton").tooltip_text = "You can return to this match from the hub."
+	elif not controller.rival_id.is_empty():
+		get_node("%DifficultyPicker").hide()
+		get_node("CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions/DifficultyTitle").hide()
 	# Wiring runs here as well as in `_ready`, and both calls are idempotent.
 	# A host may add this screen to the tree in the same operation that attaches
 	# the controller (ADR-008 section 5), and `_ready` is not guaranteed to have
@@ -545,8 +569,6 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 		controller.session_started.connect(_on_session_started)
 		controller.session_resumed.connect(_on_session_resumed)
 		controller.state_changed.connect(_refresh_all)
-		controller.turn_clock_changed.connect(_on_turn_clock_changed)
-		controller.turn_timed_out.connect(_on_turn_timed_out)
 		controller.preview_changed.connect(_refresh_staging)
 		controller.line_committed.connect(_on_line_committed)
 		controller.rival_move_committed.connect(_on_rival_move_committed)
@@ -555,11 +577,15 @@ func attach_controller(controller_ref: GameSessionController) -> void:
 		controller.notice.connect(_on_notice)
 		controller.ai_thinking_changed.connect(_on_ai_thinking_changed)
 		controller.recovery_failed.connect(_on_recovery_failed)
+		if controller is VerifiedAiGameController:
+			var verified_ai: VerifiedAiGameController = controller as VerifiedAiGameController
+			verified_ai.human_presentation_ready.connect(_on_verified_ai_human_presented)
+			verified_ai.presentation_wait_started.connect(_on_verified_ai_wait_started)
+			verified_ai.presentation_wait_finished.connect(_on_verified_ai_wait_finished)
 	_refresh_all()
 
 
-## Online matches use their server-committed score ledger for the shared Gem pot.
-## AI play retains its tile stack because Gem awards are online-only at launch.
+## Both modes show their committed hand projection; AI adds a match ceiling.
 func _setup_gem_pot() -> void:
 	if gem_pot_view != null:
 		return
@@ -583,7 +609,17 @@ func _initialize_gem_pot() -> void:
 	for event: ScoreEvent in events:
 		if event != null:
 			_gem_seen_event_ids[event.event_id] = true
-	gem_pot_view.set_total(GemPotRules.total(events))
+	if controller is OnlineGameController and not controller is VerifiedAiGameController:
+		var online: OnlineGameController = controller as OnlineGameController
+		var online_cap: int = GemPotRules.ONLINE_POT_CAP if online.gem_policy_version == GemPotRules.POLICY_VERSION else 0
+		gem_pot_view.set_online(true, bool(online.gem_earnings.get("eligible", true)))
+		gem_pot_view.set_cap(online_cap)
+		_gem_announced_total = GemPotRules.total(events, online_cap)
+	else:
+		gem_pot_view.set_online(false)
+		gem_pot_view.set_cap(AiGemPotRules.cap_for(controller.ai_gem_difficulty()))
+		_gem_announced_total = AiGemPotRules.total(events, controller.ai_gem_difficulty())
+	gem_pot_view.set_total(_gem_announced_total)
 	_gem_pot_initialized = true
 
 
@@ -593,15 +629,20 @@ func _show_gem_awards(events: Array, fallback_cell: Vector2i) -> void:
 	if not _gem_pot_initialized:
 		_initialize_gem_pot()
 		return
+	if controller is OnlineGameController and not controller is VerifiedAiGameController \
+			and not bool((controller as OnlineGameController).gem_earnings.get("eligible", true)):
+		return
 	var destination: Vector2 = gem_travel_layer.get_global_transform().affine_inverse() * gem_pot_view.arrival_global()
 	for item: Variant in events:
 		var event: ScoreEvent = item as ScoreEvent
 		if event == null or _gem_seen_event_ids.has(event.event_id):
 			continue
 		_gem_seen_event_ids[event.event_id] = true
-		var amount: int = GemPotRules.contribution(event)
+		var amount: int = GemPotRules.contribution(event, _gem_announced_total, gem_pot_view.cap()) if controller is OnlineGameController and not controller is VerifiedAiGameController else \
+			AiGemPotRules.contribution(event, _gem_announced_total, controller.ai_gem_difficulty())
 		if amount <= 0:
 			continue
+		_gem_announced_total += amount
 		var hand_cell: Vector2i = event.cells[int(event.cells.size() / 2)] if not event.cells.is_empty() else fallback_cell
 		var board_rect: Rect2 = BoardMetrics.cell_rect(board_view.global_board_rect(), hand_cell, BoardEnums.BOARD_WIDTH)
 		var visible_board: Rect2 = board_view.global_visible_rect().grow(-24.0)
@@ -610,7 +651,7 @@ func _show_gem_awards(events: Array, fallback_cell: Vector2i) -> void:
 		var ripple_delay: float = board_view.reveal_layer.ripple_duration() if board_view != null and board_view.reveal_layer != null else 0.0
 		var on_arrival := func() -> void:
 			if is_instance_valid(gem_pot_view):
-				gem_pot_view.set_total(gem_pot_view.total() + amount)
+				gem_pot_view.set_total(gem_pot_view.total() + amount, true)
 				gem_pot_view.pulse()
 		gem_travel_layer.play(origin, destination, amount, on_arrival, ripple_delay)
 
@@ -717,11 +758,17 @@ func _on_navigation_action(action: StringName) -> void:
 		&"Pot":
 			_on_pot_pressed()
 		&"Play":
-			_on_confirm_pressed()
+			if _swap_mode:
+				_on_swap_confirm_pressed()
+			else:
+				_on_confirm_pressed()
 		&"Resign":
 			_on_resign_pressed()
 		&"Undo":
-			_on_cancel_pressed()
+			if _swap_mode:
+				_on_swap_cancel_pressed()
+			else:
+				_on_cancel_pressed()
 		&"Swap":
 			if not _swap_mode:
 				_on_swap_pressed()
@@ -793,21 +840,13 @@ func _apply_modern_visuals() -> void:
 	root.add_theme_constant_override("margin_top", 14)
 	board_message_label.add_theme_color_override("font_color", Tabletop.ink())
 	board_message_label.add_theme_font_override("font", Tabletop.REGULAR)
-	board_message_label.add_theme_font_size_override("font_size", 14)
-	for label: Label in [turn_status_label, turn_clock_label]:
-		label.add_theme_color_override("font_color", Tabletop.ink())
-		label.add_theme_font_override("font", Tabletop.REGULAR)
-		label.add_theme_font_size_override("font_size", 16)
-	turn_clock_label.add_theme_font_override("font", Tabletop.SEMIBOLD)
+	board_message_label.add_theme_font_size_override("font_size", 16)
+	turn_clock_label.hide()
 	turn_info_panel.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.canvas_alt(), 18, 8.0))
 	var back_button: Button = get_node("%BackToHubButton") as Button
-	back_button.icon = load("res://assets/ui/modern_tabletop/game_back.svg") as Texture2D
-	back_button.expand_icon = false
-	Tabletop.style_button(back_button, "quiet")
-	for state: String in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-		back_button.add_theme_color_override(state, Tabletop.ink())
+	Tabletop.style_back_button(back_button)
 	var menu_button: Button = get_node("%HeaderSpacer") as Button
-	menu_button.icon = load("res://assets/ui/modern_tabletop/menu.svg") as Texture2D
+	menu_button.icon = Tabletop.icon_texture("menu")
 	menu_button.expand_icon = false
 	Tabletop.style_button(menu_button, "quiet")
 	for panel: PanelContainer in [human_score_panel, ai_score_panel]:
@@ -832,7 +871,6 @@ func _apply_modern_visuals() -> void:
 	drawer_panel.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.canvas(), 22, 18.0))
 	var preview_panel: PanelContainer = get_node("%PreviewPanel") as PanelContainer
 	preview_panel.add_theme_stylebox_override("panel", Tabletop.panel(Tabletop.sage(), 16, 14.0))
-	status_label.add_theme_color_override("font_color", Tabletop.muted())
 	turn_indicator.add_theme_color_override("font_color", Tabletop.ink())
 	turn_indicator.add_theme_font_override("font", Tabletop.SEMIBOLD)
 	for button: Button in [swap_confirm_button, swap_cancel_button, restart_button, resign_button, get_node("%CloseMenuButton") as Button]:
@@ -1207,13 +1245,13 @@ func _on_swap_cancel_pressed() -> void:
 	_refresh_all()
 
 
-## Writes one line of feedback under the active tile.
+## Sends contextual move feedback to the caption below the board.
 ##
 ## ADR-011 section 11 leaves the wording to presentation while the rule stays in
 ## the application layer, so this only displays a sentence it is handed.
 func _set_status(text: String) -> void:
-	if status_label != null:
-		status_label.text = text
+	_status_message = text
+	_refresh_board_message()
 
 
 ## Leaves swap mode and clears every mark, on both the screen and the row.
@@ -1223,11 +1261,12 @@ func _close_swap_mode() -> void:
 	if deck_view != null:
 		deck_view.set_mark_mode(false)
 	_apply_swap_controls()
+	_refresh_navigation()
 
 
 ## Shows only the swap controls that belong to the current mode.
 ##
-## The bottom bar starts a swap; the drawer offers its confirm/cancel pair.
+## The bottom bar starts a swap and gives it a direct submit/cancel path.
 func _apply_swap_controls() -> void:
 	if swap_confirm_button != null:
 		swap_confirm_button.visible = _swap_mode
@@ -1591,6 +1630,9 @@ func _on_difficulty_selected(index: int) -> void:
 	if controller == null or difficulty_picker == null:
 		return
 	controller.set_ai_difficulty(difficulty_picker.get_item_id(index))
+	if gem_pot_view != null:
+		gem_travel_layer.clear()
+		_initialize_gem_pot()
 	_refresh_difficulty()
 
 
@@ -1609,6 +1651,7 @@ func _on_session_started() -> void:
 		gem_travel_layer.clear()
 	_gem_pot_initialized = false
 	_gem_seen_event_ids.clear()
+	_gem_announced_total = 0
 	if tile_pot_drawer != null:
 		tile_pot_drawer.set_open(false, false)
 	_cancel_final_board_pause()
@@ -1655,7 +1698,6 @@ func _is_header_notice(text: String) -> bool:
 		text == OPENING_NOTICE_TEXT
 		or text == LINE_NOTICE_TEXT
 		or text == NO_VALID_MOVE_NOTICE_TEXT
-		or text == GameSessionController.TURN_TIMEOUT_NOTICE
 		or text == GameSessionController.INVALID_POKER_HAND_NOTICE
 		or text == GameSessionController.NOT_CONNECTED_NOTICE
 	)
@@ -1670,10 +1712,9 @@ func _is_staged_line_notice(text: String) -> bool:
 	)
 
 
-## Keep notices in the caption; only cell-specific placement details belong on
-## the board itself.
-func _board_preview_reason(reason: String) -> String:
-	return "" if _is_header_notice(reason) else reason
+## Invalid-move wording is always shown below the board, not on its preview.
+func _board_preview_reason(_reason: String) -> String:
+	return ""
 
 
 ## Messages temporarily replace turn status without overlaying the board.
@@ -1703,7 +1744,20 @@ func _clear_header_notice() -> void:
 
 
 func _refresh_board_message() -> void:
-	board_message_label.text = _header_notice if not _header_notice.is_empty() else "Pinch to explore the board"
+	if board_message_label == null:
+		return
+	if not _header_notice.is_empty():
+		board_message_label.text = _header_notice
+	elif not _status_message.is_empty():
+		board_message_label.text = _status_message
+	elif controller == null or controller.get_session() == null:
+		board_message_label.text = ""
+	elif controller.is_over():
+		board_message_label.text = "Match over"
+	elif controller.is_human_turn() and not _rival_is_animating():
+		board_message_label.text = "Your turn"
+	else:
+		board_message_label.text = "Rival's turn"
 
 
 ## Shows the recovery panel when a saved match could not be restored
@@ -1740,6 +1794,20 @@ func _on_recovery_restart_pressed() -> void:
 ## the message can never disagree with the authoritative thinking state.
 func _on_ai_thinking_changed(_thinking: bool) -> void:
 	_refresh_status()
+
+
+func _on_verified_ai_human_presented() -> void:
+	_set_hand_overview_pending(true)
+
+
+func _on_verified_ai_wait_started() -> void:
+	_rival_thinking_pause = true
+	_refresh_all()
+
+
+func _on_verified_ai_wait_finished() -> void:
+	_rival_thinking_pause = false
+	_refresh_all()
 
 
 ## Redraws the board over every cell the committed line wrote
@@ -1800,11 +1868,19 @@ func _display_score_awarded(events: Array, cell: Vector2i) -> void:
 		if String(scorer_id).is_empty():
 			scorer_id = event.player_id
 	if total > 0:
-		var scorer_name: String = HUMAN_LABEL if scorer_id == TurnEnums.HUMAN_PLAYER_ID else AI_LABEL
+		var scorer_name: String = HUMAN_LABEL if scorer_id == TurnEnums.HUMAN_PLAYER_ID else _opponent_score_name()
 		var point_word: String = "point" if total == 1 else "points"
 		_show_header_notice("%s scored %d %s" % [scorer_name, total, point_word])
 		if floating_scores != null:
 			floating_scores.spawn(_popup_anchor(cell), total)
+
+
+func _opponent_score_name() -> String:
+	if controller == null:
+		return AI_LABEL
+	var name: String = (controller as OnlineGameController).opponent_name if controller is OnlineGameController else controller.rival_name
+	name = name.strip_edges()
+	return name if not name.is_empty() else AI_LABEL
 
 
 ## Holds the completed board on screen before showing a normally finished match.
@@ -1849,45 +1925,53 @@ func _cancel_final_board_pause() -> void:
 
 
 func _show_match_result(result: MatchResult) -> void:
-	_cue_match_end()
+	if not summary_overlay.visible:
+		_cue_match_end()
 	summary_title.text = _summary_title(result)
 	summary_body.text = _summary_body(result)
 	var rewards: Dictionary = {}
-	if controller is OnlineGameController and controller.get_session() != null:
+	if controller is VerifiedAiGameController and controller.get_session() != null:
 		var events: Array[ScoreEvent] = controller.get_session().get_ledger().get_events()
-		rewards = GemPotRules.projected_payout(result, GemPotRules.total(events))
+		rewards = AiGemPotRules.projected_payout(result,
+			AiGemPotRules.total(events, controller.ai_gem_difficulty()), controller.ai_gem_difficulty())
+		rewards["verified"] = (controller as VerifiedAiGameController).gem_settlement_status != "ineligible"
+		var settlement: Dictionary = (controller as VerifiedAiGameController).gem_settlement
+		if not settlement.is_empty():
+			rewards["human_pot"] = int(settlement.get("humanPot", 0))
+			rewards["human_total"] = int(settlement.get("humanTotal", 0))
+			rewards["confirmed"] = true
+	elif controller is OnlineGameController and controller.get_session() != null:
+		var events: Array[ScoreEvent] = controller.get_session().get_ledger().get_events()
+		var online: OnlineGameController = controller as OnlineGameController
+		var online_cap: int = GemPotRules.ONLINE_POT_CAP if online.gem_policy_version == GemPotRules.POLICY_VERSION else 0
+		rewards = GemPotRules.projected_payout(result, GemPotRules.total(events, online_cap))
+		if online_cap > 0 and not bool(online.gem_earnings.get("eligible", true)):
+			for key: String in ["human_pot", "rival_pot", "human_completion", "rival_completion", "human_total", "rival_total"]:
+				rewards[key] = 0
+		var settlement: Dictionary = (controller as OnlineGameController).gem_settlement
+		if not settlement.is_empty():
+			rewards = {
+				"human_pot": int(settlement.get("humanPot", 0)),
+				"rival_pot": int(settlement.get("rivalPot", 0)),
+				"human_completion": int(settlement.get("humanCompletion", 0)),
+				"rival_completion": int(settlement.get("rivalCompletion", 0)),
+				"human_total": int(settlement.get("humanTotal", 0)),
+				"rival_total": int(settlement.get("rivalTotal", 0)),
+				"confirmed": true,
+			}
+	elif controller != null and controller.get_session() != null:
+		var events: Array[ScoreEvent] = controller.get_session().get_ledger().get_events()
+		rewards = AiGemPotRules.projected_payout(result,
+			AiGemPotRules.total(events, controller.ai_gem_difficulty()), controller.ai_gem_difficulty())
 	(summary_overlay as MatchEndPresentation).play(result, rewards)
 	_refresh_all()
 
 
-func _on_turn_clock_changed(player_id: StringName, seconds_left: int) -> void:
-	_update_turn_info(seconds_left, player_id)
-
-
-## Writes the concept's single-line turn caption and mm:ss countdown.
-func _update_turn_info(seconds_left: int, active_player_id: StringName = &"") -> void:
-	var active: bool = controller != null and not controller.is_over()
+## Shows whose move is pending without imposing a countdown.
+func _update_turn_info() -> void:
+	var active: bool = controller != null and controller.get_session() != null and not controller.is_over()
 	turn_info_panel.visible = active
-	if not active:
-		turn_status_label.text = ""
-		turn_clock_label.text = ""
-		return
-	var player_id: StringName = active_player_id
-	if player_id == &"":
-		player_id = TurnEnums.HUMAN_PLAYER_ID if controller.is_human_turn() else TurnEnums.AI_PLAYER_ID
-	turn_status_label.text = "Your turn" if player_id == TurnEnums.HUMAN_PLAYER_ID else "Rival's turn"
-	turn_clock_label.text = _format_turn_clock(seconds_left)
-
-
-## Formats the remaining seconds in the same compact form used by the concept.
-func _format_turn_clock(seconds: int) -> String:
-	var bounded: int = maxi(0, seconds)
-	return "%d:%02d" % [int(bounded / 60), bounded % 60]
-
-
-func _on_turn_timed_out(_player_id: StringName) -> void:
-	_end_drag()
-	_close_swap_mode()
+	turn_clock_label.text = ""
 
 
 ## Rebuilds every HUD value and the board from authoritative state.
@@ -1900,10 +1984,22 @@ func _refresh_all() -> void:
 	var board: BoardState = null
 	if has_controller:
 		board = controller.get_board()
+	var previous_board: BoardState = _presented_board
+	var previous_move_count: int = _presented_move_count
+	var previous_rival_hand_count: int = _presented_rival_hand_count
 	if not has_controller or board != _presented_board:
 		_end_drag()
 	_presented_board = board
-	board_view.set_board(board)
+	var session: GameSessionState = controller.get_session() if has_controller else null
+	_presented_move_count = session.move_count() if session != null else 0
+	_presented_rival_hand_count = controller.opponent_deck_count() if session != null else 0
+	board_view.set_board(board, controller is VerifiedAiGameController and previous_board != null)
+	if controller is VerifiedAiGameController and _rival_thinking_pause:
+		# A fresh server projection replaces the BoardState and resets its camera.
+		# Keep the whole board visible while the rival's new tiles fly in.
+		board_view.show_centered_overview()
+		_animate_verified_ai_line(session, board, previous_board, previous_move_count,
+			previous_rival_hand_count)
 	# Score highlights come only from new awards, never from board refreshes.
 	board_view.clear_clusters()
 	# The development overlay reads the same authoritative state the board draws
@@ -1926,16 +2022,22 @@ func _refresh_all() -> void:
 		_set_interactive(false)
 		turn_indicator.text = ""
 		turn_info_panel.visible = false
-		turn_status_label.text = ""
 		turn_clock_label.text = ""
 		_clear_header_notice()
+		_set_status("")
 		%OpponentRack.set_tile_count(0)
 		tile_pile_view.set_tile_count(0)
 		available_tiles_label.text = ""
-		status_label.text = ""
 		return
-	if gem_pot_view != null and not _gem_pot_initialized and controller.get_session() != null:
-		_initialize_gem_pot()
+	if gem_pot_view != null and controller.get_session() != null:
+		var expected_cap: int = (GemPotRules.ONLINE_POT_CAP if (controller as OnlineGameController).gem_policy_version == GemPotRules.POLICY_VERSION else 0) if controller is OnlineGameController and not controller is VerifiedAiGameController else \
+			AiGemPotRules.cap_for(controller.ai_gem_difficulty())
+		if not _gem_pot_initialized or gem_pot_view.cap() != expected_cap:
+			if gem_travel_layer != null:
+				gem_travel_layer.clear()
+			_initialize_gem_pot()
+		elif controller is OnlineGameController and not controller is VerifiedAiGameController:
+			gem_pot_view.set_online(true, bool((controller as OnlineGameController).gem_earnings.get("eligible", true)))
 
 	var human_turn: bool = controller.is_human_turn() and not _rival_is_animating()
 	if resign_button != null:
@@ -1946,12 +2048,14 @@ func _refresh_all() -> void:
 
 	human_score_value.text = str(controller.human_score())
 	_refresh_difficulty()
-	ai_score_value.text = str(controller.ai_score())
+	ai_score_value.text = str(_verified_rival_score_before_flight if _verified_rival_score_before_flight >= 0 else controller.ai_score())
 	var over: bool = controller.is_over()
 	if over and tile_pot_drawer != null:
 		tile_pot_drawer.set_open(false, false)
 	# Hide the pot artwork and count together on the game-over screen.
-	(get_node("%PotPanel") as Control).visible = gem_pot_view != null or not over or _rival_is_animating()
+	(get_node("%PotPanel") as Control).visible = (
+		controller is OnlineGameController and gem_pot_view != null or not over or _rival_is_animating()
+	)
 	tile_pile_view.set_tile_count(controller.remaining_tiles())
 	bottom_navigation.set_pot_count(controller.remaining_tiles())
 	if tile_pot_drawer != null and tile_pot_drawer.is_open:
@@ -1962,8 +2066,8 @@ func _refresh_all() -> void:
 	elif human_turn:
 		turn_indicator.text = "Your turn"
 	else:
-		turn_indicator.text = "Rival's turn"
-	_update_turn_info(controller.turn_seconds_left())
+		turn_indicator.text = RIVAL_THINKING_TEXT if _rival_thinking_pause else "Rival's turn"
+	_update_turn_info()
 
 	if over:
 		_clear_header_notice()
@@ -2138,7 +2242,8 @@ func _refresh_command_context() -> void:
 	swap_confirm_button.disabled = not human_turn or _swap_tiles.is_empty()
 	var rack_hint: Label = get_node_or_null("%RackHint") as Label
 	if rack_hint != null:
-		rack_hint.text = "%d selected · Open settings to swap" % _swap_tiles.size() if _swap_mode else "Drag to place · Tap to rotate"
+		rack_hint.text = ("Tap tiles to mark for swap" if _swap_tiles.is_empty() else
+			"%d marked for swap" % _swap_tiles.size()) if _swap_mode else "Drag to place · Tap to rotate"
 	_refresh_navigation()
 	var preview: ScoreTransaction = controller.pending_score_preview() if human_turn and not _swap_mode else null
 	var names: Array[String] = ["PokerPreview", "EdgePreview", "ClusterPreview"]
@@ -2163,11 +2268,11 @@ func _refresh_navigation() -> void:
 	if bottom_navigation != null:
 		var human_turn: bool = controller != null and controller.is_human_turn()
 		var pending: bool = human_turn and controller.has_pending() and not _swap_mode
-		var has_hand: bool = human_turn and controller != null and not controller.human_deck().is_empty()
+		bottom_navigation.set_swap_selection(_swap_mode, _swap_tiles.size())
 		bottom_navigation.set_available(&"Resign", controller != null and not controller.is_over())
 		bottom_navigation.set_available(&"Pot", controller != null and not controller.is_over())
-		bottom_navigation.set_available(&"Undo", pending)
-		bottom_navigation.set_available(&"Play", pending)
+		bottom_navigation.set_available(&"Undo", human_turn and (_swap_mode or pending))
+		bottom_navigation.set_available(&"Play", human_turn and (_swap_mode and not _swap_tiles.is_empty() or pending))
 		bottom_navigation.set_available(&"Swap", human_turn and not _swap_mode)
 
 
@@ -2210,13 +2315,16 @@ func _refresh_status() -> void:
 		var online: OnlineGameController = controller as OnlineGameController
 		get_node("Root/Column/Hud/AiScorePanel/AiScoreBox/AiScoreTitle").text = online.opponent_name
 		if online.client == null or not online.client.connected:
-			_set_status("Reconnecting... The turn clock continues.")
+			_set_status("Reconnecting... Your turn is saved.")
+			return
+		if controller is VerifiedAiGameController and _rival_thinking_pause:
+			_set_status(RIVAL_THINKING_TEXT)
 			return
 		if online.client.has_pending_command():
 			_set_status("Sending your move...")
 			return
 		if not online.opponent_connected:
-			_set_status("Opponent disconnected. The turn clock continues.")
+			_set_status("Opponent disconnected. The pending turn remains.")
 			return
 	if not controller.is_human_turn():
 		_set_status(
@@ -2225,9 +2333,9 @@ func _refresh_status() -> void:
 		return
 	if _swap_mode:
 		if _swap_tiles.is_empty():
-			_set_status("Select tiles, then open settings to confirm the swap")
+			_set_status("Select tiles to swap")
 		else:
-			_set_status("Returning %d tile(s) · Open settings to confirm" % _swap_tiles.size())
+			_set_status("%d marked for swap" % _swap_tiles.size())
 		return
 	if controller.has_pending():
 		if controller.is_line_valid():
@@ -2239,7 +2347,7 @@ func _refresh_status() -> void:
 		else:
 			_set_status(controller.line_reason())
 		return
-	_set_status("Drag a tile from your hand to the board, or Swap")
+	_set_status("")
 
 
 ## Enables the tile controls only when the human may act.
@@ -2331,6 +2439,24 @@ func _rival_is_animating() -> bool:
 	return rival_move_layer != null and rival_move_layer.is_playing()
 
 
+func _animate_verified_ai_line(session: GameSessionState, board: BoardState,
+		previous_board: BoardState, previous_move_count: int, hand_before: int) -> void:
+	if session == null or board == null or previous_board == null or rival_move_layer == null \
+			or session.move_count() <= previous_move_count:
+		return
+	var move: ScoringMove = session.last_move()
+	if move == null or move.player_id != TurnEnums.AI_PLAYER_ID:
+		return
+	var tiles: Array[TileSnapshot] = []
+	for placement: ScoringMove.Placement in move.placements:
+		var tile: TileSnapshot = board.get_tile(placement.cell)
+		if tile == null or tile.get_tile_id() != placement.tile_id:
+			return
+		tiles.append(tile)
+	if rival_move_layer.play(tiles, hand_before, controller.opponent_deck_count(), false):
+		_verified_rival_score_before_flight = int(ai_score_value.text)
+
+
 func _on_rival_move_committed(result: LineResult, hand_before: int, hand_after: int) -> void:
 	if result == null or not result.was_committed() or rival_move_layer == null:
 		return
@@ -2344,6 +2470,10 @@ func _on_rival_move_committed(result: LineResult, hand_before: int, hand_after: 
 
 
 func _on_rival_placements_finished() -> void:
+	if _verified_rival_score_before_flight >= 0:
+		_verified_rival_score_before_flight = -1
+		if controller != null:
+			ai_score_value.text = str(controller.ai_score())
 	var events: Array = _rival_score_events
 	_rival_score_events = []
 	if not events.is_empty():
@@ -2359,6 +2489,7 @@ func _on_rival_animation_finished() -> void:
 
 
 func _cancel_rival_animation() -> void:
+	_verified_rival_score_before_flight = -1
 	_rival_score_events.clear()
 	_rival_match_result = null
 	if rival_move_layer != null:

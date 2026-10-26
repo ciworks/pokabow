@@ -229,9 +229,9 @@ func test_game_screen_provides_the_adr_008_hierarchy() -> void:
 		"Root/Column/Hud/PotPanel": "PanelContainer",
 		"Root/Column/TurnInfoPanel": "PanelContainer",
 		"Root/Column/TurnInfoPanel/TurnInfoRow": "HBoxContainer",
-		"Root/Column/TurnInfoPanel/TurnInfoRow/TurnStatusLabel": "Label",
 		"Root/Column/TurnInfoPanel/TurnInfoRow/OpponentRack": "Control",
 		"Root/Column/TurnInfoPanel/TurnInfoRow/TurnClockLabel": "Label",
+		"Root/Column/BoardMessageLabel": "Label",
 		"Root/Column/DeckBar/DeckPanel/RackColumn/DeckRow/DeckView": "Control",
 		"BottomNavigation": "PanelContainer",
 	}
@@ -258,12 +258,11 @@ func test_game_screen_provides_the_adr_008_hierarchy() -> void:
 		"TurnIndicator",
 		"TurnInfoRow",
 		"TurnInfoPanel",
-		"TurnStatusLabel",
 		"TurnClockLabel",
+		"BoardMessageLabel",
 		"AvailableTilesLabel",
 		"TilePileView",
 		"DealLayer",
-		"StatusLabel",
 		"FloatingScores",
 		"ScoreRevealLayer",
 		"SummaryOverlay",
@@ -1205,7 +1204,7 @@ func test_the_swap_returns_tiles_for_equal_replacements_and_consumes_the_turn() 
 	check_eq(session.move_count(), 0, "marking a swap tile must not record a move")
 	check_eq(board.get_revision(), revision_before, "marking a swap tile must not touch the board")
 
-	screen._on_swap_confirm_pressed()
+	screen.bottom_navigation.buttons[&"Play"].pressed.emit()
 
 	check(not screen.is_swap_mode(), "submitting the swap must close the swap set")
 	check_eq(screen.swap_tiles().size(), 0, "a submitted swap must leave no marks behind")
@@ -1352,14 +1351,37 @@ func test_committed_move_shows_one_total_popup() -> void:
 	if check_not_null(first, "a popup must be a label"):
 		check_eq(first.text, "14", "the popup sums every award without a plus prefix")
 		check_eq(first.get_theme_font_size("font_size"), 55, "the score is half its former 110-point size")
-		check_eq(first.get_theme_color("font_color"), Color.WHITE, "the score is white")
-		check_eq(first.get_theme_color("font_outline_color"), Color.BLACK, "the score outline is black")
-		check(first.get_theme_constant("outline_size") > 0, "the outline is visible")
+		check_eq(first.get_theme_font("font"), TABLETOP_THEME.BOLD, "the popup uses Fredoka Bold")
+		check_eq(first.get_theme_color("font_color"), Color("#F6F2E9"), "the score is ivory")
+		check_eq(first.get_theme_color("font_outline_color"), Color("#173D42"), "the outline is deep teal")
+		check_eq(first.get_theme_constant("outline_size"), 5, "the outline stays readable without dominating")
 	screen._on_score_awarded([
 		_make_event(&"score:move:m2:edge", ScoringEnums.ScoreCategory.EDGE_MATCH, 2, "")
 	], Vector2i(6, 5))
 	check_eq(screen.floating_scores.active_count(), 2, "a subsequent move gets its own popup")
 	check_eq((screen.floating_scores.get_child(1) as Label).text, "2", "totals do not accumulate across moves")
+	_release(screen)
+
+
+func test_rival_score_notice_uses_the_match_opponent_name() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	screen.controller.rival_name = "Pippa"
+	var event: ScoreEvent = ScoreEvent.create(&"score:move:rival:edge", &"move:rival",
+		TurnEnums.AI_PLAYER_ID, ScoringEnums.ScoreCategory.EDGE_MATCH, 2,
+		[Vector2i(5, 5)], {}, 1, "scoring:1")
+	screen._on_score_awarded([event], Vector2i(5, 5))
+	check_eq(screen.board_message_label.text, "Pippa scored 2 points",
+		"local named rival appears in the below-board score notice")
+	var local_controller: GameSessionController = screen.controller
+	var online := OnlineGameController.new()
+	online.opponent_name = "Mina"
+	screen.controller = online
+	check_eq(screen._opponent_score_name(), "Mina",
+		"verified and online score notices use the server opponent name")
+	screen.controller = local_controller
+	online.free()
 	_release(screen)
 
 
@@ -1384,6 +1406,9 @@ func test_results_mark_the_winner_without_sweeping_panels() -> void:
 	var presentation: MatchEndPresentation = screen.summary_overlay as MatchEndPresentation
 	presentation._stop_animation()
 	presentation.seek(0.5)
+	check(presentation._reward_card.visible, "AI result shows its projected Gem pot")
+	check_eq(presentation._reward_heading.text, "AI GEM POT", "AI result identifies its separate pot")
+	check(not presentation._reward_columns[1].visible, "AI result does not show a rival Gem payout")
 	check_eq(screen.summary_title.text, "Rival wins", "rival win uses the neutral result heading")
 	check(presentation._accents[1].winner and not presentation._accents[0].winner, "only the rival gets the winner ring")
 	check_eq(presentation._accents[1].sparkle_alpha, 0.0, "rival win has no celebratory sparkles")
@@ -1443,7 +1468,7 @@ func test_the_summary_panel_shows_the_final_breakdown_and_restarts() -> void:
 	check((screen.get_node("%PotPanel") as Control).visible,
 		"a new match must restore the pot and tile count")
 	check(not screen.is_swap_mode(), "a new match must start with no swap set")
-	check_eq(screen.turn_clock_label.text, "1:00", "a new match restores the text timer")
+	check_eq(screen.turn_clock_label.text, "", "a new match remains untimed")
 	var restarted: GameSessionState = controller.get_session()
 	if check_not_null(restarted, "restarting must produce a session"):
 		check(
@@ -1745,7 +1770,7 @@ func test_deal_signals_tile_flip_sound_at_half_turn() -> void:
 	var layer := DealLayer.new()
 	layer._tiles = [TileDefinition.new()]
 	layer._playing = true
-	var sound_at: float = DealLayer.FLIGHT + DealLayer.HOLD + layer.flip_duration * 0.25
+	var sound_at: float = DealLayer.FLIGHT + DealLayer.HOLD + layer.flip_duration * 0.5
 	layer._elapsed = sound_at - 0.01
 	var flips: Array[int] = []
 	layer.tile_flip_sound_due.connect(func() -> void: flips.append(1))
@@ -1756,16 +1781,25 @@ func test_deal_signals_tile_flip_sound_at_half_turn() -> void:
 	layer.free()
 
 
-func test_tile_flip_depth_peaks_at_twenty_percent_of_tile_width() -> void:
+func test_tile_flip_uses_a_thin_edge_and_a_short_lift() -> void:
 	var bounds := Rect2(30.0, 40.0, 200.0, 100.0)
 	var edge_on: Rect2 = TilePainter.flip_depth_rect(bounds, 0.5)
-	check_eq(edge_on.size.x, 40.0, "edge-on depth reaches twenty percent of tile width")
+	check(is_equal_approx(edge_on.size.x, 7.0), "edge-on highlight reaches 3.5 percent of tile width")
 	check_eq(edge_on.size.y, bounds.size.y, "depth spans the tile's full height")
 	check(edge_on.get_center().is_equal_approx(bounds.get_center()), "depth stays centered on the flipping tile")
-	check_eq(TilePainter.flip_depth_rect(bounds, 0.25).size.x, 20.0, "depth grows smoothly toward the midpoint")
+	check(is_equal_approx(TilePainter.flip_depth_rect(bounds, 0.25).size.x, 3.5), "edge highlight grows toward the midpoint")
 	check(not TilePainter.flip_depth_rect(bounds, 0.0).has_area(), "no side face is visible before the flip")
 	check(not TilePainter.flip_depth_rect(bounds, 1.0).has_area(), "no side face remains after the flip")
-	check_eq(TilePainter.FLIP_EDGE_COLOR, Color(0.20, 0.20, 0.22, 1.0), "the temporary side is dark gray")
+	check_eq(TilePainter.FLIP_EDGE_COLOR, Color(0.09, 0.24, 0.26, 0.65), "the edge uses translucent deep teal")
+	var start: Rect2 = DealLayer.flip_art_rect(bounds, 0.0)
+	var quarter: Rect2 = DealLayer.flip_art_rect(bounds, 0.25)
+	var midpoint: Rect2 = DealLayer.flip_art_rect(bounds, 0.5)
+	var end: Rect2 = DealLayer.flip_art_rect(bounds, 1.0)
+	check(start.is_equal_approx(bounds) and end.is_equal_approx(bounds), "the complete artwork starts and ends at its rack bounds")
+	check(is_equal_approx(quarter.size.x, bounds.size.x * sqrt(0.5)), "the turn eases through quarter width")
+	check_eq(midpoint.size.x, 0.5, "the artwork reaches a narrow edge-on sliver")
+	check(is_equal_approx(midpoint.position.y, bounds.position.y - DealLayer.FLIP_LIFT_MAX), "lift peaks at four pixels")
+	check_eq(midpoint.size.y, bounds.size.y, "the full artwork retains its height during the flip")
 
 
 func test_tile_flip_sound_loads_at_quarter_amplitude() -> void:
@@ -2558,24 +2592,37 @@ func test_bottom_navigation_menu_and_play_use_existing_commands() -> void:
 	_release(screen)
 
 
-func test_bottom_navigation_swap_uses_existing_selection_and_confirmation() -> void:
+func test_bottom_navigation_swap_submits_and_cancels_from_the_rack() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
 	var swap: Button = screen.bottom_navigation.buttons[&"Swap"]
+	var play: Button = screen.bottom_navigation.buttons[&"Play"]
+	var undo: Button = screen.bottom_navigation.buttons[&"Undo"]
 	swap.pressed.emit()
 	check(screen.is_swap_mode(), "Swap starts rack selection")
 	check(not screen.command_drawer.is_open, "the rack stays accessible while selecting")
+	check(play.disabled, "an empty swap cannot be submitted")
+	check(not undo.disabled, "Keep can cancel an empty swap")
+	check_eq((play.get_node("Content/Label") as Label).text, "Select tiles", "an empty swap asks for tile selection")
 	screen._on_deck_tile_toggled(screen.controller.human_deck()[0].tile_id)
 	check(swap.disabled, "Swap stays disabled while selecting tiles")
+	check(not play.disabled, "the primary action can submit selected tiles")
+	check_eq(screen.swap_tiles().size(), 1, "selection remains marked until submission")
+	check_eq((play.get_node("Content/Label") as Label).text, "Swap 1 tile", "the action counts one marked tile")
+	screen._on_deck_tile_toggled(screen.controller.human_deck()[1].tile_id)
+	check_eq((play.get_node("Content/Label") as Label).text, "Swap 2 tiles", "the action counts multiple marked tiles")
+	screen._on_deck_tile_toggled(screen.controller.human_deck()[1].tile_id)
+	check_eq((play.get_node("Content/Label") as Label).text, "Swap 1 tile", "removing a mark updates the count")
+	undo.pressed.emit()
+	check(not screen.is_swap_mode(), "Keep cancels the swap")
+	check(screen.controller.is_human_turn(), "Keep leaves the turn open")
+	check_eq((play.get_node("Content/Label") as Label).text, "Play hand", "normal action label returns")
 	swap.pressed.emit()
-	check(not screen.command_drawer.is_open, "Swap does not open the settings menu")
-	(screen.get_node("%HeaderSpacer") as Button).pressed.emit()
-	check(screen.command_drawer.is_open, "the header menu opens swap confirmation controls")
-	check(screen.swap_confirm_button.visible and not screen.swap_confirm_button.disabled, "selected tiles can be returned")
-	check_eq(screen.swap_tiles().size(), 1, "reopening keeps the selected tile")
-	screen.swap_cancel_button.pressed.emit()
-	check(not screen.is_swap_mode(), "Keep tiles cancels the swap")
+	screen._on_deck_tile_toggled(screen.controller.human_deck()[0].tile_id)
+	play.pressed.emit()
+	check(not screen.is_swap_mode(), "primary Swap submits the selected tile")
+	check(not screen.controller.is_human_turn(), "submitted swap passes the turn")
 	_release(screen)
 
 
@@ -2593,79 +2640,43 @@ func test_hub_navigation_buttons_request_the_hub() -> void:
 	_release(screen)
 
 
-func test_pot_timer_updates_without_rebuilding_board_and_clears_swap_on_expiry() -> void:
+func test_turn_strip_stays_untimed_while_player_thinks() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
-	var clock: Label = screen.turn_clock_label
-	check_eq(clock.text, "1:00", "human opens with a 1:00 text countdown")
-	check_eq(screen.turn_status_label.text, "Your turn", "concept row names the active human turn")
-	check(screen.human_score_panel.get_theme_stylebox("panel") is StyleBoxEmpty, "human avatar and score have no surrounding panel")
-	check(screen.ai_score_panel.get_theme_stylebox("panel") is StyleBoxEmpty, "rival avatar and score have no surrounding panel")
-	check(not (screen.human_score_panel.get_node("HumanScoreBox/Portrait") as FramedPlayerAvatar).show_ring, "human avatar has no teal ring")
-	check(not (screen.ai_score_panel.get_node("AiScoreBox/Portrait") as FramedPlayerAvatar).show_ring, "rival avatar has no teal ring")
-	var refreshes: Array[int] = []
-	screen.controller.state_changed.connect(func() -> void: refreshes.append(1))
+	check_eq(screen.board_message_label.text, "Your turn", "the below-board caption names the active player")
+	check(not screen.turn_clock_label.visible, "the countdown label is hidden")
+	check_eq(screen.turn_clock_label.text, "", "no countdown text is shown")
 	var turn: TurnState = screen.controller.get_session().get_turn_state()
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds - 20.0)
-	check_eq(clock.text, "0:20", "the compact countdown follows controller seconds")
-	check(refreshes.is_empty(), "clock ticks do not rebuild the board or interrupt input")
-	var art: Control = screen.human_score_panel.get_node("HumanScoreBox") as Control
-	var art_origin: Vector2 = art.position
-	for seconds: int in range(10, 0, -1):
-		screen.controller.update_turn_clock(turn.deadline_unix_seconds - float(seconds))
-		check_eq(clock.text, "0:%02d" % seconds, "countdown continues without an avatar warning")
-		check_eq(art.position, art_origin, "human avatar and score stay still at %d seconds" % seconds)
+	var tile: TileDefinition = screen.controller.human_deck()[0]
+	screen.controller.stage_tile(tile.tile_id, Vector2i(5, 5))
+	check(screen.controller.has_pending(), "the human can stage a tile")
+	turn.deadline_unix_seconds = Time.get_unix_time_from_system() - 600.0
+	screen.controller.update_turn_clock(Time.get_unix_time_from_system() + 3600.0)
+	screen._refresh_all()
+	check_eq(turn.active_player_id, TurnEnums.HUMAN_PLAYER_ID, "a stale deadline does not pass the turn")
+	check(screen.controller.has_pending(), "waiting does not discard the staged move")
+	check_eq(screen.board_message_label.text, GameScreen.OPENING_NOTICE_TEXT,
+		"the invalid staged opening uses the below-board caption")
 	check(not screen.human_score_panel.has_node("HumanScoreBox/TurnOutline"), "human avatar has no timer border")
 	check(not screen.ai_score_panel.has_node("AiScoreBox/TurnOutline"), "rival avatar has no timer border")
-	check(refreshes.is_empty(), "repeated warning ticks do not rebuild the board")
-	screen.bottom_navigation.buttons[&"Swap"].pressed.emit()
-	screen._on_deck_tile_toggled(screen.controller.human_deck()[0].tile_id)
-	screen.command_drawer.open_settings()
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds)
-	check(not screen.is_swap_mode(), "expiry clears swap selection")
-	check_eq(clock.text, "1:00", "rival starts with a full text countdown")
-	check_eq(screen.turn_status_label.text, "Rival's turn", "concept row names the active rival turn")
-	check_eq(screen.get_node("%BoardMessageLabel").text, "Time up, play moves to other player", "expiry notice appears below the board")
-	check(screen.feedback_layer.find_child("ToastLayout", true, false) == null, "expiry creates no toast overlay")
 	_release(screen)
 
 
-func test_turn_clock_uses_concept_format_type_and_position() -> void:
+func test_turn_strip_uses_concept_style_without_a_countdown() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
 		return
-	var expected: Dictionary = {
-		0: "0:00", 1: "0:01", 9: "0:09", 42: "0:42", 59: "0:59", 60: "1:00", 125: "2:05", -1: "0:00",
-	}
-	for seconds: int in expected:
-		check_eq(screen._format_turn_clock(seconds), expected[seconds], "seconds format as compact m:ss")
-	check_eq(screen.turn_clock_label.get_theme_font_size("font_size"), 16, "timer uses the enlarged label size")
-	check_eq(screen.turn_clock_label.get_theme_color("font_color"), Color("#173D42"), "timer uses deep teal ink")
-	check_eq(screen.turn_clock_label.get_theme_font("font"), TABLETOP_THEME.SEMIBOLD, "timer uses Fredoka Semibold")
-	check_eq(screen.turn_status_label.get_theme_font_size("font_size"), 16, "turn label uses the enlarged label size")
-	check_eq(screen.turn_status_label.get_theme_font("font"), TABLETOP_THEME.REGULAR, "turn label remains Fredoka Regular")
-	check(screen.turn_clock_label.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT, "timer aligns at the right edge of its row")
-	check(screen.turn_info_panel.get_index() > screen.get_node("Root/Column/Hud").get_index() and screen.turn_info_panel.get_index() < screen.get_node("Root/Column/Body").get_index(), "turn information sits between the scores and board")
+	check_eq(screen.board_message_label.get_theme_font_size("font_size"), 16, "turn caption uses the approved size")
+	check_eq(screen.board_message_label.get_theme_font("font"), TABLETOP_THEME.REGULAR, "turn caption uses Fredoka Regular")
+	check(not screen.turn_clock_label.visible, "timer does not reserve visible space")
+	check(screen.turn_info_panel.get_index() > screen.get_node("Root/Column/Hud").get_index() and screen.turn_info_panel.get_index() < screen.get_node("Root/Column/Body").get_index(), "turn information sits between scores and board")
 	var info_surface: StyleBoxFlat = screen.turn_info_panel.get_theme_stylebox("panel") as StyleBoxFlat
-	check(info_surface != null and info_surface.bg_color == TABLETOP_THEME.CANVAS_ALT, "turn information uses the soft-ivory surface distinct from the canvas")
-	var board_frame: NinePatchRect = screen.get_node("%BoardFrame") as NinePatchRect
-	screen._fit_turn_info_margins()
-	var turn_panel_rect: Rect2 = screen.turn_info_panel.get_global_rect()
-	var board_frame_rect: Rect2 = board_frame.get_global_rect()
-	check(is_equal_approx(info_surface.content_margin_left, board_frame_rect.position.x - turn_panel_rect.position.x), "Your turn text starts at the board frame's left outer edge")
-	check(is_equal_approx(info_surface.content_margin_right, turn_panel_rect.end.x - board_frame_rect.end.x), "the timer text ends at the board frame's right outer edge")
-	check_eq(screen.turn_info_row.get_child(0), screen.turn_status_label, "turn caption anchors at the left")
-	check_eq(screen.turn_info_row.get_child(1), screen.get_node("%OpponentRack"), "compact rival tiles sit between the caption and timer")
-	check_eq(screen.turn_info_row.get_child(2), screen.turn_clock_label, "timer anchors at the right")
-	check_eq(screen.available_tiles_label.text, "%d left" % screen.controller.remaining_tiles(), "pot count follows the concept's 'N left' label")
-	check_eq(screen.available_tiles_label.get_theme_font_size("font_size"), 14, "pot count uses the enlarged label size")
-	check_eq(screen.available_tiles_label.get_theme_color("font_color"), Color("#173D42"), "pot count uses the concept's deep teal")
-	check_eq(screen.available_tiles_label.get_theme_font("font"), TABLETOP_THEME.REGULAR, "pot count uses the regular concept font")
-	check(screen.tile_pile_view._stack_rect.end.y < screen.available_tiles_label.position.y, "pot count sits below the stack icon")
-	check_eq(TilePileView.POT_TEXTURE.resource_path, "res://assets/ui/tile_pot.png", "pot uses supplied tile pot artwork")
+	check(info_surface != null and info_surface.bg_color == TABLETOP_THEME.canvas_alt(), "turn information uses soft ivory")
+	check_eq(screen.turn_info_row.get_child(0), screen.get_node("%OpponentRack"), "rival rack occupies the full row")
+	check(screen.get_node_or_null("%TurnStatusLabel") == null, "turn text is absent from the rival rack row")
+	check_eq(screen.available_tiles_label.text, "%d left" % screen.controller.remaining_tiles(), "pot count remains visible")
 	_release(screen)
-
 
 func test_game_header_matches_modern_tabletop_concept() -> void:
 	var screen: GameScreen = _host_screen()
@@ -2703,6 +2714,24 @@ func test_game_header_matches_modern_tabletop_concept() -> void:
 	_release(screen)
 
 
+func test_table_level_chip_tracks_authoritative_player_level() -> void:
+	var screen: GameScreen = _host_screen()
+	if screen == null:
+		return
+	var art: Control = screen.human_score_panel.get_node("HumanScoreBox") as Control
+	var badge: AvatarLevelBadge = art.get_node("LevelBadge") as AvatarLevelBadge
+	check(not badge.visible, "the game does not show a level until progression is available")
+	screen.set_player_level(12)
+	art.call("_layout")
+	check(badge.visible, "a valid Table Level appears on the player avatar")
+	check_eq((badge.get_node("LevelText") as Label).text, "Lv 12", "the chip uses a compact level label")
+	check_eq(badge.accessibility_name, "Table Level 12", "assistive technology receives the full label")
+	check_eq((badge.get_theme_stylebox("panel") as StyleBoxFlat).bg_color, TABLETOP_THEME.sage(), "the level chip uses the shared sage token")
+	screen.set_player_level(0)
+	check(not badge.visible, "missing progression hides the chip")
+	_release(screen)
+
+
 func test_board_uses_supplied_sage_cells_and_rounded_teal_frame() -> void:
 	var screen: GameScreen = _host_screen()
 	if screen == null:
@@ -2725,9 +2754,9 @@ func test_notices_use_board_caption_and_restore_the_current_turn() -> void:
 	var turn_status: Label = screen.turn_indicator
 	var board_message: Label = screen.get_node("%BoardMessageLabel")
 	check(screen.get_node_or_null("%HeaderTurnStatus") == null, "no top message label is present")
-	check_eq(board_message.text, "Pinch to explore the board", "the board hint appears below the board by default")
-	check_eq(board_message.get_theme_font_size("font_size"), 14, "the board hint uses the concept caption size")
-	check_eq(board_message.get_theme_color("font_color"), Color("#173D42"), "the board hint uses the concept deep-teal text")
+	check_eq(board_message.text, "Your turn", "the current turn appears below the board by default")
+	check_eq(board_message.get_theme_font_size("font_size"), 16, "the turn caption uses the approved size")
+	check_eq(board_message.get_theme_color("font_color"), Color("#173D42"), "the turn caption uses deep-teal text")
 	check(board_message.get_parent() == screen.get_node("Root/Column") and board_message.get_index() < screen.deck_bar.get_index(),
 		"the board hint sits between the board and the tile rack")
 	screen._on_notice(GameSessionController.NO_VALID_MOVE_NOTICE)
@@ -2747,25 +2776,30 @@ func test_notices_use_board_caption_and_restore_the_current_turn() -> void:
 	check(not screen._header_notice_timer.is_stopped(), "a fresh notification restarts its display period")
 	screen._header_notice_timer.timeout.emit()
 	check_eq(turn_status.text, "Your turn", "expiry leaves current turn status unchanged")
-	check_eq(board_message.text, "Pinch to explore the board", "expiry restores the board hint")
+	check_eq(board_message.text, "Your turn", "expiry restores the current turn")
 	check(screen._header_notice_timer.is_stopped(), "expiry leaves no running notice timer")
+	screen._set_status("That cell is already taken")
+	check_eq(board_message.text, "That cell is already taken", "contextual invalid move text uses the board caption")
+	check_eq(screen._board_preview_reason("That cell is already taken"), "", "invalid move text is absent from the board preview")
+	check(screen.get_node_or_null("%StatusLabel") == null, "the drawer has no competing move-status label")
+	screen._set_status("")
+	check_eq(board_message.text, "Your turn", "clearing contextual feedback restores the turn")
 	var turn: TurnState = screen.controller.get_session().get_turn_state()
-	screen.controller.update_turn_clock(turn.deadline_unix_seconds)
-	check_eq(board_message.text, GameSessionController.TURN_TIMEOUT_NOTICE, "timeout notice survives the automatic turn handover")
-	screen._header_notice_timer.timeout.emit()
-	check_eq(turn_status.text, "Rival's turn", "expiry leaves the new player's turn status unchanged")
-	check_eq(board_message.text, "Pinch to explore the board", "timeout expiry restores the board hint")
+	turn.deadline_unix_seconds = Time.get_unix_time_from_system() - 600.0
+	screen.controller.update_turn_clock(Time.get_unix_time_from_system() + 3600.0)
+	check_eq(turn_status.text, "Your turn", "elapsed time leaves the active turn unchanged")
+	check_eq(board_message.text, "Your turn", "elapsed time leaves the current turn unchanged")
 	screen._on_notice("A temporary message")
 	screen._on_restart_pressed()
 	check_eq(turn_status.text, "Your turn", "a new match clears old notifications")
-	check_eq(board_message.text, "Pinch to explore the board", "a new match restores the board hint")
+	check_eq(board_message.text, "Your turn", "a new match restores the current turn")
 	check(screen._header_notice_timer.is_stopped(), "restart cancels the old notification timer")
 	screen._on_notice("A temporary message")
 	var session: GameSessionState = screen.controller.get_session()
 	session.finish(TurnEnums.MatchOutcome.DRAW, TurnEnums.EndReason.BOARD_FULL)
 	screen._on_match_ended(MatchResult.build(session))
 	check_eq(turn_status.text, "Match over", "match end updates the turn status")
-	check_eq(board_message.text, "Pinch to explore the board", "match end clears the transient notice")
+	check_eq(board_message.text, "Match over", "match end replaces the transient notice")
 	_release(screen)
 
 
@@ -2781,7 +2815,7 @@ func test_placement_warning_in_board_caption_clears_when_the_line_is_fixed() -> 
 	screen.controller.stage_tile(pair[0].tile_id, cells[0])
 	check_eq(screen.get_node("%BoardMessageLabel").text, GameScreen.OPENING_NOTICE_TEXT, "single-tile opening warning appears below the board")
 	screen.controller.stage_tile(pair[1].tile_id, cells[1])
-	check_eq(screen.get_node("%BoardMessageLabel").text, "Pinch to explore the board", "fixing the line restores the board hint")
+	check_eq(screen.get_node("%BoardMessageLabel").text, "Use Play hand to place the hand", "fixing the line shows the valid move instruction")
 	_release(screen)
 
 

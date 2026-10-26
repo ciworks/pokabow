@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://bm4wof7kvpfyu"]
 
-[ext_resource type="Script" path="res://tools/validate_engagement_check_in.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://bdeuxebjgnvo2" path="res://tools/validate_engagement_check_in.gd" id="1_qa"]
 
-[node name="EngagementCheckInQA" type="Node"]
+[node name="EngagementCheckInQA" type="Node" unique_id=1362236254]
 script = ExtResource("1_qa")

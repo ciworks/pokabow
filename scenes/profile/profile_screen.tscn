@@ -1,9 +1,7 @@
 [gd_scene format=3 uid="uid://dwjjmtnjnp12v"]
 
 [ext_resource type="Script" uid="uid://b11a3yri8qy0u" path="res://scripts/presentation/profile_screen.gd" id="1_profile"]
-[ext_resource type="Texture2D" uid="uid://coq5xq2p57bpi" path="res://assets/ui/close.png" id="2_close"]
-
-[ext_resource type="Script" path="res://scripts/presentation/achievement_browser.gd" id="3_achievements"]
+[ext_resource type="Script" uid="uid://cc16mlunylfgq" path="res://scripts/presentation/achievement_browser.gd" id="3_achievements"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_button"]
 content_margin_left = 18.0
@@ -31,8 +29,6 @@ corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
-
-[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_or3b4"]
 
 [node name="ProfileScreen" type="Control" unique_id=225819765]
 layout_mode = 3
@@ -125,7 +121,7 @@ theme_override_styles/pressed = SubResource("StyleBox_button")
 theme_override_styles/hover = SubResource("StyleBox_button")
 text = "Update"
 
-[node name="AchievementsPage" type="Control" parent="."]
+[node name="AchievementsPage" type="Control" parent="." unique_id=1994217930]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1

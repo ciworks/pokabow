@@ -8,22 +8,29 @@
 
 config_version=5
 
+[admob]
+
+general/ios/enabled=false
+mediation/unity_ads=true
+
 [application]
 
 config/name="pokabow"
-config/version="1.0.2"
+config/version="1.7.0"
 run/main_scene="res://scenes/app/app_root.tscn"
-config/features=PackedStringArray("4.7", "Mobile")
-boot_splash/bg_color=Color(0.964706, 0.94902, 0.913725, 1)
+config/features=PackedStringArray("4.6", "Mobile")
+boot_splash/bg_color=Color(0, 0, 0, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
 
 [autoload]
 
 AppearanceSettings="*res://scripts/presentation/appearance_settings.gd"
+TurnNotifications="*res://scripts/application/turn_notification_service.gd"
 
 [debug]
 
+file_logging/enable_file_logging=true
 overlays=false
 
 [display]
@@ -40,7 +47,7 @@ project/assembly_name="polkabow"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/SharePlugin/plugin.cfg", "res://addons/admob/plugin.cfg")
+enabled=PackedStringArray("res://addons/NotificationSchedulerPlugin/plugin.cfg", "res://addons/SharePlugin/plugin.cfg", "res://addons/admob/plugin.cfg", "res://addons/inapp_update/plugin.cfg")
 
 [input]
 
@@ -57,9 +64,11 @@ mouse_wheel_zoom_in={
 
 [pokabow]
 
-server_ip="192.168.0.189"
+server_ip="192.168.0.215"
 ads_android_interstitial_unit_id="ca-app-pub-3940256099942544/1033173712"
 ads_ios_interstitial_unit_id="ca-app-pub-3940256099942544/4411468910"
+ads_android_rewarded_unit_id="ca-app-pub-3940256099942544/5224354917"
+ads_ios_rewarded_unit_id=""
 
 [rendering]
 

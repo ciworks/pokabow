@@ -1,13 +1,6 @@
-[gd_resource type="Resource" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="TileGenerationRules" format=3 uid="uid://brhywe1decqm0"]
 
-[ext_resource type="Script" path="res://scripts/domain/tile/tile_generation_rules.gd" id="1_rules"]
+[ext_resource type="Script" uid="uid://0xxto24118af" path="res://scripts/domain/tile/tile_generation_rules.gd" id="1_rules"]
 
 [resource]
 script = ExtResource("1_rules")
-schema_version = 4
-bag_size = 52
-max_jokers = 4
-rank_weights = Array[float]([1.0, 1.0, 1.0, 1.0, 1.0])
-face_color_weights = Array[float]([1.0, 1.0])
-suit_weights = Array[float]([1.0, 1.0, 1.0, 1.0])
-edge_color_weights = Array[float]([1.0, 1.0, 1.0, 1.0])

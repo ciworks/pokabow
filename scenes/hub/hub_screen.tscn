@@ -1,10 +1,13 @@
-[gd_scene load_steps=8 format=3 uid="uid://yys1jmd8mal5"]
+[gd_scene format=3 uid="uid://yys1jmd8mal5"]
 
-[ext_resource type="Script" path="res://scripts/presentation/hub_screen.gd" id="1_hub"]
-[ext_resource type="Texture2D" path="res://assets/hub/modern-tabletop-hero-cartoon-v2.png" id="2_hero"]
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/settings.svg" id="3_settings"]
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/sound.svg" id="4_sound"]
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/mark.svg" id="5_mark"]
+[ext_resource type="Script" uid="uid://bnut4syiax6sh" path="res://scripts/presentation/hub_screen.gd" id="1_hub"]
+[ext_resource type="Texture2D" uid="uid://e8pyt3uom1it" path="res://assets/hub/modern-tabletop-hero-cartoon-v2.png" id="2_hero"]
+[ext_resource type="Script" path="res://scripts/presentation/animated_hub_hero.gd" id="2_hero_animation"]
+[ext_resource type="Texture2D" uid="uid://fnopcpwyx6t2" path="res://assets/ui/modern_tabletop/settings.svg" id="3_settings"]
+[ext_resource type="Texture2D" uid="uid://df4lrtrik7fqb" path="res://assets/ui/modern_tabletop/sound.svg" id="4_sound"]
+[ext_resource type="Texture2D" uid="uid://bbrcrhfeorxpk" path="res://assets/ui/modern_tabletop/mark.svg" id="5_mark"]
+[ext_resource type="Texture2D" uid="uid://y6p4je57pg7u" path="res://assets/ui/modern_tabletop/profile.svg" id="6_profile"]
+[ext_resource type="Texture2D" uid="uid://dwokdoaa0hd1m" path="res://assets/ui/modern_tabletop/gem_balance.svg" id="7_gem_balance"]
 
 [sub_resource type="Gradient" id="Gradient_ivory"]
 colors = PackedColorArray(0.964706, 0.94902, 0.913725, 1, 0.964706, 0.94902, 0.913725, 1)
@@ -12,7 +15,7 @@ colors = PackedColorArray(0.964706, 0.94902, 0.913725, 1, 0.964706, 0.94902, 0.9
 [sub_resource type="GradientTexture2D" id="Texture_ivory"]
 gradient = SubResource("Gradient_ivory")
 
-[node name="HubScreen" type="Control"]
+[node name="HubScreen" type="Control" unique_id=560364683]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -22,7 +25,7 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("1_hub")
 
-[node name="Background" type="TextureRect" parent="."]
+[node name="Background" type="TextureRect" parent="." unique_id=343027755]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -34,7 +37,7 @@ mouse_filter = 2
 texture = SubResource("Texture_ivory")
 expand_mode = 1
 
-[node name="PageMargin" type="MarginContainer" parent="."]
+[node name="PageMargin" type="MarginContainer" parent="." unique_id=928057798]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -47,135 +50,188 @@ theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 24
 theme_override_constants/margin_bottom = 24
 
-[node name="Page" type="VBoxContainer" parent="PageMargin"]
+[node name="Page" type="VBoxContainer" parent="PageMargin" unique_id=1595702405]
+layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="Header" type="HBoxContainer" parent="PageMargin/Page"]
+[node name="Header" type="HBoxContainer" parent="PageMargin/Page" unique_id=1259457238]
+unique_name_in_owner = true
+layout_mode = 2
 theme_override_constants/separation = 12
+alignment = 1
 
-[node name="Mark" type="TextureRect" parent="PageMargin/Page/Header"]
-custom_minimum_size = Vector2(40, 40)
+[node name="GemBalanceButton" type="Button" parent="PageMargin/Page/Header" unique_id=402575501]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(102, 68)
+layout_mode = 2
+tooltip_text = "Confirmed Gem balance"
+text = "—"
+icon = ExtResource("7_gem_balance")
+
+[node name="ShopButton" type="Button" parent="PageMargin/Page/Header" unique_id=1003260184]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(68, 68)
+layout_mode = 2
+tooltip_text = "Gem shop"
+
+[node name="ProfileButton" type="Button" parent="PageMargin/Page/Header" unique_id=293606783]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(68, 68)
+layout_mode = 2
+tooltip_text = "Profile"
+icon = ExtResource("6_profile")
+expand_icon = true
+
+[node name="SoundButton" type="Button" parent="PageMargin/Page/Header" unique_id=2089402734]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(68, 68)
+layout_mode = 2
+tooltip_text = "Sound on"
+icon = ExtResource("4_sound")
+expand_icon = true
+
+[node name="SettingsButton" type="Button" parent="PageMargin/Page/Header" unique_id=1218297641]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(68, 68)
+layout_mode = 2
+tooltip_text = "Settings"
+icon = ExtResource("3_settings")
+expand_icon = true
+
+[node name="PageScroll" type="ScrollContainer" parent="PageMargin/Page" unique_id=1622339381]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+follow_focus = true
+horizontal_scroll_mode = 0
+
+[node name="Content" type="VBoxContainer" parent="PageMargin/Page/PageScroll" unique_id=1022073096]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 16
+
+[node name="BrandRow" type="HBoxContainer" parent="PageMargin/Page/PageScroll/Content" unique_id=123943326]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="Mark" type="TextureRect" parent="PageMargin/Page/PageScroll/Content/BrandRow" unique_id=547256835]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(48, 48)
+layout_mode = 2
 size_flags_vertical = 4
 mouse_filter = 2
 texture = ExtResource("5_mark")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="Brand" type="Label" parent="PageMargin/Page/Header"]
+[node name="Brand" type="Label" parent="PageMargin/Page/PageScroll/Content/BrandRow" unique_id=821115191]
 unique_name_in_owner = true
-size_flags_horizontal = 3
+layout_mode = 2
 text = "POKABOW"
 vertical_alignment = 1
 
-[node name="SoundButton" type="Button" parent="PageMargin/Page/Header"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(68, 68)
-tooltip_text = "Sound on"
-icon = ExtResource("4_sound")
-expand_icon = true
-
-[node name="SettingsButton" type="Button" parent="PageMargin/Page/Header"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(68, 68)
-tooltip_text = "Settings"
-icon = ExtResource("3_settings")
-expand_icon = true
-
-[node name="PageScroll" type="ScrollContainer" parent="PageMargin/Page"]
-unique_name_in_owner = true
-size_flags_vertical = 3
-horizontal_scroll_mode = 0
-follow_focus = true
-
-[node name="Content" type="VBoxContainer" parent="PageMargin/Page/PageScroll"]
-unique_name_in_owner = true
-size_flags_horizontal = 3
-theme_override_constants/separation = 16
-
-[node name="Headline" type="Label" parent="PageMargin/Page/PageScroll/Content"]
-unique_name_in_owner = true
-text = "Make your\nnext move."
-theme_override_constants/line_spacing = -4
-
-[node name="Hero" type="TextureRect" parent="PageMargin/Page/PageScroll/Content"]
+[node name="Hero" type="TextureRect" parent="PageMargin/Page/PageScroll/Content" unique_id=1243411686]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 240)
+layout_mode = 2
 mouse_filter = 2
 texture = ExtResource("2_hero")
 expand_mode = 1
 stretch_mode = 5
+script = ExtResource("2_hero_animation")
 
-[node name="ActiveGamesSection" type="VBoxContainer" parent="PageMargin/Page/PageScroll/Content"]
+[node name="ActiveGamesSection" type="VBoxContainer" parent="PageMargin/Page/PageScroll/Content" unique_id=1383062900]
 unique_name_in_owner = true
-theme_override_constants/separation = 8
+layout_mode = 2
+theme_override_constants/separation = 12
 
-[node name="ActiveGamesHeader" type="HBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection"]
+[node name="ActiveGamesHeader" type="HBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection" unique_id=301661053]
 unique_name_in_owner = true
+layout_mode = 2
 
-[node name="ActiveGamesTitle" type="Label" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesHeader"]
+[node name="ActiveGamesTitle" type="Label" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesHeader" unique_id=1826617875]
 unique_name_in_owner = true
+layout_mode = 2
 size_flags_horizontal = 3
 text = "Your tables"
 vertical_alignment = 1
 
-[node name="ActiveGamesPanel" type="PanelContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection"]
+[node name="ActiveGamesPanel" type="PanelContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection" unique_id=1970467168]
 unique_name_in_owner = true
+layout_mode = 2
 
-[node name="ActiveGamesBox" type="VBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel"]
+[node name="ActiveGamesBox" type="VBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel" unique_id=1389196735]
+layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ActiveGamesScroll" type="ScrollContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel/ActiveGamesBox"]
+[node name="ActiveGamesScroll" type="ScrollContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel/ActiveGamesBox" unique_id=1058319209]
 unique_name_in_owner = true
+layout_mode = 2
 horizontal_scroll_mode = 0
 vertical_scroll_mode = 0
 
-[node name="ActiveGameList" type="VBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel/ActiveGamesBox/ActiveGamesScroll"]
+[node name="ActiveGameList" type="VBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel/ActiveGamesBox/ActiveGamesScroll" unique_id=1546087690]
 unique_name_in_owner = true
+layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 12
 
-[node name="ActiveGamesEmpty" type="Label" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel/ActiveGamesBox"]
+[node name="ActiveGamesEmpty" type="Label" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/ActiveGamesPanel/ActiveGamesBox" unique_id=1495215293]
 unique_name_in_owner = true
+layout_mode = 2
 text = "A fresh table. A new challenge."
 autowrap_mode = 2
 
-[node name="PlayButton" type="Button" parent="PageMargin/Page/PageScroll/Content"]
+[node name="RecentMatchPanel" type="PanelContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection" unique_id=689972140]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="RecentResultRow" type="HBoxContainer" parent="PageMargin/Page/PageScroll/Content/ActiveGamesSection/RecentMatchPanel" unique_id=648114747]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PlayButton" type="Button" parent="PageMargin/Page/PageScroll/Content" unique_id=982002380]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
-text = "Play AI"
+layout_mode = 2
+text = "Play Now"
 
-[node name="OnlineButton" type="Button" parent="PageMargin/Page/PageScroll/Content"]
+[node name="FooterHint" type="Label" parent="PageMargin/Page/PageScroll/Content" unique_id=1032136892]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 72)
-text = "Play online"
-
-[node name="FooterHint" type="Label" parent="PageMargin/Page/PageScroll/Content"]
-unique_name_in_owner = true
+layout_mode = 2
 text = "Poker hands. Colour connections."
 horizontal_alignment = 1
 
-[node name="DestinationRow" type="HBoxContainer" parent="PageMargin/Page"]
+[node name="DestinationRow" type="HBoxContainer" parent="PageMargin/Page" unique_id=758625846]
 unique_name_in_owner = true
+layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="HomeButton" type="Button" parent="PageMargin/Page/DestinationRow"]
+[node name="HomeButton" type="Button" parent="PageMargin/Page/DestinationRow" unique_id=2048678256]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
 size_flags_horizontal = 3
-text = "Home"
 tooltip_text = "Home — current page"
+text = "Home"
 
-[node name="AchievementsButton" type="Button" parent="PageMargin/Page/DestinationRow"]
+[node name="AchievementsButton" type="Button" parent="PageMargin/Page/DestinationRow" unique_id=1982247465]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
 size_flags_horizontal = 3
 text = "Achievements"
 
-[node name="ProfileButton" type="Button" parent="PageMargin/Page/DestinationRow"]
+[node name="TournamentsButton" type="Button" parent="PageMargin/Page/DestinationRow" unique_id=348971485]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
 size_flags_horizontal = 3
-text = "Profile"
+text = "Tournaments"
 
 [node name="Notice" type="PanelContainer" parent="." unique_id=805481147]
 unique_name_in_owner = true
@@ -224,7 +280,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.09, 0.24, 0.26, 0.40)
+color = Color(0.09, 0.24, 0.26, 0.4)
 
 [node name="SettingsPanel" type="PanelContainer" parent="SettingsLayer" unique_id=1291840895]
 unique_name_in_owner = true
@@ -241,104 +297,142 @@ offset_bottom = 340.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="PanelBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel"]
+[node name="PanelBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel" unique_id=335417608]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="SettingsScroll" type="ScrollContainer" parent="SettingsLayer/SettingsPanel/PanelBox"]
+[node name="SettingsScroll" type="ScrollContainer" parent="SettingsLayer/SettingsPanel/PanelBox" unique_id=43083035]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-horizontal_scroll_mode = 0
 follow_focus = true
+horizontal_scroll_mode = 0
 
-[node name="Content" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll"]
+[node name="Content" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll" unique_id=852477748]
 layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="SettingsBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content" unique_id=455430076]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_vertical = 4
-theme_override_constants/separation = 16
-alignment = 1
+theme_override_constants/separation = 14
 
 [node name="SettingsTitle" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=1988900271]
 layout_mode = 2
 theme_override_font_sizes/font_size = 30
 text = "Settings"
-horizontal_alignment = 1
 
-[node name="ApiIpLabel" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=2003114551]
+[node name="PlayAlertsCard" type="PanelContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=2100306717]
+layout_mode = 2
+
+[node name="PlayAlertsBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard" unique_id=964471681]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PlayAlertsHeading" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox" unique_id=53415077]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Play & alerts"
+
+[node name="SoundToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox" unique_id=988798754]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "API server IP address"
-horizontal_alignment = 1
-
-[node name="ApiIpRow" type="HBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=2003114552]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="ApiIpInput" type="LineEdit" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/ApiIpRow" unique_id=2003114553]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-size_flags_horizontal = 3
-placeholder_text = "192.168.0.1"
-clear_button_enabled = true
-
-[node name="ApiIpSaveButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/ApiIpRow" unique_id=2003114554]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(84, 48)
-layout_mode = 2
-text = "Save IP"
-
-[node name="ApiIpStatus" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=2003114555]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 20)
-layout_mode = 2
-theme_override_font_sizes/font_size = 14
-horizontal_alignment = 1
-
-[node name="ReducedMotionToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=1940866735]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 20
-text = "Reduced motion"
-
-[node name="HapticsToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=2104970130]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 20
-text = "Vibration"
-
-[node name="SoundToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=988798754]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 20
 text = "Sound"
 
-[node name="AppearanceHeading" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox"]
+[node name="MusicVolumeLabel" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 22
-text = "Appearance"
+text = "Music volume"
 
-[node name="DarkModeToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox"]
+[node name="MusicVolumeRow" type="HBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="MusicVolumeSlider" type="HSlider" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox/MusicVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Music volume"
+max_value = 100.0
+step = 1.0
+value = 50.0
+
+[node name="MusicVolumeValue" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox/MusicVolumeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+text = "50%"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="HapticsToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox" unique_id=2104970130]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 20
+text = "Vibration"
+
+[node name="PushNotificationsToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/PlayAlertsCard/PlayAlertsBox" unique_id=2065686872]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Alerts when an online opponent finishes a turn"
+theme_override_font_sizes/font_size = 20
+text = "Push notifications"
+
+[node name="DisplayCard" type="PanelContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=24251528]
+layout_mode = 2
+
+[node name="DisplayBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/DisplayCard" unique_id=1495735755]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="DisplayHeading" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/DisplayCard/DisplayBox" unique_id=542900667]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Display & access"
+
+[node name="DarkModeToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/DisplayCard/DisplayBox" unique_id=1937549205]
+unique_name_in_owner = true
+layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Dark mode"
 
-[node name="ClearGameCacheButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=1218273019]
+[node name="ReducedMotionToggle" type="CheckButton" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/DisplayCard/DisplayBox" unique_id=1940866735]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Reduced motion"
+
+[node name="HelpCard" type="PanelContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox" unique_id=1107618527]
+layout_mode = 2
+
+[node name="HelpBox" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/HelpCard" unique_id=1699804948]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="HelpHeading" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/HelpCard/HelpBox" unique_id=1797905644]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Help & storage"
+
+[node name="HowToPlayButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/HelpCard/HelpBox" unique_id=1865785763]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
-size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 20
+text = "How to play"
+
+[node name="ReportProblemButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/HelpCard/HelpBox" unique_id=1055095218]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Report a problem"
+
+[node name="ClearGameCacheButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox/HelpCard/HelpBox" unique_id=1218273019]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Clear game cache"
 
@@ -349,47 +443,3 @@ layout_mode = 2
 size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 20
 text = "Close"
-
-[node name="DeleteAccountButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/SettingsBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Delete Account"
-
-[node name="DeleteConfirmation" type="VBoxContainer" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-theme_override_constants/separation = 18
-
-[node name="DeleteHeading" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/DeleteConfirmation"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 26
-text = "Delete Account?"
-autowrap_mode = 2
-
-[node name="DeleteWarning" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/DeleteConfirmation"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Your account details, achievements and saved games will be irrevocably removed from the server. All saved account and game state on this device will also be deleted. This cannot be undone."
-autowrap_mode = 2
-
-[node name="DeleteStatus" type="Label" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/DeleteConfirmation"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-autowrap_mode = 2
-
-[node name="ConfirmDeleteButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/DeleteConfirmation"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-text = "Permanently delete account"
-
-[node name="CancelDeleteButton" type="Button" parent="SettingsLayer/SettingsPanel/PanelBox/SettingsScroll/Content/DeleteConfirmation"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-text = "Cancel"

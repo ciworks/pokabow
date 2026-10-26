@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://cxapsoepf8whf" path="res://scripts/presentation/app_root.gd" id="1_app_root"]
 [ext_resource type="PackedScene" uid="uid://djaraq68y4mas" path="res://scenes/splash/splash_screen.tscn" id="2_splash_screen"]
+[ext_resource type="PackedScene" uid="uid://buo50wivwyna7" path="res://scenes/splash/chibi_splash_screen.tscn" id="3_chibi_splash"]
 
 [node name="AppRoot" type="Node" unique_id=702075756]
 script = ExtResource("1_app_root")
@@ -9,6 +10,9 @@ script = ExtResource("1_app_root")
 [node name="SceneHost" type="Node" parent="." unique_id=1516071875]
 
 [node name="SplashScreen" parent="SceneHost" unique_id=1551112164 instance=ExtResource("2_splash_screen")]
+visible = false
+
+[node name="ChibiSplashScreen" parent="SceneHost" unique_id=142237707 instance=ExtResource("3_chibi_splash")]
 
 [node name="OverlayLayer" type="CanvasLayer" parent="." unique_id=1273985933]
 layer = 10

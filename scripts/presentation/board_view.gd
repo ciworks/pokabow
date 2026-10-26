@@ -257,13 +257,14 @@ func cell_at_global(point: Vector2) -> Vector2i:
 
 
 ## Points the view at the board it should render.
-func set_board(board: BoardState) -> void:
+func set_board(board: BoardState, preserve_camera: bool = false) -> void:
 	if _state.board != board:
 		_state.concealed_cells.clear()
-		zoom = close_zoom_for_width()
-		_last_close_zoom = zoom
-		_camera_center = Vector2(0.5, 0.5)
-		zoom_changed.emit()
+		if not preserve_camera:
+			zoom = close_zoom_for_width()
+			_last_close_zoom = zoom
+			_camera_center = Vector2(0.5, 0.5)
+			zoom_changed.emit()
 	_state.board = board
 	resync()
 

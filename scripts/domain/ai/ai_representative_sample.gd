@@ -6,18 +6,18 @@ extends Resource
 ## ADR-005 section 6 makes the second ply a guaranteed average rather than a
 ## guess: the hidden future tile is represented by a small deterministic sample,
 ## built once, and never read from the undrawn bag (ADR-004 section 7). The
-## current sample holds 20 tiles with equal weights.
+## current sample holds 16 tiles with equal weights.
 ##
-## The sample is generated, not hand-written. It is five ranks x four
+## The sample is generated, not hand-written. It is four ranks x four
 ## rotations, with each tile using the four allowed edge colors:
 ##
-##     ranks            all five ranks appear (4 tiles each)
-##     face colours     red, black, and Joker's none appear
-##     edge colours     each of the four colours occurs exactly 20 times
-##                      across the 80 edge slots
+##     ranks            all four ranks appear (4 tiles each)
+##     face colours     red and black appear
+##     edge colours     each of the four colours occurs exactly 16 times
+##                      across the 64 edge slots
 ##
 ## Face colour and suit affect card multipliers. This compact sample assigns a
-## turn through the four ordinary suits for each rank and no suit for Joker; it is a deterministic
+## turn through the four suits for each rank; it is a deterministic
 ## approximation of hidden tiles, not a copy of the undrawn bag.
 ##
 ## Tile identifiers are synthetic and prefixed `ai-sample:`. Real bag identities
@@ -28,10 +28,10 @@ extends Resource
 ## why this type extends `Resource` rather than `RefCounted`.
 
 ## Sample/schema version, persisted with saves so a rebalance can be detected.
-const SCHEMA_VERSION: int = 2
+const SCHEMA_VERSION: int = 3
 
 ## Number of representative tiles in the Phase 1 sample (ADR-005 section 6).
-const SAMPLE_SIZE: int = 20
+const SAMPLE_SIZE: int = 16
 
 ## Rotations generated per rank, so every rank appears in every orientation.
 const ROTATIONS_PER_RANK: int = 4
@@ -45,7 +45,6 @@ const SAMPLE_RANKS: Array = [
 	TileEnums.TileRank.KING,
 	TileEnums.TileRank.QUEEN,
 	TileEnums.TileRank.JACK,
-	TileEnums.TileRank.JOKER,
 ]
 
 ## Sample/schema version recorded alongside saved matches.
@@ -140,7 +139,7 @@ func validate() -> PackedStringArray:
 	for rank: int in SAMPLE_RANKS:
 		if not ranks.has(int(rank)):
 			problems.append("the sample must represent rank %s" % TileEnums.rank_name(rank))
-	for face_color: int in TileEnums.FaceColor.values():
+	for face_color: int in [TileEnums.FaceColor.RED, TileEnums.FaceColor.BLACK]:
 		if not face_colors.has(face_color):
 			problems.append(
 				"the sample must represent face colour %s"
@@ -204,8 +203,7 @@ func _build_tiles() -> Array[TileDefinition]:
 	var index: int = 0
 	for rank_index: int in range(SAMPLE_RANKS.size()):
 		var rank: int = SAMPLE_RANKS[rank_index]
-		var is_joker: bool = rank == TileEnums.TileRank.JOKER
-		var base_suit: int = TileEnums.Suit.NONE if is_joker else TileEnums.Suit.HEARTS
+		var base_suit: int = TileEnums.Suit.HEARTS
 		var base_color: int = TileEnums.color_for_suit(base_suit)
 		var pattern: Array[TileEnums.EdgeColor] = []
 		for edge_index: int in range(TileEnums.EDGE_COUNT):
@@ -215,7 +213,7 @@ func _build_tiles() -> Array[TileDefinition]:
 		)
 		for rotation: int in range(ROTATIONS_PER_RANK):
 			var edges: Array[TileEnums.EdgeColor] = base.get_rotated_edges(rotation)
-			var suit: int = TileEnums.Suit.NONE if is_joker else rotation
+			var suit: int = rotation
 			var face_color: int = TileEnums.color_for_suit(suit)
 			tiles.append(
 				TileDefinition.create(_id_for_index(index), rank, face_color, edges, suit)

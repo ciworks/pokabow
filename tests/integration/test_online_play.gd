@@ -38,7 +38,7 @@ func test_private_views_and_opposite_seats() -> void:
 	b["opponentTileCount"] = 2
 	check_eq(OnlineSessionView.from_response(b).opponent_tile_count, 2, "depleted opponent hand updates its public count")
 
-func test_authoritative_swap_turns_timeout_and_resignation() -> void:
+func test_authoritative_swap_rejects_timeout_and_allows_resignation() -> void:
 	var initial: Dictionary = _new_match()
 	var before: String = JSON.stringify(initial.snapshot)
 	var refused: Dictionary = OnlineRules.execute({"action": "swap", "seat": "ai", "snapshot": initial.snapshot, "tileIds": [initial.views.ai.hand[0].tile_id]})
@@ -49,12 +49,8 @@ func test_authoritative_swap_turns_timeout_and_resignation() -> void:
 	check_eq(swap.snapshot.turn.active_player_id, "ai", "swap hands over play")
 	check_eq(swap.snapshot.ledger.events.size(), 0, "swap awards no points")
 	var timeout: Dictionary = OnlineRules.execute({"action": "timeout", "snapshot": swap.snapshot})
-	check(timeout.has("snapshot"), "timeout succeeds: %s" % str(timeout.get("error", "")))
-	if not timeout.has("snapshot"):
-		return
-	check_eq(timeout.snapshot.turn.active_player_id, "human", "timeout passes exactly one turn")
-	check_eq(timeout.snapshot.decks, swap.snapshot.decks, "timeout spends no tiles")
-	var ended: Dictionary = OnlineRules.execute({"action": "resign", "seat": "ai", "snapshot": timeout.snapshot})
+	check(not timeout.has("snapshot"), "a timeout cannot consume the pending move")
+	var ended: Dictionary = OnlineRules.execute({"action": "resign", "seat": "ai", "snapshot": swap.snapshot})
 	check_eq(ended.snapshot.outcome, TurnEnums.MatchOutcome.HUMAN_WIN, "opponent resignation produces a win")
 	ended.views.ai["matchId"] = "online-test"
 	check_eq(OnlineSessionView.from_response(ended.views.ai).get_outcome(), TurnEnums.MatchOutcome.AI_WIN, "resigning account sees a loss")
@@ -89,8 +85,48 @@ class FakeApi extends OnlineGameApiClient:
 
 func _response() -> Dictionary:
 	var data: Dictionary = _new_match().views.human
-	data.merge({"matchId": "test-match", "version": 1, "status": "active", "deadline": 1060.0, "serverTime": 1000.0, "opponent": {"displayName": "Rival", "connected": true}})
+	data.merge({"matchId": "test-match", "version": 1, "status": "active", "deadline": null, "serverTime": 1000.0, "opponent": {"displayName": "Rival", "connected": true}})
 	return data
+
+func test_new_verified_ai_game_ignores_the_previous_match_poll() -> void:
+	var api: FakeApi = FakeApi.new()
+	api.set_credentials("token", "online-test-user")
+	api.start("old-match")
+	api._process(0.0)
+	var old_request: HTTPRequest = api._request
+	api.start_verified_ai(AiEnums.Difficulty.HARD, "rival_15")
+	check(api._request == null, "New Game cancels the old match poll")
+	check_eq(api.match_id, "", "New Game clears the previous match ID")
+	api._process(0.0)
+	check(api._request != old_request, "New Game starts its own request")
+	check(api.sent.back().url.ends_with("/ai-games/"), "New Game posts a create request")
+	check_eq(String(JSON.parse_string(api.sent.back().body).get("rivalId", "")), "rival_15",
+		"New Game requests the selected rival")
+	api._completed(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(),
+		JSON.stringify(_response()).to_utf8_buffer(), old_request, "poll")
+	check_eq(api.match_id, "", "Late response from old game is ignored")
+	api.free()
+
+func test_all_active_verified_ai_games_remain_resumable() -> void:
+	var root := AppRoot.new()
+	var list := VerifiedAiMatchListClient.new()
+	root.verified_ai_match_list = list
+	root.add_child(list)
+	var initial: Dictionary = _new_match().views.human
+	for rival: Dictionary in [
+		{"matchId": "nia-match", "id": "rival_01", "name": "Nia"},
+		{"matchId": "new-match", "id": "rival_07", "name": "Hugo"},
+	]:
+		var state: Dictionary = initial.duplicate(true)
+		state["matchId"] = rival.matchId
+		state["status"] = "active"
+		state["opponent"] = {"id": rival.id, "displayName": rival.name, "avatarKey": rival.id}
+		list.matches.append(state)
+	var entries: Array[Dictionary] = root._verified_ai_active_entries()
+	check_eq(entries.size(), 2, "every active AI game has a Resume entry")
+	check_eq(String(entries[0].get("id", "")), "nia-match", "older match retains its own ID")
+	check_eq(String(entries[1].get("opponent", "")), "Hugo", "new match has its own rival")
+	root.free()
 
 func test_client_retries_same_command_and_locks_input() -> void:
 	var api: FakeApi = FakeApi.new()
@@ -112,10 +148,9 @@ func test_client_retries_same_command_and_locks_input() -> void:
 	api.complete(409, _response())
 	check(not api.has_pending_command(), "authoritative conflict clears rejected command")
 	check(controller.is_human_turn(), "fresh conflict state allows correcting a move")
-	controller._seconds_at_sync = 0.0
 	controller.update_turn_clock()
-	check_eq(controller.turn_number(), 1, "client clock never advances the server turn")
-	check(not controller.is_human_turn(), "zero clock blocks local input")
+	check_eq(controller.turn_number(), 1, "clock compatibility call never advances the server turn")
+	check(controller.is_human_turn(), "the player may move without a deadline")
 	check_eq(controller.match_snapshot_dictionary(), {}, "online match cannot enter local snapshot sync")
 	api._clear_resume()
 	controller.free()

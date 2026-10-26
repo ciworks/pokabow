@@ -57,6 +57,11 @@ const ARC_LIFT: float = 44.0
 ## Size a tile starts at, as a fraction of the size it lands at.
 const START_SCALE: float = 0.55
 
+## A short lift gives the flat width-squash a sense of depth at rack size.
+const FLIP_LIFT_MAX: float = 4.0
+const FLIP_LIFT_RATIO: float = 0.08
+const FLIP_SHADOW_COLOR: Color = Color(0.09, 0.24, 0.26, 0.12)
+
 ## Emitted whenever another tile finishes turning face up, with that count. The
 ## screen uses it to stop concealing those tiles in the row.
 signal progressed(revealed: int)
@@ -257,23 +262,39 @@ func _draw_flight(target: Rect2, progress: float) -> void:
 
 ## Draws a tile part-way through turning over.
 ##
-## The turn is a horizontal squash about the tile's centre: the back narrows to
-## nothing over the first half and the face widens back out over the second, which
-## is what reads as a card turning over rather than as one image replacing another.
-## The width is floored at half a pixel so the tile never collapses to nothing the
-## frame it passes edge-on.
+## Ease the full artwork through an edge-on sliver, with a small lift and shadow.
+## The face still replaces the back exactly halfway through the existing timeline.
 func _draw_turn(index: int, target: Rect2, progress: float) -> void:
 	var closing: bool = progress < 0.5
-	var width: float = (1.0 - progress * 2.0) if closing else ((progress - 0.5) * 2.0)
-	var half: Vector2 = Vector2(maxf(target.size.x * width, 0.5), target.size.y) * 0.5
-	var rect: Rect2 = Rect2(target.get_center() - half, half * 2.0)
+	var rect: Rect2 = flip_art_rect(target, progress)
+	var lift_fraction: float = sin(PI * clampf(progress, 0.0, 1.0))
+	var shadow: Rect2 = Rect2(
+		target.position + Vector2(target.size.x * 0.12, target.size.y - 2.0),
+		Vector2(target.size.x * 0.76, 2.0)
+	)
+	var shadow_color: Color = FLIP_SHADOW_COLOR
+	shadow_color.a *= lift_fraction
+	draw_rect(shadow, shadow_color, true)
 	if closing:
 		TilePainter.paint_tile_back(self, rect)
 	else:
 		TilePainter.paint_tile(
 			self, rect, TileSnapshot.create(_tiles[index], BoardMetrics.NO_CELL, 0)
 		)
-	TilePainter.paint_flip_depth(self, target, progress)
+	TilePainter.paint_flip_depth(
+		self, Rect2(Vector2(target.position.x, rect.position.y), target.size), progress
+	)
+
+
+## Geometry is kept separate from drawing so the compressed bounds can be checked.
+static func flip_art_rect(target: Rect2, progress: float) -> Rect2:
+	var clamped: float = clampf(progress, 0.0, 1.0)
+	var width: float = maxf(target.size.x * absf(cos(PI * clamped)), 0.5)
+	var lift: float = minf(target.size.y * FLIP_LIFT_RATIO, FLIP_LIFT_MAX) * sin(PI * clamped)
+	return Rect2(
+		Vector2(target.get_center().x - width * 0.5, target.position.y - lift),
+		Vector2(width, target.size.y)
+	)
 
 
 ## Returns how many tiles have finished turning face up.

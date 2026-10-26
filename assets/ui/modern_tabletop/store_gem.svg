@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="50" height="45" viewBox="0 0 50 45" role="img" aria-label="Faceted teal gem">
+  <path d="M12 4H38L48 16L25 42L2 16Z" fill="#66C4C4" stroke="#F8FAF5" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M12 4H38L48 16L25 42L2 16Z" fill="#5CBFC1"/>
+  <path d="M12 4H38L42 11H8Z" fill="#B7ECE7"/>
+  <path d="M2 16L12 4L18 16L25 42Z" fill="#79CED0"/>
+  <path d="M32 16L38 4L48 16L25 42Z" fill="#2F8E99"/>
+  <path d="M18 16H32L25 42Z" fill="#4EAFB4"/>
+  <path d="M25 42L48 16L38 25Z" fill="#2D7886" opacity=".72"/>
+  <path d="M2 16H48M12 4L18 16L25 42M38 4L32 16L25 42" fill="none" stroke="#20545B" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M12 4H38L48 16L25 42L2 16Z" fill="none" stroke="#173D42" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M15 7H28M8 14L12 10" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-linecap="round" opacity=".95"/>
+  <circle cx="37.5" cy="11" r="1.4" fill="#FFFFFF"/>
+</svg>

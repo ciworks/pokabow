@@ -99,6 +99,15 @@ overview remains visible for three seconds with “Rival is thinking...” befor
 the AI starts its move. Rival placement animation keeps the camera on the full
 board overview rather than focusing the rival's tiles (owner direction,
 2026-10-17).
+In a server-verified AI match, the accepted human hand, its authoritative points,
+Gem travel and replacement tiles are shown at the current close zoom first. Once
+those effects settle, the camera moves to the centered full-board overview and
+shows “Rival is thinking...” for three seconds. The server's already-decided
+rival placement then flies from its rack onto the full board, revealing each
+destination as the tile lands. Rival points and Gem effects appear after the
+placement lands. A rejected action leaves the board at the player's current
+zoom so the hand can be corrected. The pause changes presentation timing only;
+the server remains responsible for moves, scores and Gem awards.
 The close view shows as many columns as the available viewport width allows at
 that cell size, capped at the board's 12 columns. Wider and narrower layouts
 therefore adapt their visible column count instead of always using six.
@@ -140,18 +149,44 @@ save was not modified. Physical-device verification remains outstanding.
 The hub follows [DESIGN_SYSTEM.md](../DESIGN_SYSTEM.md#runtime-adoption): ivory
 canvas, teal typography/resume cards, honey primary actions, Fredoka fonts (updated 2026-10-18), shared
 outline icons and a dedicated illustration. A container layout gives short
-screens scrollable content and persistent Home / Achievements / Profile
-navigation. The previous Shop placeholder is removed; account, achievements,
+screens scrollable content and persistent Home / Achievements / Shop
+navigation. Shop shows a coming-soon notice, while Profile sits with Sound and
+Settings in the header. Account, achievements,
 AI, online and per-game resume routing are retained.
 
-Play AI is primary with no saves; Resume takes priority when games are available.
+The hub has one honey **Play Now** action. It opens the opponent chooser with
+AI rival selected; Online remains available as a mode on that screen. A saved
+game keeps its own Resume action.
+The three tiles in the hub illustration bounce individually at random intervals.
+The original illustration is unchanged at rest, the player portraits stay fixed,
+and Reduced motion disables the bounce immediately.
 Saved-game cards keep real opponent/score data and their exact resume targets.
 Settings and notices share the theme. Settings resets to the top on reopening,
-and audio state is distinguished by on/off icons. Existing account deletion,
-preference and server-address behaviour is retained.
+and audio state is distinguished by on/off icons. Preference and server-address
+behaviour is retained. Account deletion sits at the bottom of My profile, where
+confirmation, status, and retry are shown. Settings controls are grouped into
+Play & alerts, Display & access, and Help & storage cards. Close stays visible
+below the scrolling content.
+
+The Play & alerts card includes a music volume slider. Its level is saved on
+the device and applies immediately. The Sound switch still mutes all audio.
+The looping theme starts when the hub first opens and continues across screens.
+
+The Help & storage card also opens **Report a problem**. Godot file logging is
+enabled for mobile builds. If the previous foreground session ended without a
+normal close or pause, the next hub launch offers a saved report. The player can
+add a description in a large text field and review or edit the latest 3,000
+characters of the previous session's engine log. The screen includes app, engine
+and OS versions, and opens a draft addressed to support@pokabow.game in the
+device's email app only after the player taps **Open email to support**. The
+player sends the draft there; the game cannot confirm delivery. A manual report
+can also be opened from Settings, and a saved crash log can be discarded. Known
+credential patterns are redacted from log excerpts, but players should still
+review them. Mobile OS process termination while backgrounded is not reliably
+distinguishable from a crash. Native backtraces depend on engine debug symbols.
 
 Godot 4.6 validation: 332 headless and 340 rendered hub assertions passed, plus
-the existing settings layout and account-deletion confirmation check. Captures
+the settings layout and profile account-deletion confirmation checks. Captures
 at 360×800 and 540×960, and the real 540×1200-to-360×800 stretch, were visually
 inspected. Device touch and cutout testing remain open. Run
 `tools/validate_hub_design.gd`; set HUB_QA_DIR to an existing output directory
@@ -227,6 +262,10 @@ username through `PATCH /auth/me`. The existing API stores avatar bytes in
 PostgreSQL and serves them to the signed-in account through
 `GET /auth/me/avatar`. These are separate writes; if the username update fails
 after avatar upload, the profile explains the partial success and allows retry.
+The API rejects a name already used by another account with `409 USERNAME_TAKEN`,
+ignoring case and surrounding whitespace. The profile retains the current saved
+name, reopens the attempted name for editing, and explains that the avatar was
+already saved. Keeping one's own current name remains valid.
 The selected picture appears in the pre-match screen, game HUD, and match
 results. It is not sent to online opponents.
 
@@ -291,7 +330,7 @@ and charcoal board palette are retained.
   2026-10-15). There is no toast overlay, banner texture, or toast fade. The
   latest notification is shown for four seconds, then the current turn status
   returns. Messages wrap inside the header and do not intercept board input.
-  State refreshes and timeout handover preserve the visible message. Correcting
+  State refreshes preserve the visible message. Correcting
   a placement clears its obsolete warning; starting or ending a match clears
   pending notifications. Existing suppression of incomplete poker-hand notices
   remains in place. General action guidance is still available in the drawer.
@@ -336,8 +375,8 @@ and charcoal board palette are retained.
   placement, and final results wait for the sequence to finish. A completed match
   then keeps the final board and scores visible for two seconds before opening
   results, whether the last move was human or rival. Resignation and recovery
-  errors still open results immediately. The existing turn
-  clock continues normally. Restart cancels the presentation cleanly, and reduced
+  errors still open results immediately. No move countdown runs during this
+  presentation. Restart cancels the presentation cleanly, and reduced
   motion shows the committed board and refilled rack immediately. Online snapshots
   continue to update the rival count without synthesizing concealed tile faces.
   Validation: 466 focused game-screen/portrait assertions passed on Godot 4.6,
@@ -395,7 +434,7 @@ checks use a stand-in ad; they do not prove native ad delivery.
   device touch testing remains outstanding.
   Expanded-target validation: 772 focused assertions passed on Godot 4.7.2,
   covering one-to-six-tile hit regions at three sizes, padding-to-board drags,
-  rotation, interaction gating, and the 60-second timer. Physical-device touch
+  rotation, interaction gating, and the former 60-second timer. Physical-device touch
   verification remains outstanding.
   Validation: rendered checks passed at five phone/wide-window sizes, including
   board/tray width alignment, square tiles, equal spacing for one through six
@@ -407,23 +446,32 @@ checks use a stand-in ad; they do not prove native ad delivery.
   other bottom actions. The top-right settings button and bottom Undo action
   have been removed (owner request, 2026-10-15). Closing the drawer returns
   keyboard focus to Menu.
-- The 60-second timer is plain `m:ss` text, aligned right in the row under the
-  score header; the active-turn label is at left and the compact rival rack sits
-  between them. Turn text uses 16px Fredoka Regular; the 16px timer uses
-  Fredoka Semibold. Both remain deep teal, as in the Modern
-  Tabletop concept. A rounded soft-sage panel (`#DFEAE4`) wraps the three
-  elements, gently separating them from the ivory canvas. The surrounding score cards and avatar timer borders are
-  removed to match the concept. Avatar portrait borders are also omitted on
-  this screen. The avatar remains still throughout the turn, including the
-  final ten seconds. Opening settings does not pause the clock.
+- The turn row under the score header shows the active player at left and the
+  compact rival rack across the remaining space. There is no move countdown.
+  Turn text uses 16px Fredoka Regular in deep teal. A rounded soft-ivory panel
+  separates the row from the canvas. The surrounding score cards and avatar
+  timer borders remain absent. Opening settings or leaving the app does not
+  pass a turn.
   The drawer starts below the score header;
   commands scroll on shorter screens while its title and close button stay visible.
   Close, an outside tap, or Escape dismisses it. Covered board input is consumed.
   The close button uses `assets/ui/close.png` with a 44-pixel minimum tap target.
+- The player's in-game avatar shows a small sage `Lv N` chip over its lower edge
+  when the progression API has supplied a valid Table Level. Its accessible name
+  spells out “Table Level N”. Match entry uses cached progression immediately and
+  refreshes it from the server. AI rivals have no Table Level, and the current
+  online opponent payload does not provide one, so their avatars have no chip.
+  Godot 4.6 focused validation passed 17 assertions for label, styling,
+  live updates, visibility and header placement at 320, 390 and 540 pixel widths.
+  Physical-device visual review remains outstanding.
 - The drawer contains move preview, status, and match settings. Play move,
   Rotate tile, Swap tiles, and Clear placement are not drawer buttons. During a
-  swap it offers Return selected tiles and Keep tiles. Tile rotation remains
-  available by tapping the selected rack tile or a staged tile.
+  swap, the bottom bar's primary Play hand action says **Select tiles** until at
+  least one tile is marked, then **Swap 1 tile**, **Swap 2 tiles**, and so on.
+  It submits the marked rack tiles; Undo becomes Keep and cancels the swap.
+  The primary action is disabled until at least one tile is marked. The drawer
+  also offers Return selected tiles and Keep tiles. Taps toggle swap marks while
+  swap mode is active; they do not rotate tiles.
 - Move preview reports the controller's read-only hand, edge, cluster, and total
   points. It uses the same scorer as committing. Invalid or absent hands show
   dashes. Card and edge multipliers are already included in the hand score.
@@ -459,7 +507,8 @@ checks use a stand-in ad; they do not prove native ad delivery.
 - Interface text uses Bahnschrift with Segoe UI and DejaVu Sans fallbacks.
   Tile artwork, tile fonts, and tile painting are unchanged by this layout.
 
-Shared-pot timer validation (2026-10-15, Godot 4.6): 387 focused interaction
+Historical shared-pot timer validation (2026-10-15, Godot 4.6; superseded by
+ADR-023): 387 focused interaction
 assertions, six portrait configuration checks, and 137 rendered layout/state
 assertions passed. Full, half-full, ten-second, and empty rings were visually
 inspected. Coverage includes both players, per-second updates without board
@@ -502,8 +551,12 @@ has not been performed.
   no tile is armed for a staging command. Tapping a deck tile selects it; a second
   tap on the tile already selected turns it one quarter-turn, so the player can see
   the orientation before placing it.
-- Selected deck tiles have no surrounding highlight (owner direction, 2026-10-14).
-  Their slight lift and tap-to-rotate interaction remain; swap marks retain their outline.
+- Selected deck tiles rise four logical pixels and gain a two-pixel honey outline
+  with a one-pixel ink keyline outside the tile, plus a small honey position marker below it (owner direction,
+  2026-10-23). These code-drawn cues replace the `tile_highlight.png` overlay,
+  leaving rank, suit and edge colours unobscured. Swap-marked tiles stay level
+  and instead use a two-pixel outer ink frame with a small checked marker below.
+  Multiple marks can appear at once without covering tile art.
 - Unselected tiles resting in the player's deck receive a one-third-second,
   45-degree glimmer sweep from left edge to right edge at randomized intervals.
   Selected, concealed, or dragged tiles do not show the effect, and board tiles
@@ -514,9 +567,8 @@ has not been performed.
   tile the player never chose.
 - While dragging from the deck, the source slot is vacant and the moving preview
   uses 90% of the deck tile's normal width and height. The nearest cell
-  under the pointer uses the gold frame from `assets/tiles/tile_highlight.png`,
-  replacing the red border (owner direction, 2026-10-10). Its opaque center is
-  omitted so existing tiles remain visible, including over occupied cells;
+  under the pointer uses a code-drawn honey frame with a transparent center,
+  so existing tiles remain visible, including over occupied cells;
   the existing legal/illegal fill still shows whether the drop is accepted.
   The preview follows the pointer continuously in a screen-level overlay, including
   the space between the deck and board. It keeps the same size across board zoom
@@ -648,15 +700,14 @@ a move is valid or how much it is worth (`AGENTS.md` section 19).
 
 `FloatingScores` shows one total per move, without a `+` prefix, by summing the committed `ScoreEvent`
 points. The popup and edge/cluster reveal describe the same awards; scoring rules
-are not recalculated. The value uses the game screen font at 55 points (half
-the previous 110), white with an 8-pixel black outline. It flashes once,
+are not recalculated. The value uses Fredoka Bold at 55 points (half
+the previous 110), ivory with a 5-pixel deep-teal outline. It flashes once,
 briefly holds, then fades away while rising, over 1.15 seconds. Its measured
 bounds keep it inside the screen. Reduced motion holds the value without flashing
 or moving, then removes it after the same duration. Moves with no points show
 no popup.
 The top header uses the same committed events to show “You scored N points” or
 “Rival scored N points” for four seconds.
-
 The score moment also carries a sound and a vibration (section 6). Both follow the
 committed event, not the button press.
 

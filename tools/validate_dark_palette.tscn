@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dw2xiiwm3xr65"]
+
+[ext_resource type="Script" uid="uid://85f1jbb3wnm3" path="res://tools/validate_dark_palette.gd" id="1"]
+
+[node name="ValidateDarkPalette" type="Node" unique_id=302967766]
+script = ExtResource("1")

@@ -56,8 +56,8 @@ var placements_this_turn: int = 0
 ## 1-based turn number. Turn 1 is the human's opening move (ADR-003 section 2).
 var turn_number: int = 0
 
-## Remaining action time, persisted with the turn (ADR-017).
-var remaining_seconds: float = TurnManager.TURN_SECONDS
+## Legacy save fields. New turns have no move deadline.
+var remaining_seconds: float = 0.0
 var deadline_unix_seconds: float = 0.0
 
 ## Automatic no-tile turn ends recorded in a row (ADR-010 section 4).

@@ -50,7 +50,7 @@ func test_search_pairs_and_keeps_the_lobby_alive() -> void:
 	client.start_search()
 	check(client.sent.back().url.ends_with("/tickets/current"), "search recovers an existing ticket before joining")
 	client.complete(200, {"ticket": null})
-	check_eq(client.sent.back().body.rulesVersion, "pokabow-v1", "queue identifies the compatible game rules")
+	check_eq(client.sent.back().body.rulesVersion, "pokabow-v3", "queue identifies the compatible game rules")
 	check_eq(String(client.sent.back().body.requestId).length(), 36, "join carries an idempotency UUID")
 	client.complete(200, _ticket())
 	check_eq(client.state, "searching", "a queued account remains searching")
@@ -143,7 +143,7 @@ func test_screen_shows_real_lobby_without_starting_an_ai_match() -> void:
 	(Engine.get_main_loop() as SceneTree).root.add_child(screen)
 	var client := _client()
 	var started: Array[int] = []
-	screen.opponent_selected.connect(func(_difficulty: int, _portrait: Texture2D) -> void: started.append(1))
+	screen.opponent_selected.connect(func(_rival: Dictionary, _portrait: Texture2D) -> void: started.append(1))
 	screen.attach_matchmaking(client)
 	screen.mode_picker.select(1)
 	screen._on_mode_selected(1)
@@ -203,6 +203,7 @@ func test_online_search_keeps_cycling_until_match_and_cancel_prevents_join() -> 
 	screen.attach_matchmaking(client)
 	screen.select_online()
 	screen._begin_spin()
+	check_eq(screen._online_portraits.size(), 16, "the complete rival roster is available to exported builds")
 	client.complete(200, {"ticket": null})
 	client.complete(200, _ticket())
 	screen._process(6.0)
@@ -254,7 +255,33 @@ class QuietApp extends AppRoot:
 		return true
 
 
-func test_hub_online_access_and_back_preserve_the_existing_ai_route() -> void:
+class LocalFallbackApp extends AppRoot:
+	func _ready() -> void:
+		pass
+
+
+func test_verified_ai_fallback_keeps_hub_out_of_live_match() -> void:
+	var app := LocalFallbackApp.new()
+	var host := Node.new()
+	host.name = "SceneHost"
+	app.add_child(host)
+	(Engine.get_main_loop() as SceneTree).root.add_child(app)
+	check(app.show_hub(), "the hub opens before an AI match")
+	app._pending_verified_ai_difficulty = AiEnums.Difficulty.MEDIUM
+	app._open_verified_ai_when_received = true
+	app._on_verified_ai_connection_changed(false, "This verified AI match is no longer available.")
+	check_not_null(app.game_screen, "the fallback opens a local Medium match")
+	check(not app.hub_screen.visible, "the live match hides the hub behind it")
+	app._on_hub_play_requested()
+	check(app.opponent_selection_screen == null,
+		"a hub Play event cannot replace an active match with the difficulty chooser")
+	var save_path: String = app.session_controller.save_path if app.session_controller != null else ""
+	app.free()
+	if not save_path.is_empty() and FileAccess.file_exists(save_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(save_path))
+
+
+func test_hub_play_now_defaults_to_ai_and_keeps_online_available() -> void:
 	var app := QuietApp.new()
 	var host := Node.new()
 	host.name = "SceneHost"
@@ -264,15 +291,20 @@ func test_hub_online_access_and_back_preserve_the_existing_ai_route() -> void:
 	app.matchmaking_client = _client()
 	app.add_child(app.matchmaking_client)
 	check(app.show_hub(), "hub opens with matchmaking services")
-	app.hub_screen.set_play_button_label("Resume")
-	app.hub_screen.get_node("%OnlineButton").pressed.emit()
-	check(app.opponent_selection_screen != null, "Online button works alongside Resume")
-	check_eq(app.opponent_selection_screen.mode_picker.selected, 1, "hub online action selects the online mode")
+	check_eq((app.hub_screen.get_node("%PlayButton") as Button).text, "Play Now", "the hub has one Play Now action")
+	check(app.hub_screen.get_node_or_null("%OnlineButton") == null, "the hub has no separate online action")
+	app.hub_screen.get_node("%PlayButton").pressed.emit()
+	check(app.opponent_selection_screen != null, "Play Now opens the opponent chooser")
+	check_eq(app.opponent_selection_screen.mode_picker.selected, 0, "Play Now defaults to AI rival")
+	app.opponent_selection_screen._select_mode(1)
+	check_eq(app.opponent_selection_screen.mode_picker.selected, 1, "online play remains available in the chooser")
 	check_eq(app.matches_started, 0, "opening a lobby does not replace the saved local game")
 	app.opponent_selection_screen._on_back_pressed()
 	check(app.hub_screen.visible, "Back returns to the existing hub")
 	check(app.opponent_selection_screen == null, "Back releases the selection screen")
-	check(app.show_opponent_selection(), "AI selection remains available")
+	app.hub_screen.get_node("%PlayButton").pressed.emit()
+	check(app.opponent_selection_screen != null, "Play Now reopens the chooser")
+	check_eq(app.opponent_selection_screen.mode_picker.selected, 0, "reopened chooser defaults to AI rival")
 	app.opponent_selection_screen._begin_spin()
 	app.opponent_selection_screen._process(100.0)
 	app.opponent_selection_screen._process(1.0)

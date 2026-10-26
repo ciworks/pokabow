@@ -23,8 +23,7 @@ func set_face(face: Dictionary, index: int) -> bool:
 		_tile = null
 		return false
 	var face_name: String = TileEnums.rank_name(int(_tile.rank))
-	if int(_tile.rank) != TileEnums.TileRank.JOKER:
-		face_name += " of " + TilePainter.suit_name(_tile)
+	face_name += " of " + TilePainter.suit_name(_tile)
 	var edge_names: Array[String] = []
 	for edge: TileEnums.EdgeColor in _tile.get_base_edges():
 		edge_names.append(TileEnums.edge_color_name(int(edge)))

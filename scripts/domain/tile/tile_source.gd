@@ -13,12 +13,8 @@ extends RefCounted
 ## section 7).
 ##
 ## Generation consumes randomness in this fixed order per tile: rank, face
-## colour, suit for non-Jokers, then top, right, bottom, left edges.
+## colour, suit, then top, right, bottom, left edges.
 ##
-## The pot carries at most `rules.max_jokers` Joker-ranked tiles (ADR-014). Once
-## that allowance is spent, the Joker rank weight is treated as zero for the
-## remaining tiles, so the per-tile consumption above is unchanged and a capped
-## bag stays deterministic for its seed.
 ## Rotation starts at zero and is carried by `TileSnapshot`, not by `TileDefinition`.
 ##
 ## Milestone 1 scope: supply and determinism only. Draw-and-assign atomicity,
@@ -66,11 +62,8 @@ func initialize(match_id: StringName, seed: int, rules: TileGenerationRules) -> 
 
 	var generated: Array[TileDefinition] = []
 	generated.resize(rules.bag_size)
-	var jokers_generated: int = 0
 	for index: int in range(rules.bag_size):
-		var tile: TileDefinition = _generate_tile(rng, rules, index, jokers_generated)
-		if tile.rank == TileEnums.TileRank.JOKER:
-			jokers_generated += 1
+		var tile: TileDefinition = _generate_tile(rng, rules, index)
 		generated[index] = tile
 
 	_rules = rules
@@ -255,45 +248,19 @@ static func from_dto(dto: TileSourceDto) -> TileSource:
 func _generate_tile(
 	rng: RandomNumberGenerator,
 	rules: TileGenerationRules,
-	index: int,
-	jokers_generated: int
+	index: int
 ) -> TileDefinition:
-	var rank: int = _pick_weighted_index(rng, _effective_rank_weights(rules, jokers_generated))
+	var rank: int = _pick_weighted_index(rng, rules.rank_weights)
 	var face_color: int = _pick_weighted_index(rng, rules.face_color_weights)
-	var suit: int = TileEnums.Suit.NONE
-	if rank == TileEnums.TileRank.JOKER:
-		face_color = TileEnums.FaceColor.NONE
-	else:
-		var candidates: Array[float] = []
-		var first_suit: int = TileEnums.Suit.HEARTS if face_color == TileEnums.FaceColor.RED else TileEnums.Suit.CLUBS
-		candidates.append(rules.suit_weights[first_suit])
-		candidates.append(rules.suit_weights[first_suit + 1])
-		suit = first_suit + _pick_weighted_index(rng, candidates)
+	var candidates: Array[float] = []
+	var first_suit: int = TileEnums.Suit.HEARTS if face_color == TileEnums.FaceColor.RED else TileEnums.Suit.CLUBS
+	candidates.append(rules.suit_weights[first_suit])
+	candidates.append(rules.suit_weights[first_suit + 1])
+	var suit: int = first_suit + _pick_weighted_index(rng, candidates)
 	var edges: Array[TileEnums.EdgeColor] = []
 	for _edge_index: int in range(TileEnums.EDGE_COUNT):
 		edges.append(_pick_weighted_index(rng, rules.edge_color_weights))
 	return TileDefinition.create(_tile_id_for_index(index), rank, face_color, edges, suit)
-
-
-## Returns the rank weights to draw from, with the Joker allowance applied.
-##
-## ADR-014 caps how many Joker-ranked tiles one pot may hold. The cap is applied
-## here, before the rank draw, so the generator still consumes exactly one random
-## value per tile in the fixed ADR-004 section 2 order: a bag that has spent its
-## allowance draws from the ordinary ranks weighted exactly as configured, and
-## the same seed always produces the same capped bag.
-##
-## The returned array is only built when the cap is actually in force, so an
-## uncapped pot draws from `rules.rank_weights` itself and is unchanged.
-func _effective_rank_weights(rules: TileGenerationRules, jokers_generated: int) -> Array[float]:
-	if rules.max_jokers < 0 or jokers_generated < rules.max_jokers:
-		return rules.rank_weights
-
-	var weights: Array[float] = rules.rank_weights.duplicate()
-	var joker_index: int = TileEnums.TileRank.JOKER
-	if joker_index >= 0 and joker_index < weights.size():
-		weights[joker_index] = 0.0
-	return weights
 
 
 ## Returns one weighted index, consuming exactly one random value.

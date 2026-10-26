@@ -1,11 +1,11 @@
 [gd_scene format=3 uid="uid://djaraq68y4mas"]
 
-[ext_resource type="Script" path="res://scripts/presentation/splash_screen.gd" id="1_screen"]
-[ext_resource type="Texture2D" path="res://assets/splash/mark.svg" id="2_mark"]
-[ext_resource type="Texture2D" path="res://assets/splash/welcome-hero-v1.png" id="3_hero"]
-[ext_resource type="Script" path="res://scripts/presentation/splash_loading_progress.gd" id="4_progress"]
+[ext_resource type="Script" uid="uid://dxh4rm8jnfro8" path="res://scripts/presentation/splash_screen.gd" id="1_screen"]
+[ext_resource type="Texture2D" uid="uid://dea0lugko8xuv" path="res://assets/splash/mark.svg" id="2_mark"]
+[ext_resource type="Texture2D" uid="uid://biiarqcc836vb" path="res://assets/splash/welcome-hero-v1.png" id="3_hero"]
+[ext_resource type="Script" uid="uid://c6i54scsfdos" path="res://scripts/presentation/splash_loading_progress.gd" id="4_progress"]
 
-[node name="SplashScreen" type="Control"]
+[node name="SplashScreen" type="Control" unique_id=807788378]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -14,7 +14,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_screen")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="ColorRect" parent="." unique_id=499884190]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -24,7 +24,7 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.964706, 0.94902, 0.913725, 1)
 
-[node name="CenterContainer" type="MarginContainer" parent="."]
+[node name="CenterContainer" type="MarginContainer" parent="." unique_id=172869715]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -33,18 +33,18 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="TitleBlock" type="VBoxContainer" parent="CenterContainer"]
+[node name="TitleBlock" type="VBoxContainer" parent="CenterContainer" unique_id=1457123025]
 layout_mode = 2
 mouse_filter = 2
 alignment = 1
 
-[node name="TopSpace" type="Control" parent="CenterContainer/TitleBlock"]
+[node name="TopSpace" type="Control" parent="CenterContainer/TitleBlock" unique_id=401602474]
 layout_mode = 2
 size_flags_vertical = 3
 size_flags_stretch_ratio = 1.2
 mouse_filter = 2
 
-[node name="Logo" type="TextureRect" parent="CenterContainer/TitleBlock"]
+[node name="Logo" type="TextureRect" parent="CenterContainer/TitleBlock" unique_id=448219151]
 custom_minimum_size = Vector2(80, 80)
 layout_mode = 2
 size_flags_horizontal = 4
@@ -53,23 +53,23 @@ texture = ExtResource("2_mark")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="Brand" type="Label" parent="CenterContainer/TitleBlock"]
+[node name="Brand" type="Label" parent="CenterContainer/TitleBlock" unique_id=1242464914]
 layout_mode = 2
 text = "POKABOW"
 horizontal_alignment = 1
 
-[node name="Tagline" type="Label" parent="CenterContainer/TitleBlock"]
+[node name="Tagline" type="Label" parent="CenterContainer/TitleBlock" unique_id=1715451014]
 layout_mode = 2
 text = "Make your next move."
 horizontal_alignment = 1
 
-[node name="MiddleSpace" type="Control" parent="CenterContainer/TitleBlock"]
+[node name="MiddleSpace" type="Control" parent="CenterContainer/TitleBlock" unique_id=1917835841]
 layout_mode = 2
 size_flags_vertical = 3
 size_flags_stretch_ratio = 0.5
 mouse_filter = 2
 
-[node name="Hero" type="TextureRect" parent="CenterContainer/TitleBlock"]
+[node name="Hero" type="TextureRect" parent="CenterContainer/TitleBlock" unique_id=289892635]
 custom_minimum_size = Vector2(0, 300)
 layout_mode = 2
 size_flags_vertical = 3
@@ -79,13 +79,13 @@ texture = ExtResource("3_hero")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="LowerSpace" type="Control" parent="CenterContainer/TitleBlock"]
+[node name="LowerSpace" type="Control" parent="CenterContainer/TitleBlock" unique_id=1914612811]
 layout_mode = 2
 size_flags_vertical = 3
 size_flags_stretch_ratio = 0.5
 mouse_filter = 2
 
-[node name="LoadingProgress" type="ProgressBar" parent="CenterContainer/TitleBlock"]
+[node name="LoadingProgress" type="ProgressBar" parent="CenterContainer/TitleBlock" unique_id=1620320501]
 custom_minimum_size = Vector2(116, 24)
 layout_mode = 2
 size_flags_horizontal = 4
@@ -93,19 +93,18 @@ mouse_filter = 2
 show_percentage = false
 script = ExtResource("4_progress")
 
-[node name="LoadingCaption" type="Label" parent="CenterContainer/TitleBlock"]
+[node name="LoadingCaption" type="Label" parent="CenterContainer/TitleBlock" unique_id=1568805040]
 layout_mode = 2
 text = "Setting the table..."
 horizontal_alignment = 1
 
-[node name="BottomSpace" type="Control" parent="CenterContainer/TitleBlock"]
+[node name="BottomSpace" type="Control" parent="CenterContainer/TitleBlock" unique_id=461917439]
 layout_mode = 2
 size_flags_vertical = 3
 size_flags_stretch_ratio = 0.7
 mouse_filter = 2
 
-[node name="VersionLabel" type="Label" parent="CenterContainer/TitleBlock"]
+[node name="VersionLabel" type="Label" parent="CenterContainer/TitleBlock" unique_id=373078498]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 horizontal_alignment = 1

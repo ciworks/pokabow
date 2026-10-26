@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://7e41y6fddcmh"]
 
-[ext_resource type="Script" path="res://tools/validate_gem_results.gd" id="1"]
+[ext_resource type="Script" uid="uid://h4qsljlvywcj" path="res://tools/validate_gem_results.gd" id="1"]
 
-[node name="GemResultsValidation" type="Node"]
+[node name="GemResultsValidation" type="Node" unique_id=1888745230]
 script = ExtResource("1")

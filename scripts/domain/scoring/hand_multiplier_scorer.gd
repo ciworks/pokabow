@@ -15,8 +15,6 @@ static func card_value(rank: int) -> int:
 			return 3
 		TileEnums.TileRank.ACE:
 			return 4
-		TileEnums.TileRank.JOKER:
-			return 5
 	return 0
 
 
@@ -34,15 +32,11 @@ static func card_multiplier(board: BoardState, cells: Array[Vector2i]) -> int:
 	if cells.is_empty():
 		return 1
 	var first: TileDefinition = board.get_tile(cells[0]).get_tile()
-	if first.suit == TileEnums.Suit.NONE:
-		return 1
 	var same_color: bool = true
 	var same_suit: bool = true
 	var same_rank: bool = true
 	for cell: Vector2i in cells:
 		var tile: TileDefinition = board.get_tile(cell).get_tile()
-		if tile.suit == TileEnums.Suit.NONE:
-			return 1
 		same_color = same_color and tile.face_color == first.face_color
 		same_suit = same_suit and tile.suit == first.suit
 		same_rank = same_rank and tile.rank == first.rank

@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://2dkqvk48cixv"]
 
-[ext_resource type="Script" path="res://tools/validate_gem_pot_ui.gd" id="1"]
+[ext_resource type="Script" uid="uid://cdph5qe08q45n" path="res://tools/validate_gem_pot_ui.gd" id="1"]
 
-[node name="GemPotUIQA" type="Node"]
+[node name="GemPotUIQA" type="Node" unique_id=885835783]
 script = ExtResource("1")

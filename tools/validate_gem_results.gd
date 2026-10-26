@@ -65,5 +65,37 @@ func _run() -> void:
 	_check(view._reward_values[0].text == "+0" and view._reward_values[1].text == "+86", "Resignation shows pot only")
 	view.play(result)
 	_check(not view._reward_card.visible, "AI result hides Gem panel")
+	result.outcome = TurnEnums.MatchOutcome.HUMAN_WIN
+	result.end_reason = TurnEnums.EndReason.TILE_SOURCE_EXHAUSTED
+	view.play(result, AiGemPotRules.projected_payout(result, 36, AiEnums.Difficulty.MEDIUM))
+	_check(view._reward_card.visible, "AI result shows a projected pot")
+	_check(view._reward_values[0].text == "+36", "AI win shows its capped pot")
+	_check(not view._reward_columns[1].visible and not view._reward_divider.visible,
+		"AI has no Gem payout column")
+	_check(view._reward_pending.text == "Not credited", "AI projection is not presented as wallet balance")
+	if not OS.get_environment("AI_GEM_RESULT_CAPTURE").is_empty() and DisplayServer.get_name() != "headless":
+		tree.root.size = Vector2i(390, 844)
+		await tree.process_frame
+		await tree.process_frame
+		view._fit_layout()
+		await RenderingServer.frame_post_draw
+		_check(tree.root.get_texture().get_image().save_png(OS.get_environment("AI_GEM_RESULT_CAPTURE")) == OK,
+			"AI result capture saved")
+	result.outcome = TurnEnums.MatchOutcome.DRAW
+	view.play(result, AiGemPotRules.projected_payout(result, 36, AiEnums.Difficulty.MEDIUM))
+	_check(view._reward_values[0].text == "+18", "AI draw shows half the pot")
+	result.outcome = TurnEnums.MatchOutcome.AI_WIN
+	view.play(result, AiGemPotRules.projected_payout(result, 36, AiEnums.Difficulty.MEDIUM))
+	_check(view._reward_values[0].text == "+0", "AI loss awards nothing")
+	result.outcome = TurnEnums.MatchOutcome.HUMAN_WIN
+	var verified: Dictionary = AiGemPotRules.projected_payout(result, 36, AiEnums.Difficulty.MEDIUM)
+	verified["verified"] = true
+	verified["confirmed"] = true
+	view.play(result, verified)
+	_check(view._reward_pending.text == "Confirmed", "Verified AI credit is labelled confirmed")
+	_check(not view._reward_details[0].text.contains("projected"), "Confirmed AI credit is not labelled projected")
+	verified.erase("confirmed")
+	view.play(result, verified)
+	_check(view._reward_pending.text == "Pending", "Unconfirmed verified AI payout is labelled pending")
 	print("[Gem results] %d failures" % failures)
 	tree.quit(0 if failures == 0 else 1)

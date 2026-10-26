@@ -11,6 +11,7 @@ character was used as a source.
 - `rival-avatar-roster-v1.png`: sixteen AI rival portraits in a 4 by 4 atlas.
   `rivals/rival_01.tres` through `rival_16.tres` select the cells.
 
-The same rival pool is available at every AI difficulty. Difficulty is shown as
-text and is not implied by a portrait. Uploaded player photos remain a separate
+Named AI rivals use portraits 01 through 15, five per difficulty tier. Portrait
+16 remains available during online search. Difficulty is shown as text and is
+not inferred from appearance. Uploaded player photos remain a separate
 opt-in profile feature.

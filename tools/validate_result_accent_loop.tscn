@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://b6qlxqglto3el"]
 
-[ext_resource type="Script" path="res://tools/validate_result_accent_loop.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://d0crdep28vtuf" path="res://tools/validate_result_accent_loop.gd" id="1_qa"]
 
-[node name="ResultAccentLoopQA" type="Node"]
+[node name="ResultAccentLoopQA" type="Node" unique_id=29093263]
 script = ExtResource("1_qa")

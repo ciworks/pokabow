@@ -18,8 +18,8 @@ extends RefCounted
 ## True once `cancel()` has been called.
 var _cancelled: bool = false
 
-## The turn deadline may cancel analysis, independently of its node budget.
-## Zero keeps non-timed analysis and deterministic strategy tests unchanged.
+## An AI computation budget may cancel analysis independently of its node budget.
+## Zero keeps deterministic strategy tests free of wall-clock limits.
 var deadline_msec: int = 0
 
 

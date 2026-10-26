@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dco4weft0y4cv"]
+
+[ext_resource type="Script" uid="uid://dc40kcnm3x7vr" path="res://tools/validate_settings_organization.gd" id="1_validator"]
+
+[node name="SettingsOrganizationValidation" type="Node" unique_id=108737183]
+script = ExtResource("1_validator")

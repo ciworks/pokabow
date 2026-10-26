@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://kvnlo3v4ecql"]
+
+[ext_resource type="Script" uid="uid://df4oidsy4uyfa" path="res://scripts/presentation/gem_history_screen.gd" id="1_history"]
+
+[node name="GemHistoryScreen" type="Control" unique_id=945607152]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_history")

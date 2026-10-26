@@ -19,12 +19,15 @@ static func execute(request: Dictionary) -> Dictionary:
 		if session.is_over():
 			return {"error": "MATCH_FINISHED"}
 		var seat: StringName = StringName(request.get("seat", ""))
-		if action == "timeout":
-			session.get_turn_state().remaining_seconds = 0.0
-			TurnManager.resolve_timeout(session)
-		elif action == "resign":
+		if action == "resign":
 			if not TurnManager.resign(session, seat):
 				return {"error": "INVALID_PLAYER"}
+		elif action == "ai_move":
+			if seat != TurnEnums.AI_PLAYER_ID or not TurnManager.is_awaiting_ai_action(session):
+				return {"error": "NOT_AI_TURN"}
+			var ai_error: String = _play_server_ai(session, int(request.get("difficulty", -1)))
+			if not ai_error.is_empty():
+				return {"error": ai_error}
 		elif seat != session.get_turn_state().active_player_id:
 			return {"error": "NOT_YOUR_TURN"}
 		elif action == "place":
@@ -48,8 +51,8 @@ static func execute(request: Dictionary) -> Dictionary:
 			TurnManager.resolve_swap(session, swapped)
 		else:
 			return {"error": "INVALID_ACTION"}
-	# The API owns wall-clock deadlines. Skip an impossible turn by the same
-	# rule as local play, with no client allowed to assert that no move exists.
+	# Skip an impossible turn by the same rule as local play, with no client
+	# allowed to assert that no move exists.
 	if not session.is_over():
 		var active: StringName = session.get_turn_state().active_player_id
 		if LegalMoveGenerator.generate_with_report(session.get_board(), session.deck_for(active), {}, 1).is_empty():
@@ -60,6 +63,37 @@ static func execute(request: Dictionary) -> Dictionary:
 		"human": view_for(session, TurnEnums.HUMAN_PLAYER_ID),
 		"ai": view_for(session, TurnEnums.AI_PLAYER_ID),
 	}}
+
+static func _play_server_ai(session: GameSessionState, difficulty: int) -> String:
+	if not AiEnums.is_valid_difficulty(difficulty):
+		return "INVALID_DIFFICULTY"
+	var deck: Array[TileDefinition] = session.deck_for(TurnEnums.AI_PLAYER_ID)
+	if not deck.is_empty():
+		var coordinator: AiCoordinator = AiCoordinator.create(difficulty)
+		var cancellation := AiCancellationToken.new()
+		cancellation.deadline_msec = Time.get_ticks_msec() + 12000
+		var decision: AiDecision = coordinator.choose_move(session, deck, cancellation)
+		if decision == null:
+			return "AI_DECISION_FAILED"
+		if decision.has_line():
+			for tile: TileSnapshot in decision.line:
+				if not session.holds_deck_tile(TurnEnums.AI_PLAYER_ID, tile.get_tile_id()) \
+					or not session.set_active_tile(TurnEnums.AI_PLAYER_ID, tile.get_tile()):
+					return "INVALID_AI_LINE"
+			var result: LineResult = MoveCommitter.commit_line(session, TurnEnums.AI_PLAYER_ID, decision.line)
+			if result == null or not result.was_committed():
+				return "INVALID_AI_LINE"
+			TurnManager.resolve(session, result)
+			return ""
+		if not decision.is_swap_move():
+			return "AI_DECISION_FAILED"
+	var supply: int = session.remaining_tile_count()
+	var offer: Array[StringName] = []
+	for index: int in range(mini(deck.size(), supply)):
+		offer.append(deck[index].tile_id)
+	var swapped: int = session.request_swap(TurnEnums.AI_PLAYER_ID, offer) if not offer.is_empty() else 0
+	TurnManager.resolve_swap(session, swapped)
+	return ""
 
 static func view_for(session: GameSessionState, seat: StringName) -> Dictionary:
 	var board: Array = []

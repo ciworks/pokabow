@@ -1,10 +1,10 @@
-[gd_resource type="FontVariation" load_steps=2 format=3]
+[gd_resource type="FontVariation" format=3 uid="uid://cxqy0nyyr22ir"]
 
-[ext_resource type="FontFile" path="res://assets/fonts/fredoka/Fredoka-Variable.ttf" id="1_font"]
+[ext_resource type="FontFile" uid="uid://brahjju375lmd" path="res://assets/fonts/fredoka/Fredoka-Variable.ttf" id="1_font"]
 
 [resource]
 base_font = ExtResource("1_font")
 variation_opentype = {
-2003265652: 400.0,
-2003072104: 100.0
+2003072104: 100.0,
+2003265652: 400.0
 }

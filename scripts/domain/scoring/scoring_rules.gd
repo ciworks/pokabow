@@ -17,10 +17,8 @@ extends Resource
 
 ## Rules/schema version, persisted with saves.
 ##
-## Version 5 records the four-color edge vocabulary and matching-color-only hand
-## edge factor, so a match saved under earlier scoring rules is refused rather
-## than silently re-scored.
-const SCHEMA_VERSION: int = 5
+## Version 7 removes Joker hands; older matches cannot be re-scored under these rules.
+const SCHEMA_VERSION: int = 7
 
 ## Rules/schema version recorded alongside saved matches.
 @export var schema_version: int = SCHEMA_VERSION

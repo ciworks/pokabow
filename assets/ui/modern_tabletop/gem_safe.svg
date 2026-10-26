@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="464" height="408" viewBox="0 0 464 408" role="img" aria-labelledby="title description">
+  <title id="title">Gem safe</title>
+  <desc id="description">A deep teal bank safe with a solid teal gem outlined in white on its round door.</desc>
+
+  <!-- Safe body, including the two short feet. -->
+  <g fill="#173D42">
+    <rect x="56" y="101" width="352" height="247" rx="11"/>
+    <rect x="77" y="337" width="62" height="33" rx="10"/>
+    <rect x="325" y="337" width="62" height="33" rx="10"/>
+  </g>
+
+  <!-- The white breaks and inset door retain the reference safe's silhouette. -->
+  <g fill="#FFFFFF">
+    <rect x="56" y="183" width="51" height="21"/>
+    <rect x="56" y="245" width="51" height="20"/>
+    <path d="M108 151v145h248V151" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="304" y="204" width="21" height="41" rx="10.5"/>
+  </g>
+
+  <!-- Circular lock badge. -->
+  <circle cx="232" cy="111" r="110" fill="#FFFFFF"/>
+  <circle cx="232" cy="111" r="93" fill="#173D42"/>
+
+  <!-- Crown silhouette follows the pale teal gem in the supplied SVG. -->
+  <path d="M202 63h60l18 24-48 68-48-68z" fill="#173D42" stroke="#FFFFFF" stroke-width="7" stroke-linejoin="round"/>
+</svg>

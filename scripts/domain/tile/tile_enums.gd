@@ -29,7 +29,6 @@ enum TileRank {
 	KING = 1,
 	QUEEN = 2,
 	JACK = 3,
-	JOKER = 4,
 }
 
 ## Red/black face property (GAME_SPEC section 3.1). ADR-001 section 3 confirms
@@ -132,11 +131,11 @@ static func is_sequence_order(ranks: Array) -> bool:
 
 ## Returns true when `value` is one of the two defined face colours.
 static func is_valid_face_color(value: int) -> bool:
-	return FaceColor.values().has(value)
+	return value == FaceColor.RED or value == FaceColor.BLACK
 
 
 static func is_valid_suit(value: int) -> bool:
-	return Suit.values().has(value)
+	return value >= Suit.HEARTS and value <= Suit.SPADES
 
 
 static func color_for_suit(suit: int) -> int:

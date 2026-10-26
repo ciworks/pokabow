@@ -275,6 +275,7 @@ static func clear_local_state(
 		var account_hash: String = account_id.sha256_text()
 		filenames.append("online_%s.txt" % account_hash)
 		filenames.append("match_history_%s.json" % account_hash)
+		filenames.append("tutorial_%s.cfg" % account_hash)
 		for filename: String in DirAccess.get_files_at(directory):
 			if filename.begins_with("history_avatar_%s_" % account_hash) and filename.ends_with(".png"):
 				filenames.append(filename)

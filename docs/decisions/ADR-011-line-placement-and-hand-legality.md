@@ -13,6 +13,8 @@
 Amendment (2026-10-05): [ADR-017](ADR-017-turn-timer.md) adds a 60-second
 deadline. A timeout ends the turn without a line or swap; unconfirmed tiles stay
 in the player's deck. Other placement, scoring, and match-end rules are unchanged.
+This amendment is superseded by [ADR-023](ADR-023-untimed-turns.md): turns no
+longer expire.
 
 The owner specified two placement rules:
 

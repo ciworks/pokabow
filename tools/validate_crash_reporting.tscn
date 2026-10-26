@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://blhvyfsmhcu20"]
+
+[ext_resource type="Script" uid="uid://ccb82psdn3p3p" path="res://tools/validate_crash_reporting.gd" id="1_validator"]
+
+[node name="CrashReportingValidation" type="Node" unique_id=1985590328]
+script = ExtResource("1_validator")

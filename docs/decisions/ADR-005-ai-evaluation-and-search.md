@@ -177,8 +177,9 @@ If fewer candidates exist, evaluate all of them. Configuration may reduce budget
 * A presentation delay may make an immediate decision feel natural, but it is not part of search correctness.
 
 Hard and Medium fall back to the best fully evaluated candidate if an application-level safety limit stops analysis. The deterministic rules test profile does not use wall-clock interruption.
-ADR-017 adds a distinct match-rule deadline: after the 60-second turn expires,
-discard the proposal and pass instead of committing any fallback move.
+Historical amendment: ADR-017 added a match-rule deadline that passed the turn
+when it expired. [ADR-023](ADR-023-untimed-turns.md) removed turn deadlines;
+application-level AI computation limits do not pass the player's turn.
 
 ### 10. Tie-breaking
 

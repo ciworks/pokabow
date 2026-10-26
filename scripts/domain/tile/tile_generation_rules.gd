@@ -3,7 +3,7 @@ extends Resource
 
 ## Versioned tile generation configuration (ADR-004 sections 2, 3, and 8).
 ##
-## Weights are data rather than control flow. Defaults are uniform for all five
+## Weights are data rather than control flow. Defaults are uniform for all four
 ## ranks, both ordinary face colours, four suits, and four edge colours.
 ##
 ## The bag is the shared supply one match draws from, and `bag_size` is how many
@@ -17,30 +17,18 @@ extends Resource
 ## built in code. Changing one without the other silently does nothing, which is
 ## the single easiest way to misconfigure supply here.
 ##
-## `max_jokers` is the most Joker-ranked tiles the pot may hold, whatever the bag
-## size (ADR-014). It is a figure of the whole bag, not of one player's deck: the
-## generator treats the Joker rank weight as zero once that allowance is spent, so
-## the rest of the bag draws the ordinary ranks in proportion to `rank_weights`.
-##
 ## ADR-004 section 8 requires the resource to validate that every category has
 ## at least one positive weight.
 
 ## Generator and schema version, persisted with saves so a future generator
-## change can be detected (ADR-004 section 3). Version 4 removes Golden from the
-## edge-color vocabulary; old bags and tile records must not be replayed under
-## the four-color rules.
-const SCHEMA_VERSION: int = 4
+## change can be detected (ADR-004 section 3). Version 5 removes the fifth tile rank; old bags must not be replayed under
+## the four-rank rules.
+const SCHEMA_VERSION: int = 5
 
 ## Fallback bag size, used only when a rules instance is built in code. Keep it in
 ## step with the value stored in `res://resources/rules/tile_generation_rules.tres`,
 ## which is what a real match loads.
 const DEFAULT_BAG_SIZE: int = 52
-
-## Fallback Joker allowance, used only when a rules instance is built in code.
-## Keep it in step with the value stored in
-## `res://resources/rules/tile_generation_rules.tres`, which is what a real match
-## loads.
-const DEFAULT_MAX_JOKERS: int = 4
 
 ## Generator/schema version recorded alongside saved matches.
 @export var schema_version: int = SCHEMA_VERSION
@@ -48,16 +36,8 @@ const DEFAULT_MAX_JOKERS: int = 4
 ## Number of tiles generated during MATCH_SETUP.
 @export var bag_size: int = DEFAULT_BAG_SIZE
 
-## Most Joker-ranked tiles the generated pot may contain (ADR-014).
-##
-## A cap at or above `bag_size` never binds, because the bag cannot hold more
-## tiles than that in total. Zero removes Jokers from the pot entirely. This is the
-## single source of truth for the allowance; generator code must not carry its own
-## copy of the number.
-@export var max_jokers: int = DEFAULT_MAX_JOKERS
-
 ## Relative weights, indexed by `TileEnums.TileRank`.
-@export var rank_weights: Array[float] = [1.0, 1.0, 1.0, 1.0, 1.0]
+@export var rank_weights: Array[float] = [1.0, 1.0, 1.0, 1.0]
 
 ## Relative weights, indexed by `TileEnums.FaceColor`.
 @export var face_color_weights: Array[float] = [1.0, 1.0]
@@ -82,8 +62,6 @@ func validate() -> PackedStringArray:
 		)
 	if bag_size <= 0:
 		problems.append("bag_size must be positive, got %d" % bag_size)
-	if max_jokers < 0:
-		problems.append("max_jokers must not be negative, got %d" % max_jokers)
 	_collect_weight_problems(problems, "rank_weights", rank_weights, TileEnums.TileRank.size())
 	_collect_weight_problems(
 		problems, "face_color_weights", face_color_weights, TileEnums.FaceColor.size() - 1

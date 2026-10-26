@@ -152,7 +152,7 @@ func test_preview_serializes_rotations_and_ignores_stale_or_unavailable_result()
 	check_eq(client.sent.back().body.placements[0].rotation, 3, "rotation uses quarter turns")
 	check_eq(client.sent.back().body.expectedVersion, 4, "preview uses API version")
 	controller.preview_changed.emit()
-	client.complete(200, {"valid": true, "gameVersion": 4, "rulesVersion": "scoring:5",
+	client.complete(200, {"valid": true, "gameVersion": 4, "rulesVersion": "scoring:7",
 		"score": {"poker": 4, "edge": 0, "cluster": 0, "total": 4}})
 	check(client._preview_pending, "stale response leaves the new preview pending")
 	client._process(0.4)
@@ -241,7 +241,7 @@ func test_current_valid_preview_is_delivered_without_mutating_sync_version() -> 
 	var delivered: Array[Dictionary] = []
 	client.score_preview_received.connect(func(score: Dictionary) -> void: delivered.append(score))
 	client._process(1.0)
-	client.complete(200, {"valid": true, "gameVersion": 1, "rulesVersion": "scoring:5",
+	client.complete(200, {"valid": true, "gameVersion": 1, "rulesVersion": "scoring:7",
 		"score": {"poker": 4, "edge": 0, "cluster": 0, "total": 4}})
 	check_eq(delivered.size(), 1, "only the matching response is delivered")
 	check_eq(delivered[0].total, 4, "the displayed preview receives server totals")
@@ -276,8 +276,8 @@ func test_profile_updates_username_inline_and_keeps_email_read_only() -> void:
 	screen._username_editor.text = "New Player"
 	screen._submit_current_username()
 	check_eq(screen._profile_name.text, "New Player", "inline Done stages the edited username")
-	(screen.find_child("SaveAvatar", true, false) as Button).pressed.emit()
-	check_eq(emitted.size(), 1, "one Save changes action submits the combined profile")
+	(screen.find_child("SaveProfile", true, false) as Button).pressed.emit()
+	check_eq(emitted.size(), 1, "profile save submits the edited username")
 	check_eq(emitted[0].username, "New Player", "combined save contains the staged username")
 	var avatar_image := Image.new()
 	check_eq(avatar_image.load_png_from_buffer(Marshalls.base64_to_raw(emitted[0].avatar)), OK, "combined save contains a valid normalized PNG")

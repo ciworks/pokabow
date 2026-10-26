@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://bat1k06t4hysh"]
 
-[ext_resource type="Script" path="res://tools/validate_splash_version.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://cqr1ycubnmsg4" path="res://tools/validate_splash_version.gd" id="1_qa"]
 
-[node name="SplashVersionQA" type="Node"]
+[node name="SplashVersionQA" type="Node" unique_id=2140243261]
 script = ExtResource("1_qa")

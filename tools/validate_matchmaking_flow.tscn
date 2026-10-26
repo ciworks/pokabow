@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://dq3fvfv53as1k"]
 
-[ext_resource type="Script" path="res://tools/validate_matchmaking_flow.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://1lxjil3g83jn" path="res://tools/validate_matchmaking_flow.gd" id="1_qa"]
 
-[node name="MatchmakingFlowQA" type="Node"]
+[node name="MatchmakingFlowQA" type="Node" unique_id=2122253375]
 script = ExtResource("1_qa")

@@ -1,270 +1,45 @@
-[gd_scene format=3]
-
-[ext_resource type="FontVariation" path="res://assets/fonts/fredoka/Fredoka-Medium.tres" id="28_interface_font"]
+[gd_scene format=3 uid="uid://c0vrmehygjsvx"]
 
 [ext_resource type="Script" uid="uid://djcefqsfh53du" path="res://scripts/presentation/game_screen.gd" id="1_screen"]
-
-
 [ext_resource type="Script" uid="uid://bdgqv13an2por" path="res://scripts/presentation/board_view.gd" id="2_board"]
-
-
 [ext_resource type="Script" uid="uid://c3gtuu53m4un6" path="res://scripts/presentation/board_tile_layer.gd" id="3_tile_layer"]
-
-
 [ext_resource type="Script" uid="uid://d1p7xkfcyeexg" path="res://scripts/presentation/board_highlight_layer.gd" id="4_highlight"]
-
-
 [ext_resource type="Script" uid="uid://cpnlai624rs57" path="res://scripts/presentation/board_preview_layer.gd" id="5_preview"]
-
-
 [ext_resource type="Script" uid="uid://ceg7wsiwchl2s" path="res://scripts/presentation/board_effect_layer.gd" id="6_effects"]
-
-
 [ext_resource type="Script" uid="uid://b1a1i4tvypphk" path="res://scripts/presentation/score_reveal_layer.gd" id="6_qs4dp"]
-
-
 [ext_resource type="Script" uid="uid://dc0dt8jagx82v" path="res://scripts/presentation/tile_pile_view.gd" id="7_664sp"]
-
-
 [ext_resource type="Script" uid="uid://5058aup06e2b" path="res://scripts/presentation/board_input_controller.gd" id="7_input"]
-
-
 [ext_resource type="Script" uid="uid://h0mob0wjk3r7" path="res://scripts/presentation/debug_overlay.gd" id="8_dagq5"]
-
-
 [ext_resource type="Script" uid="uid://dlcrc0w3gg2qd" path="res://scripts/presentation/floating_scores.gd" id="9_scores"]
-
-
 [ext_resource type="Script" uid="uid://84qy7swejcdg" path="res://scripts/presentation/deck_view.gd" id="10_deck"]
-
-[ext_resource type="Script" path="res://addons/SharePlugin/Share.gd" id="11_share"]
-
-
 [ext_resource type="Script" uid="uid://cmkl7iu12kgld" path="res://scripts/presentation/deal_layer.gd" id="11_fvr6p"]
-
-
-
-
+[ext_resource type="Script" uid="uid://cp76jqrsvve2i" path="res://addons/SharePlugin/Share.gd" id="11_share"]
 [ext_resource type="Script" uid="uid://cq2rf6mhrugeh" path="res://scripts/presentation/cluster_display_layer.gd" id="12_cluster"]
-
-
 [ext_resource type="Script" uid="uid://f2qag4u6307g" path="res://scripts/presentation/game_command_drawer.gd" id="13_drawer"]
-
-[ext_resource type="Script" path="res://scripts/presentation/resign_confirmation.gd" id="14_resign_confirmation"]
-
-
-
-
+[ext_resource type="Script" uid="uid://dj5dcqqdtiviy" path="res://scripts/presentation/resign_confirmation.gd" id="14_resign_confirmation"]
 [ext_resource type="Texture2D" uid="uid://b0hbic33uju6o" path="res://assets/ui/avatar_panel_default.png" id="15_avatar_panel"]
-
-
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/avatars/players/player_01.tres" id="16_avatar"]
-
-
+[ext_resource type="Texture2D" uid="uid://e63j7nvswscm" path="res://assets/ui/modern_tabletop/avatars/players/player_01.tres" id="16_avatar"]
+[ext_resource type="Script" uid="uid://bp15pqt01b60h" path="res://scripts/presentation/avatar_level_badge.gd" id="17_level_badge"]
 [ext_resource type="Script" uid="uid://crv46mjrtt36x" path="res://scripts/presentation/player_score_art.gd" id="17_score_art"]
-
-
 [ext_resource type="Texture2D" uid="uid://cmvfpaahmsgic" path="res://assets/ui/avatar_panel_rival.png" id="18_rival_panel"]
-
-
 [ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/avatars/rivals/rival_01.tres" id="19_rival_avatar"]
-
-
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/board_frame.svg" id="20_board_frame"]
-
-
-
-
-
-
-
-
-[ext_resource type="Shader" uid="uid://ijpnl08dhhip" path="res://assets/ui/disabled_icon.gdshader" id="25_disabled_icon"]
-
-
-[ext_resource type="Texture2D" uid="uid://coq5xq2p57bpi" path="res://assets/ui/close.png" id="26_close"]
-
-
-
-
+[ext_resource type="Texture2D" uid="uid://dhbyaa3fos04f" path="res://assets/ui/modern_tabletop/board_frame.svg" id="20_board_frame"]
 [ext_resource type="Script" uid="uid://b8jnvbj14gd4p" path="res://scripts/presentation/confetti_layer.gd" id="26_0lrm5"]
-
-
+[ext_resource type="Texture2D" uid="uid://coq5xq2p57bpi" path="res://assets/ui/close.png" id="26_close"]
 [ext_resource type="Script" uid="uid://ci7l7e407wk7l" path="res://scripts/presentation/game_bottom_navigation.gd" id="27_bottom_navigation"]
-
-
 [ext_resource type="Script" uid="uid://b0c0bxdaec7j7" path="res://scripts/presentation/match_end_presentation.gd" id="27_match_end"]
-
-
-[ext_resource type="Texture2D" path="res://assets/ui/default_background.png" id="22_background"]
-
-[ext_resource type="Texture2D" path="res://assets/branding/pokabow-header-logo-v2.tres" id="29_header_logo"]
-
-[ext_resource type="Script" path="res://scripts/presentation/opponent_rack_view.gd" id="30_opponent_rack"]
-
-[ext_resource type="Texture2D" path="res://assets/ui/navigation/back.svg" id="31_back"]
-
-[ext_resource type="Script" path="res://scripts/presentation/framed_player_avatar.gd" id="40_player_frame"]
-
-[ext_resource type="Script" path="res://scripts/presentation/rival_move_layer.gd" id="41_rival_move"]
-
-[ext_resource type="Texture2D" path="res://assets/ui/modern_tabletop/menu.svg" id="32_menu_icon"]
-
-[sub_resource type="StyleBoxEmpty" id="SettingsButtonEmpty"]
-
-[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
-bg_color = Color(0.07, 0.09, 0.11, 0.98)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.28, 0.33, 0.35, 1)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_left = 16
-corner_radius_bottom_right = 16
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="HumanPanel"]
-bg_color = Color(0.38, 0.06, 0.08, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.85, 0.21, 0.24, 1)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_left = 16
-corner_radius_bottom_right = 16
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="RivalPanel"]
-bg_color = Color(0.035, 0.18, 0.33, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.08, 0.52, 0.8, 1)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_left = 16
-corner_radius_bottom_right = 16
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="PotPanel"]
-bg_color = Color(0.22, 0.13, 0.07, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.64, 0.42, 0.2, 1)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_left = 16
-corner_radius_bottom_right = 16
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="RackPanel"]
-bg_color = Color(0.19, 0.105, 0.06, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.52, 0.32, 0.16, 1)
-corner_radius_top_left = 20
-corner_radius_top_right = 20
-corner_radius_bottom_left = 20
-corner_radius_bottom_right = 20
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="ButtonNormal"]
-bg_color = Color(0.09, 0.13, 0.17, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.22, 0.3, 0.37, 1)
-corner_radius_top_left = 12
-corner_radius_top_right = 12
-corner_radius_bottom_left = 12
-corner_radius_bottom_right = 12
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="ButtonHover"]
-bg_color = Color(0.14, 0.21, 0.27, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.45, 0.66, 0.77, 1)
-corner_radius_top_left = 12
-corner_radius_top_right = 12
-corner_radius_bottom_left = 12
-corner_radius_bottom_right = 12
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
-
-[sub_resource type="StyleBoxFlat" id="ButtonPressed"]
-bg_color = Color(0.04, 0.09, 0.12, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 2
-border_color = Color(0.3, 0.75, 0.62, 1)
-corner_radius_top_left = 12
-corner_radius_top_right = 12
-corner_radius_bottom_left = 12
-corner_radius_bottom_right = 12
-content_margin_left = 14.0
-content_margin_right = 14.0
-content_margin_top = 10.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.28)
-shadow_size = 5
-shadow_offset = Vector2(0, 3)
+[ext_resource type="FontVariation" path="res://assets/fonts/fredoka/Fredoka-Medium.tres" id="28_interface_font"]
+[ext_resource type="Script" uid="uid://dyirwifyumvc0" path="res://scripts/presentation/opponent_rack_view.gd" id="30_opponent_rack"]
+[ext_resource type="Texture2D" uid="uid://cvnc76j27x1qt" path="res://assets/ui/navigation/back.svg" id="31_back"]
+[ext_resource type="Texture2D" uid="uid://bcbkmw1d60ibn" path="res://assets/ui/modern_tabletop/menu.svg" id="32_menu_icon"]
+[ext_resource type="Script" uid="uid://cx7honq17ggdm" path="res://scripts/presentation/framed_player_avatar.gd" id="40_player_frame"]
+[ext_resource type="Script" uid="uid://dmchsuqabho5y" path="res://scripts/presentation/rival_move_layer.gd" id="41_rival_move"]
 
 [sub_resource type="StyleBoxFlat" id="ButtonDisabled"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
 bg_color = Color(0.09, 0.11, 0.13, 1)
 border_width_left = 1
 border_width_top = 1
@@ -273,12 +48,65 @@ border_width_bottom = 2
 border_color = Color(0.16, 0.2, 0.22, 1)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
-corner_radius_bottom_left = 12
 corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="StyleBoxFlat" id="ButtonHover"]
 content_margin_left = 14.0
-content_margin_right = 14.0
 content_margin_top = 10.0
+content_margin_right = 14.0
 content_margin_bottom = 10.0
+bg_color = Color(0.14, 0.21, 0.27, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.45, 0.66, 0.77, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="StyleBoxFlat" id="ButtonNormal"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.09, 0.13, 0.17, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.22, 0.3, 0.37, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[sub_resource type="StyleBoxFlat" id="ButtonPressed"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.04, 0.09, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.3, 0.75, 0.62, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
 shadow_color = Color(0, 0, 0, 0.28)
 shadow_size = 5
 shadow_offset = Vector2(0, 3)
@@ -288,26 +116,47 @@ default_font = ExtResource("28_interface_font")
 default_font_size = 18
 Button/colors/font_color = Color(0.95, 0.97, 0.98, 1)
 Button/colors/font_disabled_color = Color(0.42, 0.49, 0.54, 1)
-Button/styles/normal = SubResource("ButtonNormal")
-Button/styles/hover = SubResource("ButtonHover")
-Button/styles/pressed = SubResource("ButtonPressed")
 Button/styles/disabled = SubResource("ButtonDisabled")
 Button/styles/focus = SubResource("ButtonHover")
-OptionButton/styles/normal = SubResource("ButtonNormal")
-OptionButton/styles/hover = SubResource("ButtonHover")
-OptionButton/styles/pressed = SubResource("ButtonPressed")
+Button/styles/hover = SubResource("ButtonHover")
+Button/styles/normal = SubResource("ButtonNormal")
+Button/styles/pressed = SubResource("ButtonPressed")
 OptionButton/styles/disabled = SubResource("ButtonDisabled")
+OptionButton/styles/hover = SubResource("ButtonHover")
+OptionButton/styles/normal = SubResource("ButtonNormal")
+OptionButton/styles/pressed = SubResource("ButtonPressed")
 
-[node name="GameScreen" type="Control"]
-layout_mode = 1
+[sub_resource type="StyleBoxEmpty" id="SettingsButtonEmpty"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.07, 0.09, 0.11, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 2
+border_color = Color(0.28, 0.33, 0.35, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+shadow_color = Color(0, 0, 0, 0.28)
+shadow_size = 5
+shadow_offset = Vector2(0, 3)
+
+[node name="GameScreen" type="Control" unique_id=1055694259]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-script = ExtResource("1_screen")
 theme = SubResource("InterfaceTheme")
+script = ExtResource("1_screen")
 
 [node name="Background" type="ColorRect" parent="." unique_id=1293800763]
 unique_name_in_owner = true
@@ -320,7 +169,7 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.964706, 0.94902, 0.913725, 1)
 
-[node name="Root" type="MarginContainer" parent="."]
+[node name="Root" type="MarginContainer" parent="." unique_id=160860971]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -331,11 +180,11 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 theme_override_constants/margin_left = 8
-theme_override_constants/margin_right = 8
 theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 8
 
-[node name="Column" type="VBoxContainer" parent="Root"]
+[node name="Column" type="VBoxContainer" parent="Root" unique_id=2121424816]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
@@ -346,14 +195,14 @@ layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="BackToHubButton" type="Button" parent="Root/Column/HeaderTools"]
+[node name="BackToHubButton" type="Button" parent="Root/Column/HeaderTools" unique_id=441281570]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(44, 44)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 tooltip_text = "Back to hub"
 theme_override_styles/normal = SubResource("SettingsButtonEmpty")
-theme_override_styles/hover = SubResource("SettingsButtonEmpty")
 theme_override_styles/pressed = SubResource("SettingsButtonEmpty")
+theme_override_styles/hover = SubResource("SettingsButtonEmpty")
 theme_override_styles/disabled = SubResource("SettingsButtonEmpty")
 icon = ExtResource("31_back")
 icon_alignment = 1
@@ -362,14 +211,13 @@ icon_alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-mouse_filter = 2
 text = "POKABOW"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="HeaderSpacer" type="Button" parent="Root/Column/HeaderTools"]
+[node name="HeaderSpacer" type="Button" parent="Root/Column/HeaderTools" unique_id=1049067874]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(44, 44)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 tooltip_text = "Open match menu"
 icon = ExtResource("32_menu_icon")
@@ -381,20 +229,18 @@ layout_mode = 2
 mouse_filter = 2
 color = Color(0.843137, 0.886275, 0.862745, 1)
 
-[node name="Hud" type="Control" parent="Root/Column"]
+[node name="Hud" type="Control" parent="Root/Column" unique_id=1673868431]
 custom_minimum_size = Vector2(0, 188)
 layout_mode = 2
 mouse_filter = 2
-theme_override_constants/separation = 10
 
 [node name="HumanScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=588964454]
 unique_name_in_owner = true
 layout_mode = 0
-mouse_filter = 2
-theme_override_styles/panel = SubResource("SettingsButtonEmpty")
-custom_minimum_size = Vector2(0, 0)
 size_flags_horizontal = 3
 size_flags_vertical = 4
+mouse_filter = 2
+theme_override_styles/panel = SubResource("SettingsButtonEmpty")
 
 [node name="HumanScoreBox" type="Control" parent="Root/Column/Hud/HumanScorePanel" unique_id=1627722504]
 layout_mode = 2
@@ -411,20 +257,25 @@ patch_margin_right = 12
 patch_margin_bottom = 12
 
 [node name="Portrait" type="TextureRect" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=683538940]
-script = ExtResource("40_player_frame")
-show_ring = false
 layout_mode = 0
 mouse_filter = 2
 texture = ExtResource("16_avatar")
 expand_mode = 1
 stretch_mode = 5
+script = ExtResource("40_player_frame")
+show_ring = false
+
+[node name="LevelBadge" type="PanelContainer" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=618439517]
+layout_mode = 0
+mouse_filter = 2
+script = ExtResource("17_level_badge")
 
 [node name="HumanScoreTitle" type="Label" parent="Root/Column/Hud/HumanScorePanel/HumanScoreBox" unique_id=1960486770]
+unique_name_in_owner = true
 layout_mode = 0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 16
 text = "You"
-unique_name_in_owner = true
 horizontal_alignment = 1
 text_overrun_behavior = 3
 
@@ -438,7 +289,6 @@ horizontal_alignment = 1
 [node name="PotPanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=1913823554]
 unique_name_in_owner = true
 z_index = 1
-custom_minimum_size = Vector2(0, 0)
 layout_mode = 0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("SettingsButtonEmpty")
@@ -446,13 +296,12 @@ theme_override_styles/panel = SubResource("SettingsButtonEmpty")
 [node name="TilePileView" type="Control" parent="Root/Column/Hud/PotPanel" unique_id=1899326034]
 unique_name_in_owner = true
 layout_mode = 2
-script = ExtResource("7_664sp")
 mouse_filter = 2
+script = ExtResource("7_664sp")
 
 [node name="AvailableTilesLabel" type="Label" parent="Root/Column/Hud/PotPanel/TilePileView" unique_id=1891926262]
 unique_name_in_owner = true
 layout_mode = 0
-mouse_filter = 2
 theme_override_font_sizes/font_size = 22
 text = "40"
 horizontal_alignment = 1
@@ -461,20 +310,19 @@ vertical_alignment = 1
 [node name="AiScorePanel" type="PanelContainer" parent="Root/Column/Hud" unique_id=2010655655]
 unique_name_in_owner = true
 layout_mode = 0
-mouse_filter = 2
-theme_override_styles/panel = SubResource("SettingsButtonEmpty")
-custom_minimum_size = Vector2(0, 0)
 size_flags_horizontal = 3
 size_flags_vertical = 4
+mouse_filter = 2
+theme_override_styles/panel = SubResource("SettingsButtonEmpty")
 
 [node name="AiScoreBox" type="Control" parent="Root/Column/Hud/AiScorePanel" unique_id=465164899]
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("17_score_art")
+compact_horizontal = true
 portrait_on_right = true
 title_path = NodePath("AiScoreTitle")
 value_path = NodePath("AiScoreValue")
-compact_horizontal = true
 
 [node name="Plate" type="NinePatchRect" parent="Root/Column/Hud/AiScorePanel/AiScoreBox" unique_id=1565456533]
 layout_mode = 0
@@ -508,30 +356,21 @@ theme_override_font_sizes/font_size = 36
 text = "0"
 horizontal_alignment = 1
 
-[node name="TurnInfoPanel" type="PanelContainer" parent="Root/Column"]
+[node name="TurnInfoPanel" type="PanelContainer" parent="Root/Column" unique_id=1138020377]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 size_flags_horizontal = 3
+mouse_filter = 2
 
-[node name="TurnInfoRow" type="HBoxContainer" parent="Root/Column/TurnInfoPanel"]
+[node name="TurnInfoRow" type="HBoxContainer" parent="Root/Column/TurnInfoPanel" unique_id=1059372545]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 50)
 layout_mode = 2
-mouse_filter = 2
 size_flags_horizontal = 3
+mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="TurnStatusLabel" type="Label" parent="Root/Column/TurnInfoPanel/TurnInfoRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(80, 0)
-layout_mode = 2
-mouse_filter = 2
-text = "Your turn"
-theme_override_font_sizes/font_size = 14
-vertical_alignment = 1
-
-[node name="OpponentRack" type="Control" parent="Root/Column/TurnInfoPanel/TurnInfoRow"]
+[node name="OpponentRack" type="Control" parent="Root/Column/TurnInfoPanel/TurnInfoRow" unique_id=1211268745]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 50)
 layout_mode = 2
@@ -539,26 +378,24 @@ size_flags_horizontal = 3
 mouse_filter = 2
 script = ExtResource("30_opponent_rack")
 
-[node name="TurnClockLabel" type="Label" parent="Root/Column/TurnInfoPanel/TurnInfoRow"]
+[node name="TurnClockLabel" type="Label" parent="Root/Column/TurnInfoPanel/TurnInfoRow" unique_id=991246799]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(48, 0)
+visible = false
 layout_mode = 2
-mouse_filter = 2
-text = "1:00"
 theme_override_font_sizes/font_size = 14
 horizontal_alignment = 2
 vertical_alignment = 1
 
-[node name="Body" type="HBoxContainer" parent="Root/Column"]
+[node name="Body" type="HBoxContainer" parent="Root/Column" unique_id=1503160327]
 layout_mode = 2
-mouse_filter = 2
 size_flags_vertical = 3
-
-[node name="BoardViewport" type="MarginContainer" parent="Root/Column/Body"]
-layout_mode = 2
 mouse_filter = 2
+
+[node name="BoardViewport" type="MarginContainer" parent="Root/Column/Body" unique_id=322535592]
+layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+mouse_filter = 2
 
 [node name="BoardView" type="Control" parent="Root/Column/Body/BoardViewport" unique_id=847133380]
 unique_name_in_owner = true
@@ -569,9 +406,9 @@ mouse_filter = 2
 script = ExtResource("2_board")
 fill_available_space = true
 
-[node name="BoardCanvas" type="Control" parent="Root/Column/Body/BoardViewport/BoardView"]
+[node name="BoardCanvas" type="Control" parent="Root/Column/Body/BoardViewport/BoardView" unique_id=2138516260]
 clip_contents = true
-layout_mode = 0
+anchors_preset = 0
 mouse_filter = 2
 
 [node name="TileLayer" type="Control" parent="Root/Column/Body/BoardViewport/BoardView/BoardCanvas" unique_id=1192569401]
@@ -653,25 +490,25 @@ patch_margin_bottom = 40
 
 [node name="BoardMessageLabel" type="Label" parent="Root/Column" unique_id=1270215685]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 24)
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-mouse_filter = 2
-text = "Pinch to explore the board"
+text = "Your turn"
 horizontal_alignment = 1
 vertical_alignment = 1
+autowrap_mode = 2
 text_overrun_behavior = 3
 
 [node name="DeckBar" type="HBoxContainer" parent="Root/Column" unique_id=1990410009]
+unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 10
-unique_name_in_owner = true
 alignment = 1
 
 [node name="DeckPanel" type="Control" parent="Root/Column/DeckBar" unique_id=172467655]
+unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
-unique_name_in_owner = true
 
 [node name="RackColumn" type="VBoxContainer" parent="Root/Column/DeckBar/DeckPanel" unique_id=1399526047]
 layout_mode = 1
@@ -696,7 +533,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("10_deck")
 
-[node name="BottomNavigation" type="PanelContainer" parent="."]
+[node name="BottomNavigation" type="PanelContainer" parent="." unique_id=292415307]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 12
@@ -709,8 +546,9 @@ grow_vertical = 0
 mouse_filter = 2
 script = ExtResource("27_bottom_navigation")
 
-[node name="CommandDrawer" type="Control" parent="."]
+[node name="CommandDrawer" type="Control" parent="." unique_id=254521187]
 unique_name_in_owner = true
+clip_contents = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -718,226 +556,203 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-clip_contents = true
 script = ExtResource("13_drawer")
 
-[node name="DrawerScrim" type="Button" parent="CommandDrawer"]
+[node name="DrawerScrim" type="Button" parent="CommandDrawer" unique_id=1719668920]
 unique_name_in_owner = true
+visible = false
+modulate = Color(0, 0, 0, 0.3)
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 0
-visible = false
-flat = true
 focus_mode = 0
-modulate = Color(0, 0, 0, 0.3)
+flat = true
 
-[node name="DrawerPanel" type="PanelContainer" parent="CommandDrawer"]
+[node name="DrawerPanel" type="PanelContainer" parent="CommandDrawer" unique_id=868668090]
 unique_name_in_owner = true
 visible = false
 layout_mode = 0
-mouse_filter = 0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
-[node name="DrawerColumn" type="VBoxContainer" parent="CommandDrawer/DrawerPanel"]
+[node name="DrawerColumn" type="VBoxContainer" parent="CommandDrawer/DrawerPanel" unique_id=343683329]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 10
 
-[node name="DrawerHeader" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn"]
+[node name="DrawerHeader" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn" unique_id=1751478683]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="TurnIndicator" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/DrawerHeader"]
+[node name="TurnIndicator" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/DrawerHeader" unique_id=1513366141]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
-text = "Your turn"
-theme_override_font_sizes/font_size = 20
 size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 20
+text = "Your turn"
 vertical_alignment = 1
 
-[node name="CloseMenuButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/DrawerHeader"]
+[node name="CloseMenuButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/DrawerHeader" unique_id=1481609486]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(44, 44)
+layout_mode = 2
 tooltip_text = "Close turn actions"
 theme_override_colors/icon_pressed_color = Color(0.75, 0.75, 0.75, 1)
 theme_override_styles/normal = SubResource("SettingsButtonEmpty")
-theme_override_styles/hover = SubResource("SettingsButtonEmpty")
 theme_override_styles/pressed = SubResource("SettingsButtonEmpty")
+theme_override_styles/hover = SubResource("SettingsButtonEmpty")
 theme_override_styles/disabled = SubResource("SettingsButtonEmpty")
 icon = ExtResource("26_close")
 icon_alignment = 1
 expand_icon = true
 
-[node name="CommandScroll" type="ScrollContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn"]
+[node name="CommandScroll" type="ScrollContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn" unique_id=204328574]
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="Commands" type="VBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll"]
+[node name="Commands" type="VBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll" unique_id=1379467822]
 layout_mode = 2
-mouse_filter = 2
 size_flags_horizontal = 3
+mouse_filter = 2
 theme_override_constants/separation = 10
 
-[node name="SwapConfirmButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands"]
+[node name="SwapConfirmButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands" unique_id=250345732]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
 text = "Return selected tiles"
 
-[node name="SwapCancelButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands"]
+[node name="SwapCancelButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands" unique_id=1157907713]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
 text = "Keep tiles"
 
-[node name="PreviewPanel" type="PanelContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands"]
+[node name="PreviewPanel" type="PanelContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands" unique_id=99019523]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
-[node name="PreviewColumn" type="VBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel"]
+[node name="PreviewColumn" type="VBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel" unique_id=46622780]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="PreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn"]
+[node name="PreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn" unique_id=472761144]
 layout_mode = 2
-mouse_filter = 2
-text = "Move preview"
 theme_override_font_sizes/font_size = 19
+text = "Move preview"
 
-[node name="Rule" type="HSeparator" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn"]
+[node name="Rule" type="HSeparator" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn" unique_id=564815136]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="PokerPreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn"]
+[node name="PokerPreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn" unique_id=1865134475]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="PokerPreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/PokerPreviewRow"]
+[node name="PokerPreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/PokerPreviewRow" unique_id=1835368155]
 layout_mode = 2
-mouse_filter = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
 text = "Hand score"
-theme_override_font_sizes/font_size = 16
-size_flags_horizontal = 3
 
-[node name="PokerPreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/PokerPreviewRow"]
+[node name="PokerPreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/PokerPreviewRow" unique_id=105844716]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
-text = "—"
-theme_override_font_sizes/font_size = 17
 theme_override_colors/font_color = Color(0.22, 0.84, 0.59, 1)
+theme_override_font_sizes/font_size = 17
+text = "—"
 
-[node name="EdgePreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn"]
+[node name="EdgePreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn" unique_id=1478832427]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="EdgePreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/EdgePreviewRow"]
+[node name="EdgePreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/EdgePreviewRow" unique_id=1297827711]
 layout_mode = 2
-mouse_filter = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
 text = "Edge matches"
-theme_override_font_sizes/font_size = 16
-size_flags_horizontal = 3
 
-[node name="EdgePreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/EdgePreviewRow"]
+[node name="EdgePreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/EdgePreviewRow" unique_id=1039988981]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
-text = "—"
-theme_override_font_sizes/font_size = 17
 theme_override_colors/font_color = Color(0.22, 0.84, 0.59, 1)
+theme_override_font_sizes/font_size = 17
+text = "—"
 
-[node name="ClusterPreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn"]
+[node name="ClusterPreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn" unique_id=1864919165]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="ClusterPreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/ClusterPreviewRow"]
+[node name="ClusterPreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/ClusterPreviewRow" unique_id=136555676]
 layout_mode = 2
-mouse_filter = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
 text = "Cluster bonus"
-theme_override_font_sizes/font_size = 16
-size_flags_horizontal = 3
 
-[node name="ClusterPreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/ClusterPreviewRow"]
+[node name="ClusterPreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/ClusterPreviewRow" unique_id=2040769729]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
-text = "—"
+theme_override_colors/font_color = Color(0.22, 0.84, 0.59, 1)
 theme_override_font_sizes/font_size = 17
-theme_override_colors/font_color = Color(0.22, 0.84, 0.59, 1)
-
-[node name="TotalPreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn"]
-layout_mode = 2
-mouse_filter = 2
-
-[node name="TotalPreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/TotalPreviewRow"]
-layout_mode = 2
-mouse_filter = 2
-text = "Total preview"
-theme_override_font_sizes/font_size = 16
-size_flags_horizontal = 3
-
-[node name="TotalPreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/TotalPreviewRow"]
-unique_name_in_owner = true
-layout_mode = 2
-mouse_filter = 2
 text = "—"
-theme_override_font_sizes/font_size = 24
-theme_override_colors/font_color = Color(0.22, 0.84, 0.59, 1)
 
-[node name="StatusLabel" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands"]
-unique_name_in_owner = true
+[node name="TotalPreviewRow" type="HBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn" unique_id=1772058572]
 layout_mode = 2
 mouse_filter = 2
-text = "Drag tiles onto the board to build a hand."
-theme_override_font_sizes/font_size = 14
-autowrap_mode = 2
-theme_override_colors/font_color = Color(0.66, 0.74, 0.77, 1)
 
-[node name="MatchOptions" type="VBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands"]
+[node name="TotalPreviewTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/TotalPreviewRow" unique_id=1951570528]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
+text = "Total preview"
+
+[node name="TotalPreview" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/PreviewPanel/PreviewColumn/TotalPreviewRow" unique_id=990005782]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.22, 0.84, 0.59, 1)
+theme_override_font_sizes/font_size = 24
+text = "—"
+
+[node name="MatchOptions" type="VBoxContainer" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands" unique_id=888211902]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="DifficultyTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions"]
+[node name="DifficultyTitle" type="Label" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions" unique_id=741219484]
 layout_mode = 2
-mouse_filter = 2
-text = "Rival difficulty"
 theme_override_font_sizes/font_size = 14
+text = "Rival difficulty"
 
-[node name="DifficultyPicker" type="OptionButton" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions"]
+[node name="DifficultyPicker" type="OptionButton" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions" unique_id=1645623963]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
 
-[node name="RestartButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions"]
+[node name="RestartButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions" unique_id=246088370]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
 text = "New match"
 
-[node name="ResignButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions"]
+[node name="ResignButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions" unique_id=879612721]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
 text = "Resign"
 
-[node name="MenuHubButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions"]
+[node name="MenuHubButton" type="Button" parent="CommandDrawer/DrawerPanel/DrawerColumn/CommandScroll/Commands/MatchOptions" unique_id=416127259]
 unique_name_in_owner = true
-layout_mode = 2
 custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
 text = "Back to hub"
 
 [node name="ResignConfirmationDialog" type="Control" parent="." unique_id=1809042764]
@@ -981,7 +796,7 @@ unique_name_in_owner = true
 anchors_preset = 0
 script = ExtResource("11_fvr6p")
 
-[node name="RivalMoveLayer" type="Control" parent="FeedbackLayer"]
+[node name="RivalMoveLayer" type="Control" parent="FeedbackLayer" unique_id=543571250]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -1001,7 +816,6 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 0
 script = ExtResource("27_match_end")
 
 [node name="ConfettiLayer" type="Control" parent="FeedbackLayer/SummaryOverlay" unique_id=1248651039]
@@ -1018,21 +832,19 @@ script = ExtResource("26_0lrm5")
 [node name="SummaryTitle" type="Label" parent="FeedbackLayer/SummaryOverlay" unique_id=150043066]
 unique_name_in_owner = true
 layout_mode = 0
-mouse_filter = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0.015, 0.035, 0.09, 0.9)
 theme_override_constants/shadow_offset_x = 2
 theme_override_constants/shadow_offset_y = 3
 theme_override_font_sizes/font_size = 57
 text = "Match over"
-uppercase = true
 horizontal_alignment = 1
 vertical_alignment = 1
+uppercase = true
 
 [node name="SummaryBody" type="Label" parent="FeedbackLayer/SummaryOverlay" unique_id=875805814]
 unique_name_in_owner = true
 layout_mode = 0
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.8, 0.88, 1, 1)
 horizontal_alignment = 1
 vertical_alignment = 1

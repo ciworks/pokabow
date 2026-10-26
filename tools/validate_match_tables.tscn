@@ -1,10 +1,12 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://cr3ubsdowhva3"]
 
-[ext_resource type="Script" path="res://tools/validate_match_tables.gd" id="1"]
+[ext_resource type="Script" uid="uid://coo8g867eehoi" path="res://tools/validate_match_tables.gd" id="1"]
 
-[node name="ValidateMatchTables" type="Control"]
+[node name="ValidateMatchTables" type="Control" unique_id=1231987612]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 script = ExtResource("1")

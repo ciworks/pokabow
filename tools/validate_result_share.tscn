@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://cy8vh8pjyf1b5"]
 
-[ext_resource type="Script" path="res://tools/validate_result_share.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://cpxwu20qifm5s" path="res://tools/validate_result_share.gd" id="1_qa"]
 
-[node name="ResultShareQA" type="Node"]
+[node name="ResultShareQA" type="Node" unique_id=2086324187]
 script = ExtResource("1_qa")

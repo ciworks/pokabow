@@ -1,6 +1,18 @@
 # Godot 4+ specific ignores
 .godot/
-/android/
+/android/*
+!/android/build/
+/android/build/*
+!/android/build/src/
+/android/build/src/*
+!/android/build/src/main/
+/android/build/src/main/*
+!/android/build/src/main/AndroidManifest.xml
+!/android/build/src/main/res/
+/android/build/src/main/res/*
+!/android/build/src/main/res/xml/
+/android/build/src/main/res/xml/*
+!/android/build/src/main/res/xml/network_security_config.xml
 /artifacts/
 /.tmp/
 

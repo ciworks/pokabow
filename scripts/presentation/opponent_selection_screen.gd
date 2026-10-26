@@ -2,25 +2,44 @@ class_name OpponentSelectionScreen
 extends Control
 
 ## Local AI selection or an authenticated online matchmaking lobby.
-signal opponent_selected(difficulty: int, rival_portrait: Texture2D)
+signal opponent_selected(rival: Dictionary, rival_portrait: Texture2D)
 signal back_requested
 
 const T = preload("res://scripts/presentation/modern_tabletop_theme.gd")
 
-const FAST_INTERVAL: float = 0.045
-const SLOW_INTERVAL: float = 0.34
-const RESULT_HOLD_SECONDS: float = 0.55
+const FAST_INTERVAL: float = 0.0225
+const SLOW_INTERVAL: float = 0.17
+const RESULT_HOLD_SECONDS: float = 0.275
 const ONLINE_REVEAL_MIN_SECONDS: float = 3.0
 const ONLINE_REVEAL_MAX_SECONDS: float = 5.0
 const ONLINE_SPIN_INTERVAL: float = 0.12
 const ONLINE_JOIN_SECONDS: float = 3.0
-const RIVAL_ROOT: String = "res://assets/ui/modern_tabletop/avatars/rivals"
+const CATALOG_CACHE_PATH: String = "user://ai_rivals.json"
 const FALLBACK_PORTRAIT: Texture2D = preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_02.tres")
-const IMAGE_EXTENSIONS: PackedStringArray = ["tres"]
+## Explicit references survive Android resource remapping during export.
+const RIVAL_PORTRAITS = [
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_01.tres"),
+	FALLBACK_PORTRAIT,
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_03.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_04.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_05.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_06.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_07.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_08.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_09.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_10.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_11.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_12.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_13.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_14.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_15.tres"),
+	preload("res://assets/ui/modern_tabletop/avatars/rivals/rival_16.tres"),
+]
 
 @onready var mode_picker: OptionButton = %ModePicker
 @onready var back_button: Button = %BackButton
 var _matchmaking: MatchmakingApiClient = null
+var _earnings_label: Label = null
 var _online_portrait: Texture2D = null
 
 @onready var rival_portrait: TextureRect = %RivalPortrait
@@ -32,6 +51,9 @@ var _online_portrait: Texture2D = null
 
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _difficulty: int = AiEnums.DEFAULT_DIFFICULTY
+var _rivals: Array[Dictionary] = []
+var _spin_rivals: Array[Dictionary] = []
+var _catalog_request: HTTPRequest = null
 var _rival_portraits: Array[Texture2D] = [] as Array[Texture2D]
 var _spin_index: int = 0
 var _spin_steps: int = 0
@@ -56,10 +78,12 @@ var _online_lobby_key: String = ""
 
 func _ready() -> void:
 	_rng.randomize()
+	_rivals = AiRivalCatalog.bundled()
 	theme = T.create()
 	resized.connect(_fit_layout)
 	mode_picker.add_item("AI rival", 0)
 	mode_picker.add_item("Online lobby", 1)
+	mode_picker.select(0)
 	mode_picker.item_selected.connect(_on_mode_selected)
 	back_button.pressed.connect(_on_back_pressed)
 	for difficulty: int in AiEnums.Difficulty.values():
@@ -73,6 +97,7 @@ func _ready() -> void:
 	_build_controls()
 	_refresh_controls()
 	_fit_layout()
+	_load_catalog()
 
 
 func set_player_portrait(portrait: Texture2D) -> void:
@@ -99,7 +124,7 @@ func _process(delta: float) -> void:
 		_result_hold -= delta
 		if _result_hold <= 0.0:
 			_emitted = true
-			opponent_selected.emit(_difficulty, _rival_portraits[_spin_index])
+			opponent_selected.emit(_spin_rivals[_spin_index], _rival_portraits[_spin_index])
 		return
 
 	_spin_elapsed += delta
@@ -108,18 +133,19 @@ func _process(delta: float) -> void:
 		_spin_index = (_spin_index + 1) % _rival_portraits.size()
 		_spin_ticks += 1
 		(rival_portrait as FramedPlayerAvatar).set_portrait(_rival_portraits[_spin_index])
+		rival_name_label.text = String(_spin_rivals[_spin_index]["displayName"])
 		var progress: float = clampf(float(_spin_ticks) / float(_spin_steps), 0.0, 1.0)
 		var ease_out: float = 1.0 - pow(1.0 - progress, 3.0)
 		_current_interval = lerpf(FAST_INTERVAL, SLOW_INTERVAL, ease_out)
 		if _spin_ticks >= _spin_steps:
 			_spinning = false
 			_result_hold = RESULT_HOLD_SECONDS
-			status_label.text = "%s AI rival selected" % _difficulty_label(_difficulty)
-			rival_name_label.text = "%s AI" % _difficulty_label(_difficulty).to_upper()
+			status_label.text = "%s · %s" % [_spin_rivals[_spin_index]["displayName"], _difficulty_label(_difficulty)]
+			rival_name_label.text = String(_spin_rivals[_spin_index]["displayName"])
 
 
 func _start_online_search() -> void:
-	_online_portraits = _load_portraits(RIVAL_ROOT)
+	_online_portraits = _load_difficulty_portraits(_difficulty)
 	if _online_portraits.is_empty():
 		_online_portraits.append(FALLBACK_PORTRAIT)
 	_online_search_active = true
@@ -196,10 +222,15 @@ func _begin_spin() -> void:
 	if _started:
 		return
 	_difficulty = difficulty_picker.get_item_id(difficulty_picker.selected)
-	_rival_portraits = _load_difficulty_portraits(_difficulty)
-	if _rival_portraits.is_empty():
-		_rival_portraits.append(FALLBACK_PORTRAIT)
-		push_warning("OpponentSelectionScreen: no rival portraits found; using the default rival.")
+	_spin_rivals.clear()
+	_rival_portraits.clear()
+	for rival: Dictionary in _rivals:
+		if int(rival.get("difficulty", -1)) == _difficulty:
+			_spin_rivals.append(rival)
+			_rival_portraits.append(_portrait_for_key(String(rival.get("avatarKey", ""))))
+	if _spin_rivals.is_empty():
+		status_label.text = "No %s rivals are available." % _difficulty_label(_difficulty)
+		return
 	_spin_index = _rng.randi_range(0, _rival_portraits.size() - 1)
 	# Two full passes show every available portrait; the random remainder selects
 	# the final portrait uniformly from the selected difficulty's set.
@@ -221,41 +252,50 @@ func _begin_spin() -> void:
 		(rival_portrait as FramedPlayerAvatar).set_portrait(_rival_portraits[_spin_index])
 		_spinning = false
 		_result_hold = RESULT_HOLD_SECONDS
-		status_label.text = "%s AI rival selected" % _difficulty_label(_difficulty)
-		rival_name_label.text = "%s AI" % _difficulty_label(_difficulty)
+		status_label.text = "%s · %s" % [_spin_rivals[_spin_index]["displayName"], _difficulty_label(_difficulty)]
+		rival_name_label.text = String(_spin_rivals[_spin_index]["displayName"])
+
+
+func _portrait_for_key(key: String) -> Texture2D:
+	if not key.begins_with("rival_"):
+		return FALLBACK_PORTRAIT
+	var index: int = key.trim_prefix("rival_").to_int() - 1
+	return RIVAL_PORTRAITS[index] if index >= 0 and index < RIVAL_PORTRAITS.size() else FALLBACK_PORTRAIT
+
+
+func _load_catalog() -> void:
+	if FileAccess.file_exists(CATALOG_CACHE_PATH):
+		var cached: Array[Dictionary] = AiRivalCatalog.from_response(
+			JSON.parse_string(FileAccess.get_file_as_string(CATALOG_CACHE_PATH)))
+		if not cached.is_empty():
+			_rivals = cached
+	_catalog_request = HTTPRequest.new()
+	add_child(_catalog_request)
+	_catalog_request.request_completed.connect(_on_catalog_received)
+	_catalog_request.request(ApiConfiguration.api_base_url() + "/ai-rivals/")
+
+
+func _on_catalog_received(result: int, code: int, _headers: PackedStringArray,
+		body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
+		var parsed: Array[Dictionary] = AiRivalCatalog.from_response(JSON.parse_string(body.get_string_from_utf8()))
+		if not parsed.is_empty() and not _started:
+			_rivals = parsed
+			var cache: FileAccess = FileAccess.open(CATALOG_CACHE_PATH, FileAccess.WRITE)
+			if cache != null:
+				cache.store_string(JSON.stringify({"rivals": parsed}))
+	if _catalog_request != null:
+		_catalog_request.queue_free()
+		_catalog_request = null
 
 
 func _load_difficulty_portraits(difficulty: int) -> Array[Texture2D]:
 	# Use the shared visual roster at every difficulty; skill is a text setting and
 	# must not be suggested by a rival's age, gender or appearance (design system).
-	return _load_portraits(RIVAL_ROOT)
-
-
-func _load_portraits(folder: String) -> Array[Texture2D]:
 	var portraits: Array[Texture2D] = [] as Array[Texture2D]
-	var directory: DirAccess = DirAccess.open(folder)
-	if directory == null:
-		return portraits
-	var files: PackedStringArray = directory.get_files()
-	files.sort()
-	for file_name: String in files:
-		if not IMAGE_EXTENSIONS.has(file_name.get_extension().to_lower()):
-			continue
-		var image: Texture2D = load(folder.path_join(file_name)) as Texture2D
-		if image != null:
-			portraits.append(image)
+	for portrait: Texture2D in RIVAL_PORTRAITS:
+		portraits.append(portrait)
 	return portraits
-
-
-func _difficulty_folder(difficulty: int) -> String:
-	match difficulty:
-		AiEnums.Difficulty.EASY:
-			return RIVAL_ROOT.path_join("easy")
-		AiEnums.Difficulty.MEDIUM:
-			return RIVAL_ROOT.path_join("medium")
-		AiEnums.Difficulty.HARD:
-			return RIVAL_ROOT.path_join("difficult")
-	return RIVAL_ROOT.path_join("easy")
 
 
 func _difficulty_label(difficulty: int) -> String:
@@ -272,10 +312,37 @@ func _difficulty_label(difficulty: int) -> String:
 func attach_matchmaking(client: MatchmakingApiClient) -> void:
 	if _matchmaking != null and _matchmaking.changed.is_connected(_on_matchmaking_changed):
 		_matchmaking.changed.disconnect(_on_matchmaking_changed)
+	if _matchmaking != null and _matchmaking.earnings_status_changed.is_connected(_on_earnings_status_changed):
+		_matchmaking.earnings_status_changed.disconnect(_on_earnings_status_changed)
 	_matchmaking = client
 	if _matchmaking != null:
 		_matchmaking.changed.connect(_on_matchmaking_changed)
+		_matchmaking.earnings_status_changed.connect(_on_earnings_status_changed)
+		_matchmaking.refresh_earnings_status()
 	_on_mode_selected(mode_picker.selected)
+	_refresh_earnings_label()
+
+
+func _on_earnings_status_changed(_status: Dictionary) -> void:
+	_refresh_earnings_label()
+
+
+func _refresh_earnings_label() -> void:
+	if _earnings_label == null:
+		return
+	_earnings_label.visible = mode_picker.selected == 1
+	if not _earnings_label.visible:
+		return
+	var earnings: Dictionary = _matchmaking.lobby.get("gemEarnings", {}) if _matchmaking != null and _matchmaking.state in ["matched", "playing"] else \
+		(_matchmaking.earnings_status if _matchmaking != null else {})
+	if earnings.is_empty():
+		_earnings_label.text = "Online Gem pot: up to 40 per match · 100 per day · first 2 matches with the same opponent earn Gems."
+	elif int(earnings.get("pairMatchesRemaining", 1)) == 0:
+		_earnings_label.text = "Gem earnings used for this opponent for 24 hours. You can still play this match."
+	elif int(earnings.get("dailyRemaining", 100)) == 0:
+		_earnings_label.text = "Today's online Gem earnings are used up. You can still play without earning Gems."
+	else:
+		_earnings_label.text = "Online Gems: %d of 100 remaining in 24 hours · pot up to 40 · first 2 matches with each opponent earn Gems." % int(earnings.get("dailyRemaining", 100))
 
 
 func _on_mode_selected(index: int) -> void:
@@ -301,6 +368,7 @@ func _on_mode_selected(index: int) -> void:
 		back_button.text = ""
 		cancel_match_button.hide()
 	_refresh_controls()
+	_refresh_earnings_label()
 
 
 func _on_matchmaking_changed(state: String, message: String, lobby: Dictionary) -> void:
@@ -352,6 +420,7 @@ func _on_matchmaking_changed(state: String, message: String, lobby: Dictionary) 
 	elif not _online_search_active:
 		(rival_portrait as FramedPlayerAvatar).set_portrait(FALLBACK_PORTRAIT)
 	_refresh_controls()
+	_refresh_earnings_label()
 
 
 func _on_back_pressed() -> void:
@@ -364,6 +433,8 @@ func _exit_tree() -> void:
 	if is_instance_valid(_matchmaking):
 		if _matchmaking.changed.is_connected(_on_matchmaking_changed):
 			_matchmaking.changed.disconnect(_on_matchmaking_changed)
+		if _matchmaking.earnings_status_changed.is_connected(_on_earnings_status_changed):
+			_matchmaking.earnings_status_changed.disconnect(_on_earnings_status_changed)
 		if mode_picker != null and mode_picker.selected == 1:
 			_matchmaking.leave()
 
@@ -376,6 +447,16 @@ func select_online() -> void:
 ## The hidden pickers retain the existing selection API; visible segments mirror
 ## their IDs and locks, so local AI and online matchmaking share one state path.
 func _build_controls() -> void:
+	$Background.color = T.canvas()
+	_earnings_label = Label.new()
+	_earnings_label.name = "OnlineGemEarnings"
+	_earnings_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_earnings_label.add_theme_font_override("font", T.REGULAR)
+	_earnings_label.add_theme_font_size_override("font_size", 16)
+	_earnings_label.add_theme_color_override("font_color", T.muted())
+	%Content.add_child(_earnings_label)
+	%Content.move_child(_earnings_label, %Subtitle.get_index() + 1)
+	_refresh_earnings_label()
 	for i: int in range(%Modes.get_child_count()):
 		(%Modes.get_child(i) as Button).pressed.connect(_select_mode.bind(i))
 	for i: int in range(%Difficulties.get_child_count()):
@@ -388,7 +469,7 @@ func _build_controls() -> void:
 		label.add_theme_color_override("font_color", T.muted())
 	T.style_button(start_button, "primary")
 	T.style_button(cancel_match_button, "secondary")
-	T.style_button(back_button, "quiet")
+	T.style_back_button(back_button)
 	var divider := StyleBoxLine.new()
 	divider.color = T.sage()
 	divider.thickness = 1
@@ -414,12 +495,12 @@ func _style_segment(button: Button, selected: bool, locked: bool) -> void:
 	button.disabled = locked
 	T.style_button(button, "secondary")
 	for state: String in ["normal", "hover", "pressed", "disabled"]:
-		var fill: Color = T.ink() if selected else T.canvas()
+		var fill: Color = T.ink() if selected else (T.canvas_alt() if T.is_dark_mode() else T.canvas())
 		if state == "hover":
 			fill = fill.lerp(T.sage(), 0.15)
 		var box := T.panel(fill, 20, 8)
 		box.set_border_width_all(2)
-		box.border_color = T.ink() if selected else T.sage()
+		box.border_color = T.ink() if selected else (T.border() if T.is_dark_mode() else T.sage())
 		button.add_theme_stylebox_override(state, box)
 	for key: String in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_disabled_color"]:
 		button.add_theme_color_override(key, T.canvas() if selected else T.muted())
@@ -488,9 +569,8 @@ func _fit_layout() -> void:
 		(get_node("%" + key).get_parent() as Control).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	%TileArt.custom_minimum_size.y = 92 * factor
 	%Mark.custom_minimum_size = Vector2.ONE * 24 * factor
-	%Balance.custom_minimum_size.x = touch
-	back_button.custom_minimum_size = Vector2(touch, touch)
-	back_button.add_theme_font_size_override("font_size", roundi(16 * factor))
+	%Balance.custom_minimum_size.x = T.BACK_BUTTON_SIZE.x
+	back_button.custom_minimum_size = T.BACK_BUTTON_SIZE
 	start_button.custom_minimum_size.y = maxf(touch, 58 * factor)
 	start_button.add_theme_font_size_override("font_size", roundi(22 * factor))
 	cancel_match_button.custom_minimum_size.y = start_button.custom_minimum_size.y

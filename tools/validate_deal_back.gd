@@ -42,7 +42,7 @@ func opaque_bounds(image: Image) -> Rect2i:
 func _run() -> void:
 	var suite: TestCase = load("res://tests/integration/test_game_screen.gd").new()
 	suite.test_deal_tracks_live_pot_and_rack_geometry_without_restarting()
-	suite.test_tile_flip_depth_peaks_at_twenty_percent_of_tile_width()
+	suite.test_tile_flip_uses_a_thin_edge_and_a_short_lift()
 	assertions += suite.assertions
 	failures += suite.failures.size()
 	for message: String in suite.failures:
@@ -66,10 +66,11 @@ func _run() -> void:
 	check(Rect2i(target).encloses(held.get_used_rect()), "No extra outline is drawn outside the tile")
 	layer._elapsed = DealLayer.FLIGHT + DealLayer.HOLD + layer.flip_duration * 0.25
 	layer.queue_redraw()
-	var turning: Image = await render(view, "back-half-width")
+	var turning: Image = await render(view, "back-turning")
 	var turning_bounds: Rect2i = opaque_bounds(turning)
 	check(absi(turning_bounds.size.y - held_bounds.size.y) <= 1, "Turning back preserves height")
-	check(absi(turning_bounds.size.x * 2 - held_bounds.size.x) <= 2, "Turning back compresses the complete artwork")
+	check(absf(float(turning_bounds.size.x) - float(held_bounds.size.x) * sqrt(0.5)) <= 2.0, "Turning back eases the complete artwork")
+	check(turning_bounds.position.y < held_bounds.position.y, "Turning tile lifts above the resting back")
 	layer._elapsed = DealLayer.FLIGHT + DealLayer.HOLD + layer.flip_duration * 0.99
 	layer.queue_redraw()
 	var revealed: Image = await render(view, "face-end-of-turn")

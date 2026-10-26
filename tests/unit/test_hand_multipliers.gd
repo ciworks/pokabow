@@ -37,22 +37,6 @@ func test_new_hand_edges_use_only_matching_colors() -> void:
 	check_eq(EdgeMatchScorer.matching_color(board, cells[1], cells[2]), BLUE, "matching blue edges earn the ordinary edge point")
 
 
-func test_joker_is_suitless_and_outside_straights() -> void:
-	var edges: Array[TileEnums.EdgeColor] = [BLUE, BLUE, BLUE, BLUE]
-	var joker: TileDefinition = TileDefinition.create(&"j", TileEnums.TileRank.JOKER, TileEnums.FaceColor.NONE, edges, TileEnums.Suit.NONE)
-	var queen: TileDefinition = TileDefinition.create(&"q", TileEnums.TileRank.QUEEN, TileEnums.FaceColor.RED, edges, TileEnums.Suit.HEARTS)
-	var cells: Array[Vector2i] = [Vector2i(5, 5), Vector2i(6, 5)]
-	var board: BoardState = BoardState.create().with_tiles([
-		TileSnapshot.create(joker, cells[0]), TileSnapshot.create(queen, cells[1])
-	])
-	check(joker.is_valid(), "suitless Joker is a valid tile")
-	check_eq(HandMultiplierScorer.card_points(board, cells), 7, "Joker contributes five points")
-	check_eq(HandMultiplierScorer.card_multiplier(board, cells), 1, "Joker suppresses card multipliers")
-	check_eq(TileEnums.sequence_position(TileEnums.TileRank.JOKER), -1, "Joker is outside the straight ladder")
-	check_eq(PokerHandEvaluator.classify_ranks([TileEnums.TileRank.JOKER, TileEnums.TileRank.JOKER]), ScoringEnums.PokerHandCategory.PAIR, "repeated Jokers form a Pair")
-	check_eq(PokerHandEvaluator.classify_ranks([TileEnums.TileRank.JACK, TileEnums.TileRank.QUEEN, TileEnums.TileRank.JOKER]), ScoringEnums.PokerHandCategory.NONE, "Joker cannot extend a straight")
-
-
 func test_preview_commit_and_audit_share_the_formula() -> void:
 	var board: BoardState = BoardState.create()
 	var ledger: ScoreLedger = ScoreLedger.create()

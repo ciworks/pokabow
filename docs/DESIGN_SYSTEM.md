@@ -1,6 +1,6 @@
 # Pokabow Design System — Modern Tabletop
 
-**Status: Decided.** Approved by the owner on 2026-10-17. Version 1.2.
+**Status: Decided.** Approved by the owner on 2026-10-17. Version 1.14.
 **Scope:** All new or redesigned game screens, UI components, graphics and layouts.
 **Decision:** [ADR-020](decisions/ADR-020-modern-tabletop-design-system.md).
 **Implementation:** Hub and its settings adopted on 2026-10-17; gameplay adopted on 2026-10-18. Shared theme tokens and screen verification are listed under Runtime adoption below.
@@ -36,10 +36,25 @@ Apply the standard to new UI and to the elements being redesigned. Existing scre
 
 Aim for roughly 70% neutral surfaces, 20% teal/sage structure and 10% accents on the home and profile screens. Gameplay naturally gives the board more space; do not force those percentages onto it.
 
-Dark mode uses a deep teal-charcoal canvas (`#142224`), raised surfaces
-(`#203234`), light ivory text (`#F6F2E9`), and brighter sage (`#304747`). Keep
-honey action accents and the four gameplay edge colours unchanged. Tile faces
-remain ivory so rank/suit contrast and tile recognition stay consistent.
+Dark mode uses a separate midnight-teal palette:
+
+| Role | Dark value | Use |
+| --- | --- | --- |
+| Canvas | `#101F26` | Page and bottom bar background |
+| Raised surface | `#203841` | Settings, secondary surfaces and icon wells |
+| Selected surface | `#2D4A50` | Current navigation destination and active cards |
+| Primary text | `#F2F5EF` | Headings and controls on dark surfaces |
+| Secondary text | `#BFD0D0` | Supporting copy and inactive navigation labels |
+| Icon ink | `#E8F2EC` | Monochrome icons on dark surfaces |
+| Border | `#47656B` | Dividers and outlined secondary controls |
+
+Use light-stroke SVG variants for monochrome icons on dark surfaces; a theme
+tint cannot lighten an SVG whose paths are already dark. Keep selected navigation
+visible through its filled surface and stronger label as well as colour. Use deep
+teal `#173D42` text on honey `#F4C86A` primary buttons in both themes. Disabled
+secondary actions lose opacity without darkening their icon paths. Keep the four
+gameplay edge colours unchanged. Tile faces remain ivory so rank/suit contrast
+and tile recognition stay consistent.
 
 Keep edge colours semantically separate from UI accents. Preserve the current TilePainter palette: Blue #0072B2, Red/Vermilion #D55E00, Green #009E73, Yellow #F0E442. Each of the four sides uses one solid colour; no gradients along an edge, no fifth edge colour. Honey is an interface accent, not an extra matching category. The raster mockup's softer edge rendering is illustrative.
 
@@ -76,8 +91,7 @@ small direct viewports:
 
 | Hub element | Fredoka weight | 540px logical size | Approximate size at 390px width |
 | --- | --- | --- | --- |
-| Wordmark | 700 | 42 | 30 |
-| Main headline | 700 | 55 | 40 |
+| Hub wordmark | 700 | 55 | 40 |
 | Primary play labels | 600 | 30 | 22 |
 | Resume-card heading | 600 | 26 | 19 |
 | Rival name / Resume action | 600 | 24 | 17 |
@@ -100,8 +114,12 @@ Provide All / Unlocked / Locked filters, a search field, and bounded previous/ne
 page controls. Category cards are also paginated when there are more than six.
 Use a badge illustration, short title, and explicit unlock status; reveal the API
 description in a dismissible detail panel, including for locked achievements.
-Preserve Home / Achievements / Profile navigation. Short screens may scroll the
-current page's content, while navigation and pagination remain fixed.
+Use the hub's Home / Achievements / Tournaments bottom navigation, with Achievements
+selected on this screen. Tournaments shows a coming-soon placeholder;
+Shop and Profile remain in the hub header. Short screens may scroll the current page's
+content, while navigation and pagination remain fixed.
+Use the shared arrow-and-bullseye outline icon for Achievements in both light
+and dark navigation states.
 
 Use real unlock dates for "Recently unlocked"; otherwise label the section
 "Unlocked highlights". API-provided categories take priority. Known initial IDs
@@ -120,7 +138,41 @@ simultaneous unlocks; use the shared canvas, ink, sage and honey
 tokens with Fredoka typography. This achievement toast is separate from the
 gameplay turn-status notices described in the mobile UX section.
 
+## Gem shop
+
+The owner-reviewed [Gem shop concept](design/gem-shop-concept-v2.svg) is implemented
+as a scrollable offer preview with fixed Home / Achievements / Tournaments navigation.
+Use faceted teal Gems with internal lines and highlights, matching the cartoon
+avatar treatment. Show the confirmed account wallet balance or an unavailable
+state. The daily ad gift grants 20 Gems only after a verified AdMob callback and
+is unavailable for 24 hours after a confirmed grant. The offer panel shows when
+it can be used again. Four cash packs remain illustrative placeholders; taps
+explain their status without changing Gems.
+
+The [light](design/gem-shop-runtime-390.png) and
+[dark](design/gem-shop-runtime-dark-390.png) 390×844 runtime previews were
+visually checked. Godot 4.6 store validation covers five viewport sizes, including navigation and minimum touch
+targets. Physical Android and iOS device checks remain outstanding.
+
+The hub Gem chip opens a dedicated account history screen. It shows the server-confirmed
+balance and each transaction returned by the wallet endpoint, with its source, amount
+and date. My Profile no longer repeats this information. The Shop icon continues to
+open offers. The wallet endpoint currently returns the latest 50 transactions; the
+history screen states that limit when reached. Advert and purchase rows can be
+labelled when those transaction kinds exist. Rewarded ad grants require verified
+server callbacks; purchases remain placeholders.
+The [light](design/gem-history-runtime-light-390.png) and
+[dark](design/gem-history-runtime-dark-390.png) 390×844 runtime views were visually
+checked; physical device checks remain outstanding.
+
 ## Splash screen
+The new CHIBI opening card appears first on a black canvas for one second. Its
+centered slate and ivory angular mark carries the exact CHIBI name and expressive
+cartoon eyes without eyebrows. The card then hands off to the established welcome
+splash and its real loading indicator. The engine boot background is black to
+match the first frame. This is a separate identity card; the Modern Tabletop
+requirements below continue to govern the POKABOW welcome splash.
+
 Owner-approved concept: [A little table, a big welcome](design/splash-welcome-concept-v1.png).
 Use an ivory canvas, the shared four-square brand mark, a prominent deep-teal Fredoka
 Bold wordmark, and the native-text tagline "Make your next move." The separate
@@ -133,17 +185,17 @@ percentage, looping animation, or additional wait. Completed tiles are teal, the
 current tile is honey, and pending tiles are sage. At completion, retain three teal
 tiles and one honey tile during the existing branding hold. This treatment uses no
 motion and therefore also serves reduced-motion users. Preserve the terms/account
-gate and hub routing. Match the engine boot background to the ivory canvas.
+gate and hub routing. Match the engine boot background to the black opening card.
 Show the project version in small muted Fredoka text at the bottom of the
 authored splash, below the loading caption. Read `application/config/version`
 from Project Settings so the splash and exported version name share one value.
 
 ## Home
-1. Compact POKABOW wordmark and Settings.
-2. A short headline and a restrained tile-and-avatar illustration.
+1. A centered, compact header group with the confirmed Gem balance chip, Shop, Profile, Sound and Settings. The chip uses the Shop Gem's faceted diamond geometry in the same outline style as the other header icons. It also opens Shop; show a dash until a confirmed balance arrives.
+2. Center the POKABOW mark and wordmark in the former headline position, above the restrained tile-and-avatar illustration. Omit the “Make your next move.” headline.
 3. Resume card when a saved game exists; expand to the existing active-game list when there are several. Keep its content driven by actual match data.
-4. Primary Play AI action and secondary Play online action.
-5. Home / Achievements / Profile navigation.
+4. One primary **Play Now** action; the next screen offers AI rival and Online modes with AI selected initially.
+5. Home / Achievements / Tournaments bottom navigation. Tournaments shows a coming-soon placeholder. Shop opens the Gem offers, with one verified rewarded ad available every 24 hours after a grant; purchase actions remain previews.
 
 ### Your tables and match history (approved 2026-10-21)
 
@@ -156,21 +208,20 @@ records and never show these sample results as if they belonged to the player.
 Keep the hub's **Your tables** section to one prioritised active match and the
 most recently completed match, with a compact **View all ›** affordance. If more
 active matches exist, show their count as a link to the full list rather than
-growing the hub card indefinitely. Keep Play AI, Play online and fixed Home /
-Achievements / Profile navigation reachable. A shorter hero may yield space to
+growing the hub card indefinitely. Keep Play Now and fixed Home /
+Achievements / Tournaments navigation reachable, with Shop and Profile in the header. A shorter hero may yield space to
 the match summary on narrow phones; do not shrink essential text or tap targets.
-Place **Your tables** as a section heading outside and above the sage activity
-card. Put **View all ›** on the same header row, right aligned. Keep the card
-limited to match details and the extra-active count link.
+Place **Your tables** as a section heading outside and above the match cards.
+Put **View all ›** on the same header row, right aligned. Give the resumable
+match and the most recent completed match separate sage panels with a visible
+canvas gap. Show each panel only when that type of match exists. Keep the
+resumable panel limited to its match details and the extra-active count link.
 
 An active row shows the rival's portrait, explicit turn/resume status, rival
 name, current scores and a honey **Resume** action routed to that exact match.
-The small green circle preceding **ACTIVE** is a presence/status marker, not
-a tile edge colour, scoring indicator or the sole carrier of status. Use
-`#22B47D` for the dot and keep the adjacent text readable in teal. Keep the
-ACTIVE and LATEST RESULT captions at the supporting-text scale (about 13–14px
-at a 390px phone width), below the rival name and score in the hierarchy. A completed
-row shows a textual **Win**, **Draw** or **Loss**, rival portrait and name, final
+Do not repeat **Active** beside a Resume action or add a separate active dot.
+A completed row shows a textual **Win**, **Draw** or **Loss** without a
+**Latest Result** prefix, alongside the rival portrait and name, final
 scores and completion date. Use the green dot for a player win; use muted ink
 for draws and losses so green never implies the player won. Do not infer a win
 from score alone: resignation may award it to the lower scorer.
@@ -190,11 +241,10 @@ honey action. Show a secondary Share action only for a player win. Scores and
 outcome come from the completed match record; presentation does not recalculate
 game rules. A missing portrait falls back to the shared cartoon rival avatar.
 
-Keep the Play AI button honey yellow in its enabled state, including when a
-resumable match exists. The active match's Resume button also uses honey; Play
-online remains secondary.
+Keep the Play Now button honey yellow in its enabled state, including when a
+resumable match exists. The active match's Resume button also uses honey.
 
-Do not introduce a wallet, premium currency, rankings or progression levels through this redesign. Only show existing implemented destinations.
+The later approved Gem header chip displays the existing confirmed wallet balance only; it does not award or spend Gems. Tournaments remains a placeholder until its rules and destination are specified.
 
 The separately approved Table Level feature (2026-10-20) uses a compact sage
 profile card with an ink level label, a honey XP bar and a muted Online Tier
@@ -212,7 +262,8 @@ difficulty from AiEnums; the concept's Medium selection is illustrative.
 
 The main action and back route stay reachable while central content may scroll.
 On short screens, reduce the portrait size and remove decorative tiles first.
-Preserve uploaded player photos, random rival selection and automatic match
+Preserve uploaded player photos, random selection among the named rivals in the
+chosen fixed difficulty tier, and automatic match
 handoff. During online search, cycle the shared cartoon roster until an opponent
 is found; an immediate pairing still gets a randomized 3–5 second reveal.
 Then show the real opponent name and uploaded portrait, count down “Joining in
@@ -227,7 +278,8 @@ Priority: board → rack → Play → scores → secondary tools.
 - Compact top bar with back navigation and menu.
 - Center the bold wordmark between those controls and place a thin sage divider directly beneath its row.
 - Balanced player score header, approximately 49px avatar circles at 390px viewport width, visible player names, and the existing remaining-tile count. Keep about 9px of visible space between each scaled avatar and its name/score labels, including on the reversed rival side.
-- One slim row beneath the score header, wrapped in a rounded soft-ivory panel (`#EFEDE1`) that separates it from the ivory canvas. Align the 16px turn text's left edge and the right-aligned 16px `m:ss` timer's right edge with the corresponding outside edges of the rounded board frame, using responsive inner padding from the panel edge. Keep the compact rival rack centered. Use deep-teal Fredoka Regular for the turn text and Semibold for the timer. Retain the existing deadline and timeout rules.
+- Show the signed-in player's server-owned Table Level as a small sage chip across the lower edge of their avatar, with the shared ink colour and Fredoka text (`Lv 12`) plus an accessible full label. Hide the chip when no valid level is available. Do not assign a Table Level to an AI rival or infer one from an online skill tier.
+- One slim row beneath the score header, wrapped in a rounded soft-ivory panel (`#EFEDE1`) that separates it from the ivory canvas. Let the compact rival rack fill the row. Show no move countdown under ADR-023.
 - Center the supplied tile-pot artwork in the score header with an `N left` count below it. Fit the count at the largest whole-pixel font size that fits its existing label width and height, recalculating when the count or layout changes. Keep the artwork and count compact and unbadged.
 - Size rival tile backs to match a regular cell in the zoomed-out board view,
   with even compact gaps between them; if the row is narrow, reduce the gaps
@@ -237,8 +289,8 @@ Priority: board → rack → Play → scores → secondary tools.
 - Keep empty cells neutral with the supplied sage surface. Coloured decorative cells can look like scoring bonuses; omit them in this direction.
 - All six rack tiles remain visible and square. At 360px width, 16px margins and five 4px gaps leave approximately 51px per tile.
 - Use the full rack width inside the screen margins, whole logical-pixel tile sizes and compact even gaps. Filter the tile textures with linear mipmaps in the rack, deal and drag presentations to keep downscaled outlines and symbols clean.
-- Place Play hand in the thumb zone as a prominent honey `#F4C86A` button with deep-teal `#173D42` Fredoka Semibold text. At the 540px logical canvas, use 30px type (about 22px at the 390px reference width), a centered 78px height and twice the width share of a secondary action. Give the bottom secondary action icons rounded soft-ivory (`#EFEDE1`) surfaces. The gameplay bar order is Undo, Swap, Play hand, Resign, Pot, centering Play hand between two secondary actions on each side. Resign uses a deep-teal flag icon and opens the existing confirmation before ending a match. Pot uses a filled deep-teal sack with the live remaining count and opens a bottom sheet of face-up remaining tiles. Render each tile with the shared tile painter, showing its face and four edges; sort by appearance so the grid does not suggest draw order. The sheet has a close control, outside-tap dismissal, swipe-down handle and scrollable tile grid; the turn clock continues. Show only the available count, without a generated/distributed breakdown. Keep the top-right menu for settings. The results screen retains its Share action.
-- Keep board pinch/pan and existing placement focus behaviour. Show “Pinch to explore the board” in the caption directly under the board by default; temporary gameplay messages can use that caption and return to the hint afterward.
+- Place Play hand in the thumb zone as a prominent honey `#F4C86A` button with deep-teal `#173D42` Fredoka Semibold text. At the 540px logical canvas, use 30px type (about 22px at the 390px reference width), a centered 78px height and twice the width share of a secondary action. Give the bottom secondary action icons rounded soft-ivory (`#EFEDE1`) surfaces. The gameplay bar order is Undo, Swap, Play hand, Resign, Pot, centering Play hand between two secondary actions on each side. Resign uses a deep-teal flag icon and opens the existing confirmation before ending a match. Pot uses a filled deep-teal sack with the live remaining count and opens a bottom sheet of face-up remaining tiles. Render each tile with the shared tile painter, showing its face and four edges; sort by appearance so the grid does not suggest draw order. The sheet has a close control, outside-tap dismissal, swipe-down handle and scrollable tile grid. Show only the available count, without a generated/distributed breakdown. Keep the top-right menu for settings. The results screen retains its Share action.
+- Keep board pinch/pan and existing placement focus behaviour. The caption directly under the board shows the current turn by default. Invalid-move explanations, move notices and contextual progress temporarily replace it, then restore the current turn. Keep those messages out of the rival rack row, command drawer and board preview.
 
 ### Tile treatment
 Render the complete supplied `assets/tiles/tile_base.png`, including its rounded
@@ -251,38 +303,43 @@ for the back and face. Draw the back without a second renderer-added border or
 transparent inset; compress the complete artwork during a flip instead of cropping
 it to the changing aspect ratio. Keep the existing flight, reveal and sound timing.
 
-Matte ivory face, four distinct solid edge bands, minimal bevel and a single short shadow. Use the existing legal ranks A/K/Q/J plus Joker, and the existing suit assignments. Do not let the new artwork rotate or reinterpret data independently of the current tile painter.
+Matte ivory face, four distinct solid edge bands, minimal bevel and a single short shadow. Use the existing legal ranks A/K/Q/J, and the existing suit assignments. Do not let the new artwork rotate or reinterpret data independently of the current tile painter.
 
 The board in the generated image is compositional placeholder content. Populate implementation previews with a real legal game state; do not copy its example placement as game logic.
 
 ### Interaction states
 | State | Presentation |
 | --- | --- |
-| Selected rack tile | Raised 3–4px, outline plus small position marker |
+| Selected rack tile | Raised 4px, 2px honey outline with a 1px ink keyline outside the tile, plus a small position marker below it; keep face and four edge bands clear |
+| Marked for swap | Stays level with a 2px outer ink frame and a small checked ink marker below; multiple tiles can be marked and the primary action shows the count |
 | Staged tile | Distinct outer outline without covering edge bands |
 | Valid target | Restrained cell outline from existing validation |
 | Invalid placement | Brief refusal feedback and plain explanation |
 | Play unavailable | Keep the honey surface and deep-teal label; disable input until a hand is staged |
 | Submitting online move | Progress treatment; use existing input lock |
 | Rival turn | Explicit text, preserve board navigation |
-| Scoring | A restrained tile ripple and thin honey hand trace, then settle. Full House and Four of a Kind receive a brief honey chip stamp with the hand name. Keep the score popup readable; in online matches, Gems travel after the ripple. |
+| Scoring | A restrained tile ripple and thin honey hand trace, then settle. Full House and Four of a Kind receive a brief honey chip stamp with the hand name. Keep the score popup readable; in online and AI matches, Gems travel after the ripple. |
 | Reduced motion | Immediate state changes; retain all information |
 
 Do not infer legal moves or scores inside the visual layer. Consume existing controller state and scoring events.
 
-### Online Gems pot
-The owner-approved [Gems pot gameplay concept](design/gems-pot-gameplay-concept-v1.png)
-replaces the centered tile stack **in online matches**. Keep the player score
-cards and portraits in place. Use a compact `GEM POT` label, a small shallow
-deep-teal bowl with faceted honey/sage gems, and a large, horizontally oriented
-count. The bottom Pot sack still opens the remaining-tile drawer and retains
-its tile count. Human-vs-AI matches keep the centered tile stack because the
-first Gem release awards only online play.
+### Gems pot
+The [Gems pot gameplay concept](design/gems-pot-gameplay-concept-v1.png) established
+the centered position between the score cards. The [revised safe concept](design/gem-safe-pot-hud-concept.svg)
+replaces its bowl, heading and numeric count with a deep-teal safe containing a
+solid teal, white-outlined gem. A thick honey ring shows the current share of
+the AI match's difficulty cap, filling smoothly as awarded Gems arrive; the
+neutral track remains visible when empty.
+Online pots have no cap, so they show only the safe and neutral full track.
+The exact total remains available through the control's accessibility name and
+tooltip. Keep the player score cards and portraits in place. The bottom Pot
+sack still opens the remaining-tile drawer and retains its tile count.
 
 When a newly committed poker hand adds Gems, show a compact honey `+N GEMS`
 label near that hand and send the awarded number of faceted gems along a short curved
-trail into the centered pot. Each Gem starts large enough to read over the board
-and scales down to the existing small trail size before arrival. The count increases when they arrive, with a
+trail into the centered pot. Each Gem starts at the displayed size of the 72×72
+Gem history balance icon and scales down to the existing small trail size before
+arrival. The count increases when they arrive, with a
 restrained pulse. Keep the board and controls readable throughout. Multiple
 distinct hands from one move may each produce a cue. Reconnects and repeated
 server events do not replay an already shown award. With reduced motion, show
@@ -308,7 +365,8 @@ the projected total plus its pot/share and completion components. Keep the
 fixed Share and Back to hub actions in the default viewport; compact the
 portraits and vertical spacing on shorter screens before allowing the middle
 content to scroll. Mark projected figures Pending until the backend confirms
-wallet settlement. AI results have no Gems panel.
+wallet settlement. AI results show one human projection marked **Not credited**;
+the AI has no payout column.
 Use an ivory canvas, compact brand header, explicit result heading, a single sage
 score card with equally sized cartoon portraits and both final totals, and a
 three-row breakdown comparing poker hands, edge matches and clusters. Keep the
@@ -389,6 +447,10 @@ A future change to this fixed style needs an explicit owner decision.
 The hub's [cartoon hero v2](../assets/hub/modern-tabletop-hero-cartoon-v2.png)
 applies this direction; its [prompt and provenance](../assets/hub/modern-tabletop-hero-cartoon-v2.md)
 record the replacement.
+On the hub, each of its three tiles rises and settles at random intervals.
+The motion uses cutouts of the original tile pixels at their original size;
+the two illustrated players remain fixed. Reduced motion keeps the original
+static artwork visible.
 
 ### Icons
 
@@ -405,7 +467,7 @@ The decorative lower card in the mockup is optional. On short screens, remove it
 - Honour reduced motion and current sound/haptic settings.
 - Preserve the existing edge palette and the documented decision to use colour-only edge encoding. That remains a limitation for some colour-vision differences; this mockup does not claim to solve it.
 - Inspect at 360×800, 390×844 and the existing 540×960 logical reference, plus a taller device.
-- Test longest player names, larger scores, all six rack tiles, disabled Play, low timer, reconnecting and empty tile supply.
+- Test longest player names, larger scores, all six rack tiles, disabled Play, reconnecting and empty tile supply.
 - Render a real legal move with edge, hand and cluster feedback to ensure decoration does not hide game state.
 - Physical-device touch and legibility validation remains necessary before treating this direction as production-ready.
 
@@ -426,6 +488,8 @@ The decorative lower card in the mockup is optional. On short screens, remove it
 | Primary button | Honey surface, deep-teal label, consistent rounded shape, at least 48px touch target |
 | Secondary button | Teal label and outline or quiet surface; lower emphasis than primary |
 | Icon button | Consistent outline icon; accessible name and 48px target; visible label for unfamiliar actions |
+| Hover tooltip | Short Fredoka label on an opaque ivory panel with teal text; use a raised teal panel with ivory text in dark mode. Keep rounded corners, compact padding, a fine outline and a restrained shadow. |
+| Header back button | Use the My profile chevron: shared 24px SVG centred in a 48×48px control, with the same 18px-corner quiet hover and pressed fills on every screen |
 | Card | Ivory or sage surface, shared radius and spacing, restrained shadow only when it explains elevation |
 | Field / picker | Persistent label, legible value, visible focus/selection, nearby validation or error copy |
 | Tabs / navigation | Stable order, clear current destination; selection indicated by shape/text as well as colour |
@@ -468,7 +532,7 @@ Routine layout decisions within these rules can proceed without new design appro
 
 ### Your tables and completed-match detail — 2026-10-21
 The hub now renders one prioritised active row and the latest completed result
-inside a compact sage panel, with Your tables and View all above the card.
+in separate compact sage panels, with Your tables and View all above them.
 View all opens a grouped match list; Details opens
 the stored result in a read-only breakdown. The green status dot and labelled
 chevrons follow the Home guidance above. The authored concept images are stored
@@ -519,6 +583,11 @@ action. Decorative samples use the real tile renderer. A local circular atlas
 mask removes neighbouring portrait pixels without changing shared artwork.
 The same presentation supports online status, Ready, waiting, failure/retry and
 leave; controller and matchmaking contracts remain intact.
+Dark mode now colours the full screen canvas and unselected mode/difficulty
+segments from the shared palette; selected segments retain light surfaces with
+deep-teal text. The back icon uses the light-stroke variant. The 360×800 dark
+screen was rendered and inspected; the shared dark-palette check covers both
+dark and light canvas selection.
 
 Rendered verification is maintained in [validate_play_ai_design.gd](../tools/validate_play_ai_design.gd):
 five viewport sizes from 320×568 through 540×1200, plus the 540×1200 canvas at
@@ -576,17 +645,26 @@ runnable-key warning. Physical-device cutouts and a new Android build were not t
 ### Hub and settings — 2026-10-17
 The [hub scene](../scenes/hub/hub_screen.tscn) now uses the ivory/teal/honey
 palette, bundled Fredoka fonts (updated 2026-10-18), a dedicated illustrated hero, and container-based
-responsive layout. Play AI stays honey yellow with or without saved games; the
+responsive layout. Play Now stays honey yellow with or without saved games; the
 first Resume action is also honey when a saved game exists. Additional saved games
 remain individually resumable in a scrollable content area.
+The active card uses a status line and a score line; the score names both players,
+so it does not repeat the opponent in a separate label.
 
-Home, Achievements and Profile remain visible in bottom navigation. The
-unimplemented Shop placeholder has been removed from the hub. Sound and Settings
-remain accessible in the header. Settings, notices and account-deletion controls
-share the theme, while retaining their existing actions and confirmation flow.
+Home, Achievements and Tournaments remain visible in bottom navigation. Shop opens its
+Gem offer preview from the header. The confirmed Gem chip also opens Shop; Profile,
+Sound and Settings remain in the header. The mark and wordmark sit above the hero.
+Settings and notices share the theme. Account deletion appears as the last action
+on My profile, with its confirmation and result shown there.
+The updated light hub was visually checked at 390×844, and the dark hub at 360×800.
 Settings reopens at the top. Sound uses distinct on/off icons.
 The Appearance section includes a Dark mode switch. Its preference is saved
-locally and shared semantic palette tokens update on subsequent screens.
+locally and shared semantic palette tokens update on subsequent screens. The
+revised dark palette gives hub header and navigation icons light-stroke assets,
+keeps honey button labels deep teal, and retains legible disabled game actions.
+[Dark palette validation](../tools/validate_dark_palette.gd) passed 44 headless
+assertions on Godot 4.7.2; rendered hub, settings and game action previews at
+360×800 were visually inspected. Physical-device review remains outstanding.
 
 Shared resources:
 - [Theme tokens and component states](../scripts/presentation/modern_tabletop_theme.gd).
@@ -602,14 +680,14 @@ checked. An additional 540×1200 logical canvas rendered at 360×800 verifies
 48px physical-height targets for header/play/resume controls. Captures were
 visually inspected for the empty, single-game, multiple-game and settings states.
 
-The existing settings-layout/account-deletion confirmation check also passed.
+The settings layout and profile account-deletion confirmation checks also passed.
 
 ### Gameplay â€” 2026-10-18
 The [game screen](../scenes/game/game_screen.tscn) now uses the ivory canvas,
 teal type and icons, sage score cards, a quiet board frame, and a compact score
 strip with the supplied tile-pot artwork and remaining count. A slim row places the active
-turn at left, the compact rival rack in the middle, and a deep-teal `m:ss`
-countdown at right. The bottom action bar gives **Play hand** the prominent
+turn at left and the compact rival rack across the remaining space, with no
+countdown. The bottom action bar gives **Play hand** the prominent
 primary treatment, with Undo and Swap to its left and Resign and Pot to its right.
 Resign opens the existing confirmation. Pot opens the
 face-up remaining-tile drawer; settings remain in the top-right menu. The results screen
@@ -620,7 +698,8 @@ placement, tile input, camera behavior, turn timing and online locking remain
 controller-driven.
 
 Eight player and sixteen rival cartoon portraits replace the default crown
-portraits. The same rival roster is used for every AI difficulty so portrait
+portraits. Fifteen portraits are assigned to named AI rivals with five in each
+difficulty tier; the sixteenth remains available for online search. Portrait
 appearance does not imply skill. Player-uploaded photos remain supported. The
 existing match-end animation now uses the shared palette and framed portraits.
 
@@ -633,16 +712,20 @@ achievements and splash visuals had not been migrated at the time of this gamepl
 adoption.
 
 ### Profile — 2026-10-18
-The profile now uses the ivory canvas, centered cartoon avatar and account name,
-deep-teal typography, three-column portrait selector with selected outline and
-checkmark, and a honey **Save changes** action. Username and email remain
-read-only, with the existing Refresh action. The photo preview, validation,
-device-local persistence and cancellation behavior remain intact.
+The profile uses the ivory canvas, centered cartoon avatar and account name,
+and deep-teal typography. Email remains read-only with the existing Refresh
+action; username has an inline editor. Photo preview, validation, device-local
+persistence and cancellation behavior remain intact.
 
-Verification: focused profile assertions cover roster layout, selection state,
-palette, save behavior, photo editing and API-backed account fields. Godot test
-execution is still subject to the current environment's signal 11 test-runner
-crash; viewport and physical-device review remain outstanding.
+The **Edit photo** action now opens a dedicated page within My Profile. That page
+contains the cartoon avatar choices, upload/preview controls and **Save changes**.
+The main profile page keeps the account summary and a separate **Save profile**
+action for username changes. Back discards an unsaved photo selection; a failed
+save leaves the photo page open for retry.
+
+Verification (2026-10-23): the Godot 4.6 focused profile design check passed
+73 assertions, including page navigation, selection, upload preview, cancellation,
+save and account fields. Physical-device size and touch review remains open.
 
 ### Fredoka typography adoption — 2026-10-18
 
@@ -650,7 +733,7 @@ The shared theme and existing gameplay interface now use bundled Fredoka
 resources. No active scene or script references Dosis. Older Dosis files remain
 preserved for history/baseline comparison; they are not the approved typeface.
 
-The hub wordmark, headline and section labels were optically sized against the
+The earlier hub wordmark, headline and section labels were optically sized against the
 approved concept. All four weights were verified against the renderer's resolved
 OpenType coordinates. The font's default metadata describes its Light master;
 do not use that metadata alone to judge which variation is being rendered.
@@ -691,3 +774,15 @@ The reference was generated with the built-in imagegen tool and approved by the 
 | 1.1 | 2026-10-17 | Owner fixed the original 2D cartoon character style as mandatory; semi-realistic character rendering is excluded. Hub hero replaced with cartoon v2; player-uploaded photos remain supported. |
 | 1.2 | 2026-10-18 | Owner selected Fredoka to replace Dosis. Added licensed 400/500/600/700 resources, concept-matched hub sizes and gameplay font replacement. |
 | 1.3 | 2026-10-19 | Added a locally persisted Dark mode preference and shared semantic dark palette. Gameplay tile and edge colours remain unchanged. |
+| 1.4 | 2026-10-24 | Revised dark palette and icon assets for clear hub and bottom navigation contrast; honey buttons use deep-teal labels. |
+| 1.5 | 2026-10-24 | Replaced the centered Gem pot bowl and numeric HUD count with the deep-teal safe icon. Capped AI pots use a honey progress ring; uncapped online pots retain a neutral track. |
+| 1.6 | 2026-10-24 | Aligned Achievements bottom navigation with the hub's Home / Achievements / Shop order and Shop placeholder; Profile remains in the hub header. |
+| 1.7 | 2026-10-24 | Added the owner-reviewed Gem shop preview with five illustrative offers, faceted teal Gem artwork, the confirmed wallet balance and shared navigation. Ad and purchase actions remain placeholders. |
+| 1.8 | 2026-10-25 | Moved Shop into the hub header beside a confirmed Gem balance chip, replaced bottom Shop with a Tournaments placeholder, and moved the POKABOW mark and wordmark into the former headline position. |
+| 1.9 | 2026-10-25 | Centered the hub header icon group and the POKABOW mark and wordmark. |
+| 1.10 | 2026-10-25 | Replaced the Achievements navigation trophy with a shared arrow-and-bullseye outline icon in light and dark palettes. |
+| 1.11 | 2026-10-25 | Replaced the hub Gem chip's crown with a faceted diamond outline derived from the Shop Gem, in matching light and dark header styles. |
+| 1.12 | 2026-10-25 | Split the hub's resumable and recent completed game summaries into separate sage panels. |
+| 1.13 | 2026-10-25 | Grouped hub Settings into Play & alerts, Display & access, Help & storage, and Account cards with a fixed Close action. The [light top](design/settings-organized-light-360.png), [light bottom](design/settings-organized-light-bottom-360.png), [dark top](design/settings-organized-dark-360.png), and [dark bottom](design/settings-organized-dark-bottom-360.png) 360×800 views were checked. |
+| 1.14 | 2026-10-25 | Added a player-reviewed problem report screen reached from Settings or after an unexpected foreground exit. It uses the shared palette, Fredoka, large editable description and log fields, and a fixed honey email action. The [light top](design/crash-report-light-360.png), [light bottom](design/crash-report-light-bottom-360.png), [dark top](design/crash-report-dark-360.png), and [dark bottom](design/crash-report-dark-bottom-360.png) 360×800 views were checked. |
+| 1.15 | 2026-10-25 | Moved account deletion from Settings to the bottom of My profile. Confirmation, deletion status, and retry remain on the profile screen. |

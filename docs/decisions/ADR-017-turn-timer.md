@@ -1,6 +1,6 @@
 # ADR-017 — Sixty-second turns
 
-Status: Decided (user request, 2026-10-05).
+Status: Superseded on 2026-10-24 by [ADR-023](ADR-023-untimed-turns.md). The historical timer design below is no longer a current game rule.
 
 Duration amended to 60 seconds per turn by user request on 2026-10-10.
 Saved turns retain their existing deadline; every new turn receives 60 seconds.

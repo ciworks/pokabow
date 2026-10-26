@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://3tqsoy3x31e2"]
 
-[ext_resource type="Script" path="res://tools/validate_progression.gd" id="1_qa"]
+[ext_resource type="Script" uid="uid://cxqlwtni3p4tf" path="res://tools/validate_progression.gd" id="1_qa"]
 
-[node name="ProgressionQA" type="Node"]
+[node name="ProgressionQA" type="Node" unique_id=601530771]
 script = ExtResource("1_qa")

@@ -3,8 +3,9 @@ extends Node
 ## Queue, readiness and handoff to the authoritative online match.
 signal changed(state: String, message: String, lobby: Dictionary)
 signal authentication_required
+signal earnings_status_changed(status: Dictionary)
 
-const RULES_VERSION: String = "pokabow-v1"
+const RULES_VERSION: String = "pokabow-v3"
 const POLL_SECONDS: float = 2.0
 var access_token: String = ""
 var account_id: String = ""
@@ -21,6 +22,8 @@ var _backoff: float = POLL_SECONDS
 var _request: HTTPRequest = null
 var _kind: String = ""
 var _ready_wanted: bool = false
+var earnings_status: Dictionary = {}
+var _earnings_request: HTTPRequest = null
 
 func ready_up() -> void:
 	if state != "matched" or not bool(lobby.get("canReady", false)):
@@ -31,6 +34,7 @@ func ready_up() -> void:
 
 
 func set_credentials(token: String, user_id: String) -> void:
+	var token_changed: bool = token != access_token
 	if token != access_token and _request != null:
 		_request.cancel_request()
 		_request.queue_free()
@@ -39,8 +43,38 @@ func set_credentials(token: String, user_id: String) -> void:
 		_reset()
 		account_id = user_id
 	access_token = token
+	if token_changed and not token.is_empty():
+		refresh_earnings_status()
 	_delay = 0.0
 	_advance()
+
+
+func refresh_earnings_status() -> void:
+	if access_token.is_empty() or _earnings_request != null:
+		return
+	_earnings_request = HTTPRequest.new()
+	_earnings_request.timeout = 8.0
+	add_child(_earnings_request)
+	_earnings_request.request_completed.connect(_earnings_completed.bind(_earnings_request))
+	var error: int = _send_http(_earnings_request, ApiConfiguration.api_base_url() + "/gems/online-earnings",
+		PackedStringArray(["Authorization: Bearer %s" % access_token]), HTTPClient.METHOD_GET, "")
+	if error != OK:
+		_earnings_request.queue_free()
+		_earnings_request = null
+
+
+func _earnings_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray,
+		request: HTTPRequest) -> void:
+	if request != _earnings_request:
+		return
+	_earnings_request = null
+	request.queue_free()
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		return
+	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if parsed is Dictionary:
+		earnings_status = parsed
+		earnings_status_changed.emit(earnings_status)
 
 
 func start_search() -> void:
